@@ -46,7 +46,8 @@ def safe(fn, *args):
 
 def _call_first(client, names, *args):
     """Call the first existing client method from `names` (handles garminconnect
-    version drift in method naming). Returns None if none exist or all error."""
+    version drift — the names are aliases for the same endpoint). Returns None if
+    no name is callable, or if the first callable one errors."""
     for name in names:
         fn = getattr(client, name, None)
         if callable(fn):
@@ -282,6 +283,9 @@ def ingest_body_metrics(client, start: str, end: str) -> int:
     data = _call_first(client, ["get_body_composition", "get_weigh_ins"], start, end)
     if not data:
         return 0
+    # Range response: stored once under the window's end date (per-day weight
+    # rows below carry their own calendarDate). To inspect a specific day's raw
+    # weigh-in, look at the body_composition payload for the window that covers it.
     db.save_raw(end, "body_composition", data)
     entries = dig(data, "dateWeightList", "dailyWeightSummaries") or []
     if not isinstance(entries, list):
@@ -296,7 +300,7 @@ def ingest_body_metrics(client, start: str, end: str) -> int:
             "date": str(cal)[:10],
             "weight_kg": _grams_to_kg(grams),
             "bmi": dig(e, "bmi"),
-            "body_fat_pct": dig(e, "bodyFat", "bodyFatPercentage"),
+            "body_fat_pct": dig(e, "bodyFat.bodyFatPercentage", "bodyFatPercentage", "bodyFat"),
             "muscle_mass_kg": _grams_to_kg(dig(e, "muscleMass")),
             "body_water_pct": dig(e, "bodyWater"),
             "bone_mass_kg": _grams_to_kg(dig(e, "boneMass")),
