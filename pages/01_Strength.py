@@ -85,6 +85,45 @@ def active_to_frames(active: dict):
     return sessions, sets
 
 
+def routine_to_exercises(routine_id: str):
+    """Build active-state exercise entries (empty sets) from a saved routine."""
+    rex = db.load_routine_exercises_df()
+    rex = rex[rex["routine_id"] == routine_id].sort_values("position")
+    cat = db.load_exercises_df()
+    out = []
+    for pos, (_, r) in enumerate(rex.iterrows()):
+        m = cat[cat["exercise_id"] == r["exercise_id"]]
+        if m.empty:
+            continue
+        ex = m.iloc[0]
+        out.append({
+            "position": pos,
+            "exercise_id": ex["exercise_id"],
+            "name": ex["name"],
+            "is_unilateral": int(ex["is_unilateral"]),
+            "is_bodyweight": int(ex["is_bodyweight"]),
+            "sets": [],
+        })
+    return out
+
+
+def save_active_as_routine(active: dict, routine_name: str) -> str:
+    """Persist the active workout's exercises as a reusable routine."""
+    rid = str(uuid.uuid4())
+    db.upsert_routine({"routine_id": rid, "name": routine_name})
+    for pos, ex in enumerate(active["exercises"]):
+        work = [s for s in ex["sets"] if not s["is_warmup"]]
+        first = work[0] if work else (ex["sets"][0] if ex["sets"] else None)
+        db.upsert_routine_exercise({
+            "routine_id": rid, "position": pos,
+            "exercise_id": ex["exercise_id"],
+            "target_sets": (len(work) or len(ex["sets"]) or None),
+            "target_reps": (first["reps"] if first else None),
+            "target_weight": (first["weight_kg"] if first else None),
+        })
+    return rid
+
+
 # ── page ──────────────────────────────────────────────────────────────────────
 st.title("🏋️ Strength")
 
@@ -162,14 +201,25 @@ with tab_log:
     if active is None:
         st.subheader("Start a workout")
         name = st.text_input("Workout name", value="Workout")
+        routines = db.load_routines_df()
+        routine_names = routines["name"].tolist() if not routines.empty else []
+        chosen = st.selectbox("From routine (optional)",
+                              ["— blank —"] + routine_names)
         if st.button("▶ Start", type="primary"):
+            exercises, routine_id, start_name = [], None, (name or "Workout")
+            if chosen != "— blank —" and not routines.empty:
+                rrow = routines[routines["name"] == chosen].iloc[0]
+                routine_id = rrow["routine_id"]
+                start_name = chosen
+                exercises = routine_to_exercises(routine_id)
             st.session_state["active"] = {
                 "session_id": str(uuid.uuid4()),
-                "name": name or "Workout",
+                "name": start_name,
                 "date": today_str(),
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "bodyweight_kg": resolve_bodyweight(today_str()),
-                "exercises": [],
+                "routine_id": routine_id,
+                "exercises": exercises,
             }
             st.rerun()
         st.stop()
@@ -256,6 +306,12 @@ with tab_log:
             st.rerun()
 
     st.divider()
+    with st.expander("💾 Save this workout as a routine"):
+        rname = st.text_input("Routine name", value=active["name"], key="save_rt")
+        if st.button("Save routine") and active["exercises"] and rname.strip():
+            save_active_as_routine(active, rname.strip())
+            st.success(f"Saved routine '{rname.strip()}'.")
+
     fcol1, fcol2 = st.columns(2)
     if fcol1.button("✅ Finish & save", type="primary"):
         snap = todays_readiness_snapshot(active["date"])
@@ -264,6 +320,7 @@ with tab_log:
             "started_at": active["started_at"],
             "ended_at": datetime.now().isoformat(timespec="seconds"),
             "name": active["name"], "bodyweight_kg": active.get("bodyweight_kg"),
+            "routine_id": active.get("routine_id"),
             **snap,
         })
         for ex in active["exercises"]:
