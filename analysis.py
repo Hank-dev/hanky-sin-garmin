@@ -2194,3 +2194,37 @@ def summarize_strength(sessions_df, sets_df, exercises_df, profile,
         "readiness_link": readiness_out,
         "recent_prs": recent_prs,
     }
+
+
+def last_session_sets(exercise_id, sessions_df, sets_df):
+    """Working sets (kg, reps) from the most recent saved session that included
+    `exercise_id`, ordered by set_index, warmups excluded. Pure. [] if none.
+    """
+    if (sessions_df is None or sessions_df.empty
+            or sets_df is None or sets_df.empty
+            or "exercise_id" not in sets_df.columns):
+        return []
+    ex_sets = sets_df[sets_df["exercise_id"] == exercise_id]
+    if ex_sets.empty:
+        return []
+    sdf = sessions_df[sessions_df["session_id"].isin(set(ex_sets["session_id"]))].copy()
+    if sdf.empty:
+        return []
+    sort_cols = [c for c in ("date", "started_at") if c in sdf.columns]
+    if sort_cols:
+        sdf = sdf.sort_values(sort_cols)
+    last_sid = sdf.iloc[-1]["session_id"]
+    rows = ex_sets[ex_sets["session_id"] == last_sid].copy()
+    if "is_warmup" in rows.columns:
+        rows = rows[pd.to_numeric(rows["is_warmup"], errors="coerce").fillna(0).astype(int) == 0]
+    if "completed" in rows.columns:
+        rows = rows[pd.to_numeric(rows["completed"], errors="coerce").fillna(1).astype(int) == 1]
+    if "set_index" in rows.columns:
+        rows = rows.sort_values("set_index")
+    out = []
+    for _, r in rows.iterrows():
+        try:
+            out.append({"weight_kg": float(r["weight_kg"]), "reps": int(r["reps"])})
+        except (TypeError, ValueError):
+            continue
+    return out

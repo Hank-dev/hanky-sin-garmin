@@ -150,3 +150,31 @@ def test_summarize_handles_sets_missing_completed_column():
     row = out.iloc[0]
     assert row["working_sets"] == 1
     assert row["total_volume_kg"] == 500.0
+
+
+def test_last_session_sets_picks_most_recent_and_orders():
+    sessions = pd.DataFrame([
+        {"session_id": "s1", "date": "2026-06-01", "started_at": "2026-06-01T10:00"},
+        {"session_id": "s2", "date": "2026-06-03", "started_at": "2026-06-03T10:00"},
+    ])
+    sets = pd.DataFrame([
+        {"session_id": "s1", "exercise_id": "bench-press", "set_index": 1,
+         "weight_kg": 80.0, "reps": 8, "is_warmup": 0, "completed": 1},
+        {"session_id": "s2", "exercise_id": "bench-press", "set_index": 2,
+         "weight_kg": 100.0, "reps": 5, "is_warmup": 0, "completed": 1},
+        {"session_id": "s2", "exercise_id": "bench-press", "set_index": 1,
+         "weight_kg": 90.0, "reps": 5, "is_warmup": 0, "completed": 1},
+        {"session_id": "s2", "exercise_id": "bench-press", "set_index": 0,
+         "weight_kg": 40.0, "reps": 10, "is_warmup": 1, "completed": 1},  # warmup excluded
+    ])
+    out = analysis.last_session_sets("bench-press", sessions, sets)
+    assert out == [{"weight_kg": 90.0, "reps": 5}, {"weight_kg": 100.0, "reps": 5}]
+
+
+def test_last_session_sets_unlogged_and_empty():
+    assert analysis.last_session_sets("squat", pd.DataFrame(), pd.DataFrame()) == []
+    sessions = pd.DataFrame([{"session_id": "s1", "date": "2026-06-01"}])
+    sets = pd.DataFrame([{"session_id": "s1", "exercise_id": "bench-press",
+                          "set_index": 1, "weight_kg": 80.0, "reps": 8,
+                          "is_warmup": 0, "completed": 1}])
+    assert analysis.last_session_sets("deadlift", sessions, sets) == []
