@@ -69,6 +69,93 @@ CREATE TABLE IF NOT EXISTS daily_checkins (
     note TEXT,
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS exercises (
+    exercise_id TEXT PRIMARY KEY,
+    name TEXT,
+    category TEXT,
+    movement_pattern TEXT,
+    primary_muscle TEXT,
+    is_unilateral INTEGER DEFAULT 0,
+    is_bodyweight INTEGER DEFAULT 0,
+    is_main_lift INTEGER DEFAULT 0,
+    is_custom INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS routines (
+    routine_id TEXT PRIMARY KEY,
+    name TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS routine_exercises (
+    routine_id TEXT,
+    position INTEGER,
+    exercise_id TEXT,
+    target_sets INTEGER,
+    target_reps INTEGER,
+    target_weight REAL,
+    PRIMARY KEY (routine_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS strength_sessions (
+    session_id TEXT PRIMARY KEY,
+    date TEXT,
+    started_at TEXT,
+    ended_at TEXT,
+    routine_id TEXT,
+    name TEXT,
+    bodyweight_kg REAL,
+    notes TEXT,
+    readiness_score REAL,
+    readiness_level TEXT,
+    hrv_status TEXT,
+    hrv_overnight_avg REAL,
+    body_battery_start REAL,
+    sleep_score REAL,
+    resting_hr REAL,
+    acwr REAL,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS strength_sets (
+    set_id TEXT PRIMARY KEY,
+    session_id TEXT,
+    exercise_id TEXT,
+    position INTEGER,
+    set_index INTEGER,
+    side TEXT DEFAULT 'both',
+    reps INTEGER,
+    weight_kg REAL,
+    rpe REAL,
+    is_warmup INTEGER DEFAULT 0,
+    completed INTEGER DEFAULT 1,
+    logged_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS body_metrics (
+    date TEXT PRIMARY KEY,
+    weight_kg REAL,
+    bmi REAL,
+    body_fat_pct REAL,
+    muscle_mass_kg REAL,
+    body_water_pct REAL,
+    bone_mass_kg REAL,
+    source TEXT DEFAULT 'garmin',
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS profile (
+    id INTEGER PRIMARY KEY,
+    sex TEXT,
+    birth_year INTEGER,
+    height_cm REAL,
+    source TEXT DEFAULT 'garmin',
+    updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 DAILY_COLS = [
@@ -89,6 +176,31 @@ ACTIVITY_COLS = [
 ]
 
 CHECKIN_COLS = ["date", "pain", "fatigue", "energy", "note"]
+
+EXERCISE_COLS = [
+    "exercise_id", "name", "category", "movement_pattern", "primary_muscle",
+    "is_unilateral", "is_bodyweight", "is_main_lift", "is_custom",
+]
+ROUTINE_COLS = ["routine_id", "name", "notes"]
+ROUTINE_EX_COLS = [
+    "routine_id", "position", "exercise_id", "target_sets",
+    "target_reps", "target_weight",
+]
+SESSION_COLS = [
+    "session_id", "date", "started_at", "ended_at", "routine_id", "name",
+    "bodyweight_kg", "notes", "readiness_score", "readiness_level",
+    "hrv_status", "hrv_overnight_avg", "body_battery_start", "sleep_score",
+    "resting_hr", "acwr",
+]
+SET_COLS = [
+    "set_id", "session_id", "exercise_id", "position", "set_index", "side",
+    "reps", "weight_kg", "rpe", "is_warmup", "completed", "logged_at",
+]
+BODY_METRIC_COLS = [
+    "date", "weight_kg", "bmi", "body_fat_pct", "muscle_mass_kg",
+    "body_water_pct", "bone_mass_kg", "source",
+]
+PROFILE_COLS = ["id", "sex", "birth_year", "height_cm", "source"]
 
 
 @contextmanager
@@ -113,6 +225,18 @@ def init_db():
                 kind = "TEXT" if col in ("hrv_status", "training_readiness_level",
                                          "training_status") else "REAL"
                 conn.execute(f"ALTER TABLE daily_metrics ADD COLUMN {col} {kind}")
+    # Seed the strength library + apply any .env profile override. Done AFTER
+    # the schema `with connect()` transaction has committed, so these nested
+    # connections don't contend with an open write transaction (which on an
+    # older DB mid-ALTER would otherwise risk "database is locked").
+    seed_exercises()
+    prof = {k: v for k, v in (
+        ("sex", config.PROFILE_SEX),
+        ("birth_year", config.PROFILE_BIRTH_YEAR),
+        ("height_cm", config.PROFILE_HEIGHT_CM),
+    ) if v is not None}
+    if prof:
+        upsert_profile({**prof, "source": "manual"})
 
 
 def upsert_daily(record: dict):
@@ -164,6 +288,101 @@ def save_raw(date: str, endpoint: str, payload):
         )
 
 
+def _upsert(table, cols_def, record, pk, touch_updated=True):
+    cols = [c for c in cols_def if c in record]
+    placeholders = ", ".join("?" for _ in cols)
+    collist = ", ".join(cols)
+    updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c != pk)
+    tail = ", updated_at=datetime('now')" if touch_updated else ""
+    sql = (
+        f"INSERT INTO {table} ({collist}) VALUES ({placeholders}) "
+        f"ON CONFLICT({pk}) DO UPDATE SET {updates}{tail}"
+        if updates else
+        f"INSERT OR IGNORE INTO {table} ({collist}) VALUES ({placeholders})"
+    )
+    with connect() as conn:
+        conn.execute(sql, [record[c] for c in cols])
+
+
+def upsert_exercise(record: dict):
+    _upsert("exercises", EXERCISE_COLS, record, "exercise_id", touch_updated=False)
+
+
+def upsert_routine(record: dict):
+    _upsert("routines", ROUTINE_COLS, record, "routine_id")
+
+
+def upsert_routine_exercise(record: dict):
+    cols = [c for c in ROUTINE_EX_COLS if c in record]
+    placeholders = ", ".join("?" for _ in cols)
+    collist = ", ".join(cols)
+    updates = ", ".join(f"{c}=excluded.{c}" for c in cols
+                        if c not in ("routine_id", "position"))
+    sql = (
+        f"INSERT INTO routine_exercises ({collist}) VALUES ({placeholders}) "
+        f"ON CONFLICT(routine_id, position) DO UPDATE SET {updates}"
+    )
+    with connect() as conn:
+        conn.execute(sql, [record[c] for c in cols])
+
+
+def upsert_strength_session(record: dict):
+    _upsert("strength_sessions", SESSION_COLS, record, "session_id")
+
+
+def upsert_strength_set(record: dict):
+    _upsert("strength_sets", SET_COLS, record, "set_id", touch_updated=False)
+
+
+def delete_strength_set(set_id: str):
+    with connect() as conn:
+        conn.execute("DELETE FROM strength_sets WHERE set_id=?", (set_id,))
+
+
+def upsert_body_metric(record: dict):
+    """Garmin writes won't overwrite a row whose existing source is 'manual'."""
+    source = (record.get("source") or "garmin")
+    if source == "garmin":
+        with connect() as conn:
+            existing = conn.execute(
+                "SELECT source FROM body_metrics WHERE date=?", (record["date"],)
+            ).fetchone()
+        if existing is not None and existing["source"] == "manual":
+            return
+    _upsert("body_metrics", BODY_METRIC_COLS, record, "date")
+
+
+def upsert_profile(record: dict):
+    """Single-row profile (id=1). Garmin source won't overwrite a manual row."""
+    record = {**record, "id": 1}
+    source = (record.get("source") or "garmin")
+    if source == "garmin":
+        with connect() as conn:
+            existing = conn.execute(
+                "SELECT source FROM profile WHERE id=1"
+            ).fetchone()
+        if existing is not None and existing["source"] == "manual":
+            return
+    _upsert("profile", PROFILE_COLS, record, "id")
+
+
+def seed_exercises():
+    """Insert the starter library if absent. INSERT OR IGNORE preserves any
+    user edits to seeded rows and any custom exercises."""
+    import strength_catalog
+    with connect() as conn:
+        for e in strength_catalog.EXERCISE_SEED:
+            conn.execute(
+                "INSERT OR IGNORE INTO exercises "
+                "(exercise_id, name, category, movement_pattern, primary_muscle, "
+                " is_unilateral, is_bodyweight, is_main_lift, is_custom) "
+                "VALUES (?,?,?,?,?,?,?,?,0)",
+                (e["exercise_id"], e["name"], e["category"], e["movement_pattern"],
+                 e["primary_muscle"], e["is_unilateral"], e["is_bodyweight"],
+                 e["is_main_lift"]),
+            )
+
+
 def load_daily_df():
     import pandas as pd
     with connect() as conn:
@@ -189,6 +408,54 @@ def load_checkins_df():
             "SELECT * FROM daily_checkins ORDER BY date", conn, parse_dates=["date"]
         )
     return df
+
+
+def load_exercises_df():
+    import pandas as pd
+    with connect() as conn:
+        return pd.read_sql_query("SELECT * FROM exercises ORDER BY name", conn)
+
+
+def load_routines_df():
+    import pandas as pd
+    with connect() as conn:
+        return pd.read_sql_query("SELECT * FROM routines ORDER BY name", conn)
+
+
+def load_routine_exercises_df():
+    import pandas as pd
+    with connect() as conn:
+        return pd.read_sql_query(
+            "SELECT * FROM routine_exercises ORDER BY routine_id, position", conn
+        )
+
+
+def load_strength_sessions_df():
+    import pandas as pd
+    with connect() as conn:
+        return pd.read_sql_query(
+            "SELECT * FROM strength_sessions ORDER BY date, started_at", conn
+        )
+
+
+def load_strength_sets_df():
+    import pandas as pd
+    with connect() as conn:
+        return pd.read_sql_query(
+            "SELECT * FROM strength_sets ORDER BY session_id, position, set_index", conn
+        )
+
+
+def load_body_metrics_df():
+    import pandas as pd
+    with connect() as conn:
+        return pd.read_sql_query("SELECT * FROM body_metrics ORDER BY date", conn)
+
+
+def load_profile() -> dict:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM profile WHERE id=1").fetchone()
+    return dict(row) if row is not None else {}
 
 
 def load_body_battery_df(date: str | None = None):
