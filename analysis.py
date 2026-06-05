@@ -1982,7 +1982,7 @@ def compute_strength_standards(best_1rm_by_exercise, profile, bodyweight_kg):
             "graded_lifts": len(lifts)}
 
 
-def _left_right_asymmetry(sets_df, exercises_df, flag_pct):
+def _left_right_asymmetry(sets_df, exercises_df, flag_pct, formula="epley"):
     if (sets_df is None or sets_df.empty
             or exercises_df is None or exercises_df.empty
             or "is_unilateral" not in exercises_df.columns
@@ -2010,7 +2010,7 @@ def _left_right_asymmetry(sets_df, exercises_df, flag_pct):
         best = {}
         for side in ("left", "right"):
             sub = grp[grp["side"] == side]
-            vals = [estimate_1rm(w, r) for w, r in zip(sub["weight_kg"], sub["reps"])]
+            vals = [estimate_1rm(w, r, formula) for w, r in zip(sub["weight_kg"], sub["reps"])]
             vals = [v for v in vals if v is not None]
             if vals:
                 best[side] = max(vals)
@@ -2027,7 +2027,7 @@ def _left_right_asymmetry(sets_df, exercises_df, flag_pct):
     return out
 
 
-def compute_balance(best_1rm_by_exercise, sets_df, exercises_df):
+def compute_balance(best_1rm_by_exercise, sets_df, exercises_df, formula="epley"):
     """Cross-movement strength ratios + left/right asymmetry. Pure."""
     import strength_standards as ss
     best_map = best_1rm_by_exercise or {}
@@ -2052,10 +2052,11 @@ def compute_balance(best_1rm_by_exercise, sets_df, exercises_df):
                        "status": status, "weak_side": weak, "reason": t["reason"]})
     return {"ratios": ratios,
             "left_right": _left_right_asymmetry(sets_df, exercises_df,
-                                                ss.ASYMMETRY_FLAG_PCT)}
+                                                ss.ASYMMETRY_FLAG_PCT, formula)}
 
 
-def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessions=8):
+def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessions=8,
+                                  formula="epley"):
     """Correlate the per-session readiness snapshot with normalized lifting
     performance (day-best est-1RM ÷ all-time-best, averaged over the day's
     lifts). Gated until `min_sessions` readiness-tagged sessions exist. Pure.
@@ -2064,7 +2065,7 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
     if (sessions_df is None or sessions_df.empty
             or sets_df is None or sets_df.empty):
         return insufficient
-    enr = enrich_strength_sets(sets_df, sessions_df, exercises_df)
+    enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
     if enr.empty or "est_1rm_kg" not in enr.columns:
         return insufficient
     work = enr
@@ -2089,7 +2090,7 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
                .agg(rel_perf=("rel", "mean"), pr=("is_pr_today", "any"))
                .reset_index())
 
-    ton = summarize_sessions(sessions_df, sets_df, exercises_df)[
+    ton = summarize_sessions(sessions_df, sets_df, exercises_df, formula)[
         ["session_id", "total_volume_kg"]]
     rsc = sessions_df[["session_id", "readiness_score"]].copy()
     rsc["readiness_score"] = pd.to_numeric(rsc["readiness_score"], errors="coerce")
@@ -2127,17 +2128,18 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
 
 
 def summarize_strength(sessions_df, sets_df, exercises_df, profile,
-                       bodyweight_kg, lookback_days=28):
+                       bodyweight_kg, lookback_days=28, formula="epley"):
     """Compact, raw-data-free strength summary for the AI coach. Pure."""
     if sessions_df is None or sessions_df.empty:
         return {"status": "no_data"}
 
-    pr = compute_pr_timeline(sets_df, sessions_df, exercises_df)
+    pr = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
     best_map = (pr.groupby("exercise_id")["best_est_1rm_kg"].max().to_dict()
                 if not pr.empty else {})
     standards = compute_strength_standards(best_map, profile, bodyweight_kg)
-    balance = compute_balance(best_map, sets_df, exercises_df)
-    readiness_link = compute_readiness_performance(sessions_df, sets_df, exercises_df)
+    balance = compute_balance(best_map, sets_df, exercises_df, formula)
+    readiness_link = compute_readiness_performance(sessions_df, sets_df, exercises_df,
+                                                   formula=formula)
 
     sdf = sessions_df.copy()
     sdf["date"] = pd.to_datetime(sdf["date"], errors="coerce")
@@ -2145,7 +2147,7 @@ def summarize_strength(sessions_df, sets_df, exercises_df, profile,
     cutoff = last - pd.Timedelta(days=lookback_days)
     recent = sdf[sdf["date"] >= cutoff]
 
-    summ = summarize_sessions(sessions_df, sets_df, exercises_df)
+    summ = summarize_sessions(sessions_df, sets_df, exercises_df, formula)
     recent_ids = set(recent["session_id"])
     recent_tonnage = (float(summ[summ["session_id"].isin(recent_ids)]
                             ["total_volume_kg"].sum()) if not summ.empty else 0.0)

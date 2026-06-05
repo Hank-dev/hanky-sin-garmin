@@ -199,12 +199,13 @@ with tab_insights:
 
         st.divider()
         st.markdown("##### Muscle balance")
-        balance = analysis.compute_balance(best_map, sets, catalog)
+        balance = analysis.compute_balance(best_map, sets, catalog, config.ONE_RM_FORMULA)
         st.markdown(cockpit.strength_balance_panel(balance), unsafe_allow_html=True)
 
         st.divider()
         st.markdown("##### Readiness vs performance")
-        corr = analysis.compute_readiness_performance(sessions, sets, catalog)
+        corr = analysis.compute_readiness_performance(sessions, sets, catalog,
+                                                      formula=config.ONE_RM_FORMULA)
         panel = cockpit.strength_correlation_panel(corr)
         if isinstance(panel, str):
             st.caption(panel)

@@ -61,7 +61,8 @@ def load(local_timezone: str):
         if not bw.empty:
             bodyweight = float(bw.iloc[-1]["weight_kg"])
     strength_summary = analysis.summarize_strength(
-        strength_sessions, strength_sets, exercises, profile, bodyweight)
+        strength_sessions, strength_sets, exercises, profile, bodyweight,
+        formula=config.ONE_RM_FORMULA)
     return (daily, acts, checkins, body_battery, stress, grappling,
             stress_leaks, prebed_discovery, strength_summary)
 

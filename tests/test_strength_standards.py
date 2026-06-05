@@ -164,3 +164,17 @@ def test_summarize_strength_shape_and_no_raw_sets():
 def test_summarize_strength_empty():
     assert analysis.summarize_strength(pd.DataFrame(), pd.DataFrame(),
                                        pd.DataFrame(), {}, None)["status"] == "no_data"
+
+
+def test_summarize_strength_respects_formula():
+    sessions = pd.DataFrame([{"session_id": "s1", "date": "2026-06-05",
+                              "bodyweight_kg": 100.0, "readiness_score": 70}])
+    sets = pd.DataFrame([{"session_id": "s1", "exercise_id": "back-squat",
+                          "reps": 5, "weight_kg": 100.0, "is_warmup": 0,
+                          "completed": 1, "side": "both"}])
+    exercises = pd.DataFrame([{"exercise_id": "back-squat", "name": "Back Squat",
+                               "is_bodyweight": 0, "is_unilateral": 0}])
+    epley = analysis.summarize_strength(sessions, sets, exercises, {"sex": "male"}, 100.0, formula="epley")
+    brz = analysis.summarize_strength(sessions, sets, exercises, {"sex": "male"}, 100.0, formula="brzycki")
+    # reps=5 -> Epley (116.7) and Brzycki (112.5) differ -> the PR est-1RM differs
+    assert epley["recent_prs"][0]["est_1rm_kg"] != brz["recent_prs"][0]["est_1rm_kg"]
