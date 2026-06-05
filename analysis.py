@@ -1757,3 +1757,154 @@ def _direction(series: pd.Series) -> str:
     if late < early * 0.97:
         return "falling"
     return "stable"
+
+
+# ── Strength training (pure analytics; no I/O) ────────────────────────────────
+def estimate_1rm(weight, reps, formula="epley"):
+    """Estimated one-rep max from a working set. Epley default; Brzycki optional.
+
+    Returns None for non-positive weight/reps or unparseable input.
+    """
+    try:
+        w = float(weight)
+        r = int(reps)
+    except (TypeError, ValueError):
+        return None
+    if w <= 0 or r <= 0:
+        return None
+    if r == 1:
+        return w
+    if formula == "brzycki":
+        if r >= 37:
+            return None
+        return w * 36.0 / (37.0 - r)
+    return w * (1.0 + r / 30.0)  # epley
+
+
+def enrich_strength_sets(sets_df, sessions_df, exercises_df, formula="epley"):
+    """Add effective_load_kg and est_1rm_kg to a sets DataFrame.
+
+    Bodyweight exercises use the session's snapshot bodyweight_kg + added load
+    so historical numbers stay stable. Warmup sets get no 1RM. Pure.
+    """
+    base_cols = list(sets_df.columns)
+    out_cols = base_cols + ["effective_load_kg", "est_1rm_kg"]
+    if sets_df is None or sets_df.empty:
+        return pd.DataFrame(columns=out_cols)
+
+    df = sets_df.copy()
+    bw = (sessions_df[["session_id", "bodyweight_kg"]]
+          if sessions_df is not None and not sessions_df.empty
+          else pd.DataFrame(columns=["session_id", "bodyweight_kg"]))
+    df = df.merge(bw, on="session_id", how="left")
+    isbw = (exercises_df[["exercise_id", "is_bodyweight"]]
+            if exercises_df is not None and not exercises_df.empty
+            else pd.DataFrame(columns=["exercise_id", "is_bodyweight"]))
+    df = df.merge(isbw, on="exercise_id", how="left", suffixes=("", "_ex"))
+
+    df["is_bodyweight"] = pd.to_numeric(df.get("is_bodyweight"), errors="coerce").fillna(0).astype(int)
+    body = pd.to_numeric(df.get("bodyweight_kg"), errors="coerce").fillna(0.0)
+    added = pd.to_numeric(df.get("weight_kg"), errors="coerce").fillna(0.0)
+    df["effective_load_kg"] = added + df["is_bodyweight"] * body
+
+    warm = pd.to_numeric(df.get("is_warmup"), errors="coerce").fillna(0).astype(int)
+
+    def _row_1rm(i):
+        if warm.iloc[i] == 1:
+            return None
+        return estimate_1rm(df["effective_load_kg"].iloc[i], df["reps"].iloc[i], formula)
+
+    df["est_1rm_kg"] = [_row_1rm(i) for i in range(len(df))]
+    return df
+
+
+def summarize_sessions(sessions_df, sets_df, exercises_df, formula="epley"):
+    """Per-session tonnage, working-set count, and top est-1RM. Pure."""
+    cols = ["session_id", "date", "total_volume_kg", "working_sets", "top_est_1rm_kg"]
+    if sessions_df is None or sessions_df.empty:
+        return pd.DataFrame(columns=cols)
+
+    enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    if not enr.empty:
+        warm = pd.to_numeric(enr.get("is_warmup"), errors="coerce").fillna(0).astype(int)
+        done = pd.to_numeric(enr.get("completed"), errors="coerce").fillna(1).astype(int)
+        work = enr[(warm == 0) & (done == 1)]
+    else:
+        work = enr
+
+    rows = []
+    for _, s in sessions_df.iterrows():
+        sid = s["session_id"]
+        ss = work[work["session_id"] == sid] if not work.empty else work
+        if ss.empty:
+            rows.append({"session_id": sid, "date": s.get("date"),
+                         "total_volume_kg": 0.0, "working_sets": 0,
+                         "top_est_1rm_kg": None})
+            continue
+        reps = pd.to_numeric(ss["reps"], errors="coerce").fillna(0)
+        load = pd.to_numeric(ss["effective_load_kg"], errors="coerce").fillna(0)
+        tonnage = float((reps * load).sum())
+        top = pd.to_numeric(ss["est_1rm_kg"], errors="coerce").max()
+        rows.append({"session_id": sid, "date": s.get("date"),
+                     "total_volume_kg": tonnage, "working_sets": int(len(ss)),
+                     "top_est_1rm_kg": (None if pd.isna(top) else float(top))})
+    return pd.DataFrame(rows, columns=cols)
+
+
+def compute_pr_timeline(sets_df, sessions_df, exercises_df, formula="epley"):
+    """Best est-1RM per exercise per session over time, with a PR flag. Pure."""
+    cols = ["exercise_id", "date", "session_id", "best_est_1rm_kg", "is_pr"]
+    if (sessions_df is None or sessions_df.empty
+            or sets_df is None or sets_df.empty):
+        return pd.DataFrame(columns=cols)
+
+    enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    enr = enr.merge(sessions_df[["session_id", "date"]], on="session_id",
+                    how="left", suffixes=("", "_sess"))
+    enr = enr.dropna(subset=["est_1rm_kg"])
+    if enr.empty:
+        return pd.DataFrame(columns=cols)
+
+    grp = (enr.groupby(["exercise_id", "session_id", "date"], as_index=False)
+              ["est_1rm_kg"].max()
+              .rename(columns={"est_1rm_kg": "best_est_1rm_kg"}))
+    grp = grp.sort_values(["exercise_id", "date"])
+    grp["prev_max"] = grp.groupby("exercise_id")["best_est_1rm_kg"].cummax().shift(1)
+    # cummax().shift(1) leaks across exercises at the boundary; re-mask first row
+    grp["is_first"] = ~grp.duplicated("exercise_id")
+    grp["is_pr"] = grp["is_first"] | (grp["best_est_1rm_kg"] > grp["prev_max"])
+    return grp[cols].reset_index(drop=True)
+
+
+def readiness_snapshot_from_daily(daily_row):
+    """Map an enriched daily-metrics row -> session readiness snapshot dict.
+
+    daily_row may be a pandas Series, a dict, or None. Returns the eight
+    snapshot keys, None where missing/NaN. Pure — caller does the DB read/write.
+    """
+    def g(key):
+        if daily_row is None:
+            return None
+        try:
+            val = daily_row[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+        if val is None:
+            return None
+        try:
+            if pd.isna(val):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return val
+
+    return {
+        "readiness_score": g("training_readiness_score"),
+        "readiness_level": g("training_readiness_level"),
+        "hrv_status": g("hrv_status"),
+        "hrv_overnight_avg": g("hrv_overnight_avg"),
+        "body_battery_start": g("body_battery_start"),
+        "sleep_score": g("sleep_score"),
+        "resting_hr": g("resting_hr"),
+        "acwr": g("acwr"),
+    }
