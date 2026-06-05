@@ -1,0 +1,10 @@
+# Burgundy "Oxblood" base theme. Fine-grained styling lives in cockpit.CSS,
+# but setting the base here avoids a white flash and themes Streamlit's own chrome
+# (sliders, segmented controls, focus rings) with the warm crimson accent.
+[theme]
+base = "dark"
+primaryColor = "#DC5D5F"
+backgroundColor = "#1B0C10"
+secondaryBackgroundColor = "#2A1318"
+textColor = "#F4E3DF"
+font = "sans serif"

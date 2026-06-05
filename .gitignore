@@ -1,0 +1,8 @@
+.env
+.garmin_tokens/
+garmin.db
+sync.log
+__pycache__/
+.venv/
+*.pyc
+.pytest_cache/
