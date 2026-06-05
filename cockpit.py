@@ -1554,3 +1554,98 @@ def strength_onerm_trend(df, exercise_name: str):
         showlegend=False,
     )
     return fig
+
+
+# ── Strength Insights panels (Phase 2) ────────────────────────────────────────
+def strength_standards_panel(standards: dict) -> str:
+    """HTML for the standards panel. Accepts the compute_strength_standards dict."""
+    standards = standards or {}
+    status = standards.get("status")
+    if status == "need_profile":
+        miss = ", ".join(standards.get("missing", [])) or "profile data"
+        return (f"<div style='color:{TEXT_DIM};font-family:Hanken Grotesk,sans-serif;"
+                f"font-size:14px'>Set your {html.escape(miss)} to grade your lifts "
+                f"against population standards.</div>")
+    if status != "ok" or not standards.get("lifts"):
+        return (f"<div style='color:{TEXT_DIM};font-family:Hanken Grotesk,sans-serif;"
+                f"font-size:14px'>Log the main lifts (squat, bench, deadlift, OHP, row) "
+                f"to see strength standards.</div>")
+    ov = standards.get("overall") or {}
+    rows = [
+        f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
+        f"color:{TEXT};font-family:Hanken Grotesk,sans-serif;margin-bottom:10px'>"
+        f"<span style='color:{TEXT_DIM};font-size:13px'>Overall</span> "
+        f"<b style='color:{ACCENT};font-size:18px'>{_fmt(ov.get('level'))}</b> "
+        f"<span style='color:{TEXT_DIM}'>(~{_fmt(ov.get('percentile'))} pct)</span>"
+        f"<div style='color:{TEXT_FAINT};font-size:11px;margin-top:4px'>"
+        f"approximate, bodyweight-relative</div></div>"
+    ]
+    for l in standards["lifts"]:
+        pct = l.get("percentile") or 0
+        rows.append(
+            f"<div style='margin:6px 0;font-family:Hanken Grotesk,sans-serif;color:{TEXT}'>"
+            f"<div style='display:flex;justify-content:space-between;font-size:14px'>"
+            f"<span>{html.escape(str(l['name']))}</span>"
+            f"<span style='color:{SERIES2}'>{_fmt(l['level'])} · {_fmt(l.get('est_1rm_kg'),' kg')}</span></div>"
+            f"<div style='background:{SURFACE};border-radius:6px;height:8px;margin-top:4px'>"
+            f"<div style='background:{ACCENT};height:8px;border-radius:6px;width:{min(100,max(2,pct)):.0f}%'></div>"
+            f"</div></div>")
+    return "".join(rows)
+
+
+def strength_balance_panel(balance: dict) -> str:
+    """HTML for the muscle-balance panel."""
+    balance = balance or {}
+    ratios = balance.get("ratios", [])
+    lr = balance.get("left_right", [])
+    if not ratios and not lr:
+        return (f"<div style='color:{TEXT_DIM};font-family:Hanken Grotesk,sans-serif;"
+                f"font-size:14px'>Log more of the main lifts (and unilateral lifts per "
+                f"side) to see balance.</div>")
+    chip = {"ok": SERIES2, "under": ACCENT, "over": AMBER}
+    out = []
+    for r in ratios:
+        color = chip.get(r["status"], TEXT_DIM)
+        note = "" if r["status"] == "ok" else f" — weak: {html.escape(str(r.get('weak_side') or ''))}"
+        out.append(
+            f"<div style='margin:6px 0;font-family:Hanken Grotesk,sans-serif;color:{TEXT};font-size:14px'>"
+            f"<span>{html.escape(r['label'])}</span> "
+            f"<b style='color:{color}'>{_fmt(r['ratio'])}</b> "
+            f"<span style='color:{TEXT_DIM};font-size:12px'>(target {r['low']}–{r['high']})</span>"
+            f"<span style='color:{color};font-size:12px'>{note}</span></div>")
+    if lr:
+        out.append(f"<div style='color:{TEXT_DIM};font-size:12px;margin-top:10px'>Left / right</div>")
+        for e in lr:
+            color = ACCENT if e.get("flagged") else SERIES2
+            out.append(
+                f"<div style='margin:4px 0;font-family:Hanken Grotesk,sans-serif;color:{TEXT};font-size:14px'>"
+                f"{html.escape(str(e['name']))}: L {_fmt(e.get('left_1rm_kg'))} / R {_fmt(e.get('right_1rm_kg'))} "
+                f"<b style='color:{color}'>Δ{_fmt(e.get('diff_pct'))}%</b>"
+                f"{' ⚠' if e.get('flagged') else ''}</div>")
+    return "".join(out)
+
+
+def strength_correlation_panel(corr: dict):
+    """Plotly bar (readiness bucket vs avg relative performance) when ok, else a
+    string message."""
+    corr = corr or {}
+    if corr.get("status") != "ok":
+        need = corr.get("need", 8)
+        have = corr.get("have", 0)
+        return (f"Log ~{max(0, int(need) - int(have))} more sessions to unlock the "
+                f"readiness-vs-performance view (have {have}, need {need}).")
+    buckets = corr.get("buckets", {})
+    order = [b for b in ("Low", "Med", "High") if b in buckets]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=order, y=[buckets[b]["avg_rel_perf"] for b in order],
+        marker_color=ACCENT,
+        text=[f"n={buckets[b]['n']}" for b in order], textposition="outside",
+    ))
+    fig.update_layout(
+        title=f"Readiness vs lifting (r={_fmt(corr.get('correlation'))})",
+        paper_bgcolor=BG, plot_bgcolor=BG, font=dict(color=TEXT),
+        yaxis=dict(title="avg rel. performance", range=[0, 1.1]),
+        margin=dict(l=40, r=20, t=40, b=30), height=300, showlegend=False,
+    )
+    return fig
