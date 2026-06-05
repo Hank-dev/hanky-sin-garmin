@@ -2223,8 +2223,11 @@ def last_session_sets(exercise_id, sessions_df, sets_df):
         rows = rows.sort_values("set_index")
     out = []
     for _, r in rows.iterrows():
+        w, reps = r["weight_kg"], r["reps"]
+        if pd.isna(w) or pd.isna(reps):
+            continue
         try:
-            out.append({"weight_kg": float(r["weight_kg"]), "reps": int(r["reps"])})
+            out.append({"weight_kg": float(w), "reps": int(reps)})
         except (TypeError, ValueError):
             continue
     return out

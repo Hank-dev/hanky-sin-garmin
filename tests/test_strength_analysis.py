@@ -178,3 +178,17 @@ def test_last_session_sets_unlogged_and_empty():
                           "set_index": 1, "weight_kg": 80.0, "reps": 8,
                           "is_warmup": 0, "completed": 1}])
     assert analysis.last_session_sets("deadlift", sessions, sets) == []
+
+
+def test_last_session_sets_excludes_nan_weight_and_incomplete():
+    sessions = pd.DataFrame([{"session_id": "s1", "date": "2026-06-01"}])
+    sets = pd.DataFrame([
+        {"session_id": "s1", "exercise_id": "bench-press", "set_index": 1,
+         "weight_kg": 100.0, "reps": 5, "is_warmup": 0, "completed": 1},
+        {"session_id": "s1", "exercise_id": "bench-press", "set_index": 2,
+         "weight_kg": float("nan"), "reps": 5, "is_warmup": 0, "completed": 1},
+        {"session_id": "s1", "exercise_id": "bench-press", "set_index": 3,
+         "weight_kg": 110.0, "reps": 3, "is_warmup": 0, "completed": 0},  # incomplete
+    ])
+    out = analysis.last_session_sets("bench-press", sessions, sets)
+    assert out == [{"weight_kg": 100.0, "reps": 5}]
