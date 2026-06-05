@@ -44,6 +44,46 @@ def safe(fn, *args):
         return None
 
 
+def _call_first(client, names, *args):
+    """Call the first existing client method from `names` (handles garminconnect
+    version drift — the names are aliases for the same endpoint). Returns None if
+    no name is callable, or if the first callable one errors."""
+    for name in names:
+        fn = getattr(client, name, None)
+        if callable(fn):
+            return safe(fn, *args)
+    return None
+
+
+def _grams_to_kg(value):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    # Garmin reports body weights in grams. Tolerate already-kg payloads.
+    return v / 1000.0 if v > 1000 else v
+
+
+def _norm_sex(value):
+    if not value:
+        return None
+    low = str(value).strip().lower()
+    if low.startswith("m"):
+        return "male"
+    if low.startswith("f") or low.startswith("w"):
+        return "female"
+    return None
+
+
+def _year_from(value):
+    if not value:
+        return None
+    try:
+        return int(str(value)[:4])
+    except (TypeError, ValueError):
+        return None
+
+
 def _duration_minutes(value):
     if value is None:
         return None
@@ -237,6 +277,62 @@ def ingest_activities(client, start: str, end: str):
     return len(acts)
 
 
+def ingest_body_metrics(client, start: str, end: str) -> int:
+    """Pull Garmin weigh-ins / body composition for a date range into
+    body_metrics. Stores the raw payload and dig()s out per-day values."""
+    data = _call_first(client, ["get_body_composition", "get_weigh_ins"], start, end)
+    if not data:
+        return 0
+    # Range response: stored once under the window's end date (per-day weight
+    # rows below carry their own calendarDate). To inspect a specific day's raw
+    # weigh-in, look at the body_composition payload for the window that covers it.
+    db.save_raw(end, "body_composition", data)
+    entries = dig(data, "dateWeightList", "dailyWeightSummaries") or []
+    if not isinstance(entries, list):
+        entries = []
+    n = 0
+    for e in entries:
+        cal = dig(e, "calendarDate", "date", "summaryDate")
+        grams = dig(e, "weight", "weightInGrams")
+        if cal is None or grams is None:
+            continue
+        db.upsert_body_metric({
+            "date": str(cal)[:10],
+            "weight_kg": _grams_to_kg(grams),
+            "bmi": dig(e, "bmi"),
+            "body_fat_pct": dig(e, "bodyFat.bodyFatPercentage", "bodyFatPercentage", "bodyFat"),
+            "muscle_mass_kg": _grams_to_kg(dig(e, "muscleMass")),
+            "body_water_pct": dig(e, "bodyWater"),
+            "bone_mass_kg": _grams_to_kg(dig(e, "boneMass")),
+            "source": "garmin",
+        })
+        n += 1
+    return n
+
+
+def ingest_profile(client) -> None:
+    """Pull the Garmin user profile (sex / birth year / height) into profile.
+    Won't overwrite a manual/.env profile (db.upsert_profile enforces this).
+    Only non-None fields are written, so a partial Garmin response never
+    clobbers a previously-good value with NULL."""
+    data = _call_first(client, ["get_user_profile", "get_userprofile",
+                                "get_personal_information"])
+    if not data:
+        return
+    db.save_raw(date.today().isoformat(), "user_profile", data)
+    rec = {"source": "garmin"}
+    sex = _norm_sex(dig(data, "userData.gender", "gender"))
+    birth = _year_from(dig(data, "userData.birthDate", "birthDate"))
+    height = dig(data, "userData.height", "height")
+    if sex is not None:
+        rec["sex"] = sex
+    if birth is not None:
+        rec["birth_year"] = birth
+    if height is not None:
+        rec["height_cm"] = height
+    db.upsert_profile(rec)
+
+
 def smart_sync_days(
     latest_date,
     today: date | None = None,
@@ -280,4 +376,8 @@ def backfill(client, days: int = 7):
         print(f" - {d}")
         ingest_day(client, d)
     n = ingest_activities(client, start.isoformat(), today.isoformat())
-    print(f"Stored {n} activities. Done.")
+    print(f"Stored {n} activities.")
+    n_bm = ingest_body_metrics(client, start.isoformat(), today.isoformat())
+    print(f"Stored {n_bm} body-metric day(s).")
+    ingest_profile(client)
+    print("Done.")

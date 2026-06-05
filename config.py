@@ -25,3 +25,28 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # --- Personal baselines used by the analytics layer ---
 SLEEP_NEED_HOURS = float(os.getenv("SLEEP_NEED_HOURS", "8.0"))
+
+# --- Strength training ---
+ONE_RM_FORMULA = os.getenv("ONE_RM_FORMULA", "epley")   # "epley" | "brzycki"
+STRENGTH_UNIT = os.getenv("STRENGTH_UNIT", "kg")
+
+
+def _int_or_none(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+# Athlete profile. Garmin fills these during sync; anything set here in .env is
+# treated as a manual override and is NOT overwritten by a Garmin sync.
+PROFILE_SEX = (os.getenv("PROFILE_SEX") or "").strip().lower() or None  # "male"|"female"
+PROFILE_BIRTH_YEAR = _int_or_none(os.getenv("PROFILE_BIRTH_YEAR"))
+PROFILE_HEIGHT_CM = _float_or_none(os.getenv("PROFILE_HEIGHT_CM"))

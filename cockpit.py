@@ -1476,3 +1476,81 @@ def _relationship_for(model: dict, y_col: str, x_col: str | None = None) -> dict
         if rel.get("y_col") == y_col and (x_col is None or rel.get("x_col") == x_col):
             return rel
     return {}
+
+
+# ── Strength logger render helpers ────────────────────────────────────────────
+def _fmt(value, suffix="", dash="—"):
+    if value is None:
+        return dash
+    try:
+        if pd.isna(value):
+            return dash
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, float):
+        return f"{value:,.0f}{suffix}"
+    return f"{html.escape(str(value))}{suffix}"
+
+
+def strength_readiness_badge(snapshot: dict) -> str:
+    """Compact readiness badge for a session, from its stored snapshot dict."""
+    snapshot = snapshot or {}
+    score = _fmt(snapshot.get("readiness_score"))
+    level = _fmt(snapshot.get("readiness_level"))
+    hrv = _fmt(snapshot.get("hrv_status"))
+    bb = _fmt(snapshot.get("body_battery_start"))
+    return (
+        f"<div style='display:flex;gap:14px;align-items:center;"
+        f"background:{SURFACE};border-radius:10px;padding:8px 14px;"
+        f"font-family:IBM Plex Mono,monospace;color:{TEXT_DIM};font-size:12px'>"
+        f"<span style='color:{ACCENT};font-size:18px;font-weight:600'>{score}</span>"
+        f"<span>{level}</span><span>HRV {hrv}</span><span>BB {bb}</span></div>"
+    )
+
+
+def strength_session_card(session: dict, summary: dict) -> str:
+    """Header card for one logged session."""
+    session = session or {}
+    summary = summary or {}
+    name = html.escape(str(session.get("name") or "Workout"))
+    day = html.escape(str(session.get("date") or ""))
+    vol = _fmt(summary.get("total_volume_kg"), " kg")
+    sets = _fmt(summary.get("working_sets"))
+    top = _fmt(summary.get("top_est_1rm_kg"), " kg")
+    return (
+        f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
+        f"color:{TEXT};font-family:Hanken Grotesk,sans-serif'>"
+        f"<div style='font-size:18px;font-weight:600'>{name}"
+        f"<span style='color:{TEXT_DIM};font-weight:400;font-size:13px'> · {day}</span></div>"
+        f"<div style='color:{TEXT_DIM};font-size:13px;margin-top:6px'>"
+        f"Volume <b style='color:{TEXT}'>{vol}</b> · "
+        f"Sets <b style='color:{TEXT}'>{sets}</b> · "
+        f"Top est-1RM <b style='color:{SERIES2}'>{top}</b></div></div>"
+    )
+
+
+def strength_onerm_trend(df, exercise_name: str):
+    """Plotly line of best est-1RM over time, PRs marked. df: date,
+    best_est_1rm_kg, is_pr."""
+    fig = go.Figure()
+    if df is not None and not df.empty:
+        d = df.sort_values("date")
+        fig.add_trace(go.Scatter(
+            x=list(d["date"]), y=list(d["best_est_1rm_kg"]),
+            mode="lines+markers", line=dict(color=ACCENT, width=2),
+            marker=dict(size=6, color=ACCENT), name="est 1RM",
+        ))
+        prs = d[d["is_pr"] == True]  # noqa: E712
+        if not prs.empty:
+            fig.add_trace(go.Scatter(
+                x=list(prs["date"]), y=list(prs["best_est_1rm_kg"]),
+                mode="markers", marker=dict(size=11, color=SERIES2,
+                                            symbol="star"), name="PR",
+            ))
+    fig.update_layout(
+        title=f"{exercise_name} — estimated 1RM",
+        paper_bgcolor=BG, plot_bgcolor=BG, font=dict(color=TEXT),
+        margin=dict(l=40, r=20, t=40, b=30), height=300,
+        showlegend=False,
+    )
+    return fig
