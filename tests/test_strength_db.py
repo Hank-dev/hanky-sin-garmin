@@ -69,3 +69,31 @@ def test_garmin_body_metric_does_not_overwrite_manual():
     bm = db.load_body_metrics_df()
     row = bm[bm["date"].astype(str).str.startswith("2026-06-05")].iloc[0]
     assert row["weight_kg"] == 80.0
+
+
+def test_routine_exercise_pk_only_record_does_not_crash():
+    _fresh_db()
+    db.upsert_routine({"routine_id": "r1", "name": "Push"})
+    # a record with only the composite PK columns must not raise
+    db.upsert_routine_exercise({"routine_id": "r1", "position": 0})
+    rex = db.load_routine_exercises_df()
+    assert len(rex) == 1
+    # a full record on the same PK updates in place
+    db.upsert_routine_exercise({"routine_id": "r1", "position": 0,
+                                "exercise_id": "bench-press", "target_sets": 3})
+    rex = db.load_routine_exercises_df()
+    assert len(rex) == 1
+    assert rex.iloc[0]["exercise_id"] == "bench-press"
+
+
+def test_garmin_profile_does_not_overwrite_manual():
+    _fresh_db()
+    db.upsert_profile({"sex": "male", "birth_year": 1995, "source": "manual"})
+    db.upsert_profile({"sex": "female", "birth_year": 1980, "source": "garmin"})
+    prof = db.load_profile()
+    assert prof["sex"] == "male"
+    assert prof["birth_year"] == 1995
+    assert prof["source"] == "manual"
+    # manual still overwrites manual
+    db.upsert_profile({"sex": "male", "birth_year": 1996, "source": "manual"})
+    assert db.load_profile()["birth_year"] == 1996

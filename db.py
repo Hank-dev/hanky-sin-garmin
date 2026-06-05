@@ -321,6 +321,8 @@ def upsert_routine_exercise(record: dict):
     sql = (
         f"INSERT INTO routine_exercises ({collist}) VALUES ({placeholders}) "
         f"ON CONFLICT(routine_id, position) DO UPDATE SET {updates}"
+        if updates else
+        f"INSERT OR IGNORE INTO routine_exercises ({collist}) VALUES ({placeholders})"
     )
     with connect() as conn:
         conn.execute(sql, [record[c] for c in cols])
