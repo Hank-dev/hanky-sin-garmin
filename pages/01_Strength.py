@@ -129,7 +129,8 @@ st.title("🏋️ Strength")
 
 catalog = load_catalog()
 
-tab_log, tab_history, tab_body = st.tabs(["Log workout", "History", "Bodyweight"])
+tab_log, tab_history, tab_insights, tab_body = st.tabs(
+    ["Log workout", "History", "Insights", "Bodyweight"])
 
 with tab_history:
     st.subheader("History")
@@ -178,6 +179,40 @@ with tab_history:
             fig = cockpit.strength_onerm_trend(
                 prs[prs["exercise_id"] == ex_id], label)
             st.plotly_chart(fig, use_container_width=True)
+
+with tab_insights:
+    st.subheader("Insights")
+    sessions = db.load_strength_sessions_df()
+    sets = db.load_strength_sets_df()
+    if sessions.empty:
+        st.info("Log a few workouts (especially the main lifts) to unlock standards, balance, and readiness insights.")
+    else:
+        profile = db.load_profile()
+        bodyweight = resolve_bodyweight(today_str())
+        prs = analysis.compute_pr_timeline(sets, sessions, catalog, config.ONE_RM_FORMULA)
+        best_map = (prs.groupby("exercise_id")["best_est_1rm_kg"].max().to_dict()
+                    if not prs.empty else {})
+
+        st.markdown("##### Strength standards")
+        standards = analysis.compute_strength_standards(best_map, profile, bodyweight)
+        st.markdown(cockpit.strength_standards_panel(standards), unsafe_allow_html=True)
+
+        st.divider()
+        st.markdown("##### Muscle balance")
+        balance = analysis.compute_balance(best_map, sets, catalog, config.ONE_RM_FORMULA)
+        st.markdown(cockpit.strength_balance_panel(balance), unsafe_allow_html=True)
+
+        st.divider()
+        st.markdown("##### Readiness vs performance")
+        corr = analysis.compute_readiness_performance(sessions, sets, catalog,
+                                                      formula=config.ONE_RM_FORMULA)
+        panel = cockpit.strength_correlation_panel(corr)
+        if isinstance(panel, str):
+            st.caption(panel)
+        else:
+            st.plotly_chart(panel, use_container_width=True)
+            if corr.get("insight"):
+                st.caption(corr["insight"])
 
 with tab_body:
     st.subheader("Bodyweight")

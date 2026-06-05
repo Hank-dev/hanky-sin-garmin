@@ -36,3 +36,40 @@ def test_onerm_trend_returns_figure():
     ])
     fig = cockpit.strength_onerm_trend(df, "Bench Press")
     assert isinstance(fig, go.Figure)
+
+
+def test_standards_panel_renders_levels_and_need_profile():
+    ok = cockpit.strength_standards_panel({
+        "status": "ok",
+        "overall": {"level": "Intermediate", "percentile": 55.0},
+        "lifts": [{"name": "Back Squat", "level": "Intermediate", "percentile": 50.0,
+                   "est_1rm_kg": 125.0, "ratio": 1.25}],
+    })
+    assert "Back Squat" in ok and "Intermediate" in ok
+    need = cockpit.strength_standards_panel({"status": "need_profile",
+                                             "missing": ["bodyweight"]})
+    assert isinstance(need, str) and "bodyweight" in need.lower()
+
+
+def test_balance_panel_renders_ratio_and_flag():
+    html_out = cockpit.strength_balance_panel({
+        "ratios": [{"label": "Bench : Squat", "ratio": 0.4, "low": 0.5,
+                    "ideal": 0.66, "high": 0.8, "status": "under",
+                    "weak_side": "bench-press", "reason": "upper vs lower"}],
+        "left_right": [{"name": "Split Squat", "left_1rm_kg": 40.0,
+                        "right_1rm_kg": 50.0, "diff_pct": 20.0, "flagged": True,
+                        "stronger_side": "right"}],
+    })
+    assert "Bench : Squat" in html_out and "Split Squat" in html_out
+
+
+def test_correlation_panel_ok_and_insufficient():
+    fig = cockpit.strength_correlation_panel({
+        "status": "ok", "n": 12, "correlation": 0.4,
+        "insight": "Better lifts on higher-readiness days.",
+        "buckets": {"Low": {"n": 4, "avg_rel_perf": 0.9, "pr_rate": 0.0, "avg_tonnage": 3000},
+                    "High": {"n": 8, "avg_rel_perf": 0.98, "pr_rate": 0.25, "avg_tonnage": 4000}},
+    })
+    assert isinstance(fig, go.Figure)
+    msg = cockpit.strength_correlation_panel({"status": "insufficient", "have": 3, "need": 8})
+    assert isinstance(msg, str) and "8" in msg

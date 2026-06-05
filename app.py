@@ -50,10 +50,25 @@ def load(local_timezone: str):
     )
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
     prebed_discovery = analysis.compute_prebed_discovery(daily, acts, sleep_timing)
-    return daily, acts, checkins, body_battery, stress, grappling, stress_leaks, prebed_discovery
+    strength_sessions = db.load_strength_sessions_df()
+    strength_sets = db.load_strength_sets_df()
+    exercises = db.load_exercises_df()
+    profile = db.load_profile()
+    body_metrics = db.load_body_metrics_df()
+    bodyweight = None
+    if not body_metrics.empty:
+        bw = body_metrics.dropna(subset=["weight_kg"]).sort_values("date")
+        if not bw.empty:
+            bodyweight = float(bw.iloc[-1]["weight_kg"])
+    strength_summary = analysis.summarize_strength(
+        strength_sessions, strength_sets, exercises, profile, bodyweight,
+        formula=config.ONE_RM_FORMULA)
+    return (daily, acts, checkins, body_battery, stress, grappling,
+            stress_leaks, prebed_discovery, strength_summary)
 
 
-daily, acts, checkins, body_battery, stress, grappling, stress_leaks, prebed_discovery = load(config.LOCAL_TIMEZONE)
+(daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
+ prebed_discovery, strength_summary) = load(config.LOCAL_TIMEZONE)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -305,6 +320,7 @@ question_payload = {
         "message": prebed_discovery.get("message"),
         "relationships": prebed_discovery.get("relationships", []),
     },
+    "strength_profile": strength_summary,
     "selected_day": selected_day,
 }
 have_key = bool(config.ANTHROPIC_API_KEY)
@@ -354,6 +370,7 @@ if pending_prompt:
                 grappling[:3],
                 question_payload["prebed_discovery"],
                 history,
+                strength=strength_summary,
             )
         except Exception as e:
             answer = f"## Answer\n\nQuestion failed: {e}"

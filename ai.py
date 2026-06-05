@@ -37,8 +37,10 @@ say that plainly."""
 
 QUESTION_SYSTEM = """You answer an athlete's health and training questions using
 only the compact Garmin metrics, capacity-envelope model, stress-leak map,
-computed grappling metrics, pre-sleep discovery patterns, and check-in context
-provided. You are not a doctor and you must not diagnose disease.
+computed grappling metrics, pre-sleep discovery patterns, strength-training
+profile (standards vs population, muscle-balance flags, lifting load, and any
+readiness-vs-performance link), and check-in context provided. You are not a
+doctor and you must not diagnose disease.
 
 Rules:
 - Ground every claim in the provided numbers. If the data does not answer the
@@ -63,7 +65,7 @@ Bullets with the relevant numbers and caveats.
 2-4 concrete actions."""
 
 
-def analyze(summary: dict, model: str | None = None) -> str:
+def analyze(summary: dict, strength: dict | None = None, model: str | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -75,10 +77,27 @@ def analyze(summary: dict, model: str | None = None) -> str:
             "role": "user",
             "content": "Here is my recent Garmin summary as JSON:\n\n"
                        + json.dumps(summary, indent=2)
+                       + "\n\nStrength-training profile:\n\n"
+                       + json.dumps(strength or {}, indent=2)
                        + "\n\nAnalyse it.",
         }],
     )
     return "".join(b.text for b in msg.content if b.type == "text")
+
+
+def _question_payload(question, summary, capacity, stress_leak_map,
+                      grappling_sessions, prebed_discovery, chat_history,
+                      strength=None):
+    return {
+        "question": question,
+        "metrics_summary": summary,
+        "capacity_envelope": capacity or {},
+        "stress_leak_map": stress_leak_map or {},
+        "grappling_sessions": grappling_sessions or [],
+        "prebed_discovery": prebed_discovery or {},
+        "strength_profile": strength or {},
+        "previous_chat": chat_history or [],
+    }
 
 
 def answer_question(
@@ -89,6 +108,7 @@ def answer_question(
     grappling_sessions: list[dict] | None = None,
     prebed_discovery: dict | None = None,
     chat_history: list[dict] | None = None,
+    strength: dict | None = None,
     model: str | None = None,
 ) -> str:
     if not config.ANTHROPIC_API_KEY:
@@ -96,15 +116,9 @@ def answer_question(
     question = (question or "").strip()
     if not question:
         return "_Ask a question first._"
-    payload = {
-        "question": question,
-        "metrics_summary": summary,
-        "capacity_envelope": capacity or {},
-        "stress_leak_map": stress_leak_map or {},
-        "grappling_sessions": grappling_sessions or [],
-        "prebed_discovery": prebed_discovery or {},
-        "previous_chat": chat_history or [],
-    }
+    payload = _question_payload(question, summary, capacity, stress_leak_map,
+                                grappling_sessions, prebed_discovery, chat_history,
+                                strength)
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,

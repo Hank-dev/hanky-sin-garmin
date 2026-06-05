@@ -1913,3 +1913,284 @@ def readiness_snapshot_from_daily(daily_row):
         "resting_hr": g("resting_hr"),
         "acwr": g("acwr"),
     }
+
+
+def compute_strength_standards(best_1rm_by_exercise, profile, bodyweight_kg):
+    """Grade main-lift est-1RMs against population norms (ratio table). Pure.
+
+    best_1rm_by_exercise: {exercise_id: best_est_1rm_kg}. Returns
+    {status:'ok', lifts:[...], overall:{level,percentile}, graded_lifts:n} or a
+    {status:'need_profile'/'no_main_lifts'} marker.
+    """
+    import strength_standards as ss
+    profile = profile or {}
+    sex = (profile.get("sex") or "").strip().lower()
+    missing = []
+    if sex not in ss.STANDARDS:
+        missing.append("sex")
+    try:
+        bw = float(bodyweight_kg)
+    except (TypeError, ValueError):
+        bw = 0.0
+    if bw <= 0:
+        missing.append("bodyweight")
+    if missing:
+        return {"status": "need_profile", "missing": missing}
+
+    best_map = best_1rm_by_exercise or {}
+    lifts = []
+    for ex_id, thr in ss.STANDARDS[sex].items():
+        try:
+            best = float(best_map.get(ex_id))
+        except (TypeError, ValueError):
+            continue
+        if best <= 0:
+            continue
+        ratio = best / bw
+        nov, inter, adv, eli = thr
+        if ratio < nov:
+            level, lo, hi = "Untrained", 0.0, nov
+        elif ratio < inter:
+            level, lo, hi = "Novice", nov, inter
+        elif ratio < adv:
+            level, lo, hi = "Intermediate", inter, adv
+        elif ratio < eli:
+            level, lo, hi = "Advanced", adv, eli
+        else:
+            level, lo, hi = "Elite", eli, eli * 1.25
+        plo, phi = ss.LEVEL_PERCENTILE_BANDS[level]
+        frac = 1.0 if hi <= lo else (ratio - lo) / (hi - lo)
+        frac = min(max(frac, 0.0), 1.0)
+        pct = round(plo + frac * (phi - plo), 1)
+        lifts.append({
+            "exercise_id": ex_id, "name": ss.MAIN_LIFT_NAMES.get(ex_id, ex_id),
+            "est_1rm_kg": round(best, 1), "ratio": round(ratio, 2),
+            "level": level, "percentile": pct,
+        })
+
+    if not lifts:
+        return {"status": "no_main_lifts", "lifts": [], "overall": None,
+                "graded_lifts": 0}
+    mean_pct = sum(l["percentile"] for l in lifts) / len(lifts)
+    overall_level = "Elite"
+    for lv in ss.LEVELS:
+        if mean_pct < ss.LEVEL_PERCENTILE_BANDS[lv][1]:
+            overall_level = lv
+            break
+    return {"status": "ok", "lifts": lifts,
+            "overall": {"level": overall_level, "percentile": round(mean_pct, 1)},
+            "graded_lifts": len(lifts)}
+
+
+def _left_right_asymmetry(sets_df, exercises_df, flag_pct, formula="epley"):
+    if (sets_df is None or sets_df.empty
+            or exercises_df is None or exercises_df.empty
+            or "is_unilateral" not in exercises_df.columns
+            or "side" not in sets_df.columns):
+        return []
+    uni = exercises_df[pd.to_numeric(exercises_df["is_unilateral"], errors="coerce")
+                       .fillna(0).astype(int) == 1]
+    if uni.empty:
+        return []
+    uni_ids = set(uni["exercise_id"])
+    name_map = dict(zip(exercises_df["exercise_id"], exercises_df["name"]))
+
+    df = sets_df.copy()
+    for col, default in (("is_warmup", 0), ("completed", 1)):
+        if col not in df.columns:
+            df[col] = default
+    warm = pd.to_numeric(df["is_warmup"], errors="coerce").fillna(0).astype(int)
+    done = pd.to_numeric(df["completed"], errors="coerce").fillna(1).astype(int)
+    df = df[(warm == 0) & (done == 1) & df["exercise_id"].isin(uni_ids)]
+    if df.empty:
+        return []
+
+    out = []
+    for ex_id, grp in df.groupby("exercise_id"):
+        best = {}
+        for side in ("left", "right"):
+            sub = grp[grp["side"] == side]
+            vals = [estimate_1rm(w, r, formula) for w, r in zip(sub["weight_kg"], sub["reps"])]
+            vals = [v for v in vals if v is not None]
+            if vals:
+                best[side] = max(vals)
+        if "left" in best and "right" in best:
+            l, r = best["left"], best["right"]
+            hi = max(l, r)
+            diff = abs(l - r) / hi * 100 if hi > 0 else 0.0
+            out.append({
+                "name": name_map.get(ex_id, ex_id),
+                "left_1rm_kg": round(l, 1), "right_1rm_kg": round(r, 1),
+                "diff_pct": round(diff, 1), "flagged": bool(diff > flag_pct),
+                "stronger_side": "left" if l > r else ("right" if r > l else "even"),
+            })
+    return out
+
+
+def compute_balance(best_1rm_by_exercise, sets_df, exercises_df, formula="epley"):
+    """Cross-movement strength ratios + left/right asymmetry. Pure."""
+    import strength_standards as ss
+    best_map = best_1rm_by_exercise or {}
+    ratios = []
+    for t in ss.BALANCE_TARGETS:
+        try:
+            num = float(best_map.get(t["numerator"]))
+            den = float(best_map.get(t["denominator"]))
+        except (TypeError, ValueError):
+            continue
+        if num <= 0 or den <= 0:
+            continue
+        r = num / den
+        if r < t["low"]:
+            status, weak = "under", t["numerator"]
+        elif r > t["high"]:
+            status, weak = "over", t["denominator"]
+        else:
+            status, weak = "ok", None
+        ratios.append({"label": t["label"], "ratio": round(r, 2),
+                       "low": t["low"], "ideal": t["ideal"], "high": t["high"],
+                       "status": status, "weak_side": weak, "reason": t["reason"]})
+    return {"ratios": ratios,
+            "left_right": _left_right_asymmetry(sets_df, exercises_df,
+                                                ss.ASYMMETRY_FLAG_PCT, formula)}
+
+
+def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessions=8,
+                                  formula="epley"):
+    """Correlate the per-session readiness snapshot with normalized lifting
+    performance (day-best est-1RM ÷ all-time-best, averaged over the day's
+    lifts). Gated until `min_sessions` readiness-tagged sessions exist. Pure.
+    """
+    insufficient = {"status": "insufficient", "have": 0, "need": min_sessions}
+    if (sessions_df is None or sessions_df.empty
+            or sets_df is None or sets_df.empty):
+        return insufficient
+    enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    if enr.empty or "est_1rm_kg" not in enr.columns:
+        return insufficient
+    work = enr
+    if "is_warmup" in work.columns:
+        work = work[pd.to_numeric(work["is_warmup"], errors="coerce").fillna(0).astype(int) == 0]
+    if "completed" in work.columns:
+        work = work[pd.to_numeric(work["completed"], errors="coerce").fillna(1).astype(int) == 1]
+    work = work.dropna(subset=["est_1rm_kg"])
+    if work.empty:
+        return insufficient
+
+    all_best = work.groupby("exercise_id")["est_1rm_kg"].max().to_dict()
+    day = (work.groupby(["session_id", "exercise_id"])["est_1rm_kg"].max()
+               .reset_index())
+    day["rel"] = day.apply(
+        lambda r: (r["est_1rm_kg"] / all_best[r["exercise_id"]])
+        if all_best.get(r["exercise_id"]) else None, axis=1)
+    day["is_pr_today"] = day.apply(
+        lambda r: abs(r["est_1rm_kg"] - all_best.get(r["exercise_id"], 0)) < 1e-9,
+        axis=1)
+    sess = (day.groupby("session_id")
+               .agg(rel_perf=("rel", "mean"), pr=("is_pr_today", "any"))
+               .reset_index())
+
+    ton = summarize_sessions(sessions_df, sets_df, exercises_df, formula)[
+        ["session_id", "total_volume_kg"]]
+    rsc = sessions_df[["session_id", "readiness_score"]].copy()
+    rsc["readiness_score"] = pd.to_numeric(rsc["readiness_score"], errors="coerce")
+    merged = (sess.merge(rsc, on="session_id", how="left")
+                  .merge(ton, on="session_id", how="left")
+                  .dropna(subset=["readiness_score", "rel_perf"]))
+    have = int(len(merged))
+    if have < min_sessions:
+        return {"status": "insufficient", "have": have, "need": min_sessions}
+
+    def bucket(x):
+        return "Low" if x < 50 else ("Med" if x <= 75 else "High")
+    merged["bucket"] = merged["readiness_score"].apply(bucket)
+    buckets = {}
+    for b in ("Low", "Med", "High"):
+        bb = merged[merged["bucket"] == b]
+        if bb.empty:
+            continue
+        buckets[b] = {
+            "n": int(len(bb)),
+            "avg_rel_perf": round(float(bb["rel_perf"].mean()), 3),
+            "pr_rate": round(float(bb["pr"].mean()), 2),
+            "avg_tonnage": round(float(bb["total_volume_kg"].fillna(0).mean()), 0),
+        }
+    corr = merged["readiness_score"].corr(merged["rel_perf"])
+    corr = None if pd.isna(corr) else round(float(corr), 2)
+    if corr is not None and corr >= 0.3:
+        insight = "You tend to hit better lifts on higher-readiness days."
+    elif corr is not None and corr <= -0.3:
+        insight = "Your best lifts cluster on lower-readiness days — readiness isn't limiting your lifting."
+    else:
+        insight = "No strong link between readiness and lifting performance so far."
+    return {"status": "ok", "n": have, "buckets": buckets,
+            "correlation": corr, "insight": insight}
+
+
+def summarize_strength(sessions_df, sets_df, exercises_df, profile,
+                       bodyweight_kg, lookback_days=28, formula="epley"):
+    """Compact, raw-data-free strength summary for the AI coach. Pure."""
+    if sessions_df is None or sessions_df.empty:
+        return {"status": "no_data"}
+
+    pr = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
+    best_map = (pr.groupby("exercise_id")["best_est_1rm_kg"].max().to_dict()
+                if not pr.empty else {})
+    standards = compute_strength_standards(best_map, profile, bodyweight_kg)
+    balance = compute_balance(best_map, sets_df, exercises_df, formula)
+    readiness_link = compute_readiness_performance(sessions_df, sets_df, exercises_df,
+                                                   formula=formula)
+
+    sdf = sessions_df.copy()
+    sdf["date"] = pd.to_datetime(sdf["date"], errors="coerce")
+    last = sdf["date"].max()
+    cutoff = last - pd.Timedelta(days=lookback_days)
+    recent = sdf[sdf["date"] >= cutoff]
+
+    summ = summarize_sessions(sessions_df, sets_df, exercises_df, formula)
+    recent_ids = set(recent["session_id"])
+    recent_tonnage = (float(summ[summ["session_id"].isin(recent_ids)]
+                            ["total_volume_kg"].sum()) if not summ.empty else 0.0)
+    sessions_per_week = round(len(recent) / (lookback_days / 7.0), 1) if len(recent) else 0.0
+
+    name_map = (dict(zip(exercises_df["exercise_id"], exercises_df["name"]))
+                if exercises_df is not None and not exercises_df.empty else {})
+    recent_prs = []
+    if not pr.empty:
+        p = pr.copy()
+        p["date"] = pd.to_datetime(p["date"], errors="coerce")
+        p = p[(p["is_pr"] == True) & (p["date"] >= cutoff)]  # noqa: E712
+        for _, r in p.sort_values("date").iterrows():
+            recent_prs.append({"exercise": name_map.get(r["exercise_id"], r["exercise_id"]),
+                               "est_1rm_kg": round(float(r["best_est_1rm_kg"]), 1),
+                               "date": str(r["date"].date())})
+
+    if standards.get("status") == "ok":
+        standards_out = {
+            "overall": standards["overall"],
+            "by_lift": [{"name": l["name"], "level": l["level"],
+                         "percentile": l["percentile"]} for l in standards["lifts"]],
+        }
+    else:
+        standards_out = {"status": standards.get("status")}
+
+    if readiness_link.get("status") == "ok":
+        readiness_out = {"status": "ok", "correlation": readiness_link.get("correlation"),
+                         "insight": readiness_link.get("insight")}
+    else:
+        readiness_out = {"status": readiness_link.get("status"),
+                         "have": readiness_link.get("have"),
+                         "need": readiness_link.get("need")}
+
+    return {
+        "status": "ok",
+        "recent": {"sessions": int(len(recent)), "tonnage_kg": round(recent_tonnage, 0),
+                   "sessions_per_week": sessions_per_week, "lookback_days": lookback_days},
+        "standards": standards_out,
+        "balance_flags": {
+            "ratios": [r for r in balance["ratios"] if r["status"] != "ok"],
+            "left_right": [lr for lr in balance["left_right"] if lr["flagged"]],
+        },
+        "readiness_link": readiness_out,
+        "recent_prs": recent_prs,
+    }
