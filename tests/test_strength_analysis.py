@@ -132,3 +132,21 @@ def test_readiness_snapshot_handles_none_and_nan():
     assert snap["readiness_score"] is None
     row = pd.Series({"training_readiness_score": float("nan")})
     assert analysis.readiness_snapshot_from_daily(row)["readiness_score"] is None
+
+
+def test_enrich_none_sets_returns_empty_with_columns():
+    out = analysis.enrich_strength_sets(None, _sessions(), _exercises())
+    assert out.empty
+    assert "effective_load_kg" in out.columns
+    assert "est_1rm_kg" in out.columns
+
+
+def test_summarize_handles_sets_missing_completed_column():
+    sets = pd.DataFrame([
+        {"set_id": "a", "session_id": "s1", "exercise_id": "bench-press",
+         "reps": 5, "weight_kg": 100.0, "is_warmup": 0},  # no 'completed' column
+    ])
+    out = analysis.summarize_sessions(_sessions(), sets, _exercises())
+    row = out.iloc[0]
+    assert row["working_sets"] == 1
+    assert row["total_volume_kg"] == 500.0

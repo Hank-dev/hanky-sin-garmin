@@ -1787,10 +1787,9 @@ def enrich_strength_sets(sets_df, sessions_df, exercises_df, formula="epley"):
     Bodyweight exercises use the session's snapshot bodyweight_kg + added load
     so historical numbers stay stable. Warmup sets get no 1RM. Pure.
     """
-    base_cols = list(sets_df.columns)
-    out_cols = base_cols + ["effective_load_kg", "est_1rm_kg"]
     if sets_df is None or sets_df.empty:
-        return pd.DataFrame(columns=out_cols)
+        base_cols = list(sets_df.columns) if sets_df is not None else []
+        return pd.DataFrame(columns=base_cols + ["effective_load_kg", "est_1rm_kg"])
 
     df = sets_df.copy()
     bw = (sessions_df[["session_id", "bodyweight_kg"]]
@@ -1807,7 +1806,9 @@ def enrich_strength_sets(sets_df, sessions_df, exercises_df, formula="epley"):
     added = pd.to_numeric(df.get("weight_kg"), errors="coerce").fillna(0.0)
     df["effective_load_kg"] = added + df["is_bodyweight"] * body
 
-    warm = pd.to_numeric(df.get("is_warmup"), errors="coerce").fillna(0).astype(int)
+    warm = pd.to_numeric(
+        df["is_warmup"] if "is_warmup" in df.columns else pd.Series(0, index=df.index),
+        errors="coerce").fillna(0).astype(int)
 
     def _row_1rm(i):
         if warm.iloc[i] == 1:
@@ -1826,8 +1827,12 @@ def summarize_sessions(sessions_df, sets_df, exercises_df, formula="epley"):
 
     enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
     if not enr.empty:
-        warm = pd.to_numeric(enr.get("is_warmup"), errors="coerce").fillna(0).astype(int)
-        done = pd.to_numeric(enr.get("completed"), errors="coerce").fillna(1).astype(int)
+        warm = pd.to_numeric(
+            enr["is_warmup"] if "is_warmup" in enr.columns else pd.Series(0, index=enr.index),
+            errors="coerce").fillna(0).astype(int)
+        done = pd.to_numeric(
+            enr["completed"] if "completed" in enr.columns else pd.Series(1, index=enr.index),
+            errors="coerce").fillna(1).astype(int)
         work = enr[(warm == 0) & (done == 1)]
     else:
         work = enr
