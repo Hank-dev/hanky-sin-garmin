@@ -90,7 +90,55 @@ st.title("🏋️ Strength")
 
 catalog = load_catalog()
 
-tab_log, tab_body = st.tabs(["Log workout", "Bodyweight"])
+tab_log, tab_history, tab_body = st.tabs(["Log workout", "History", "Bodyweight"])
+
+with tab_history:
+    st.subheader("History")
+    sessions = db.load_strength_sessions_df()
+    sets = db.load_strength_sets_df()
+    if sessions.empty:
+        st.info("No workouts logged yet.")
+    else:
+        summaries = analysis.summarize_sessions(sessions, sets, catalog,
+                                                config.ONE_RM_FORMULA)
+        sm = {r["session_id"]: r for _, r in summaries.iterrows()}
+        for _, sess in sessions.sort_values("date", ascending=False).iterrows():
+            summ = sm.get(sess["session_id"], {})
+            st.markdown(cockpit.strength_session_card(dict(sess), dict(summ)),
+                        unsafe_allow_html=True)
+            snap = {k: sess.get(k) for k in (
+                "readiness_score", "readiness_level", "hrv_status",
+                "body_battery_start")}
+            st.markdown(cockpit.strength_readiness_badge(snap),
+                        unsafe_allow_html=True)
+            with st.expander("Sets"):
+                ssets = sets[sets["session_id"] == sess["session_id"]]
+                if ssets.empty:
+                    st.caption("No sets.")
+                else:
+                    named = ssets.merge(
+                        catalog[["exercise_id", "name"]], on="exercise_id",
+                        how="left")
+                    st.table(named[["name", "set_index", "side", "reps",
+                                    "weight_kg", "rpe", "is_warmup"]])
+            st.write("")
+
+        st.divider()
+        st.subheader("Estimated 1RM progress")
+        prs = analysis.compute_pr_timeline(sets, sessions, catalog,
+                                           config.ONE_RM_FORMULA)
+        if prs.empty:
+            st.caption("Log a few working sets to see 1RM trends.")
+        else:
+            id_to_name = dict(zip(catalog["exercise_id"], catalog["name"])) \
+                if not catalog.empty else {}
+            ex_ids = list(prs["exercise_id"].unique())
+            choices = {id_to_name.get(i, i): i for i in ex_ids}
+            label = st.selectbox("Exercise", list(choices.keys()))
+            ex_id = choices[label]
+            fig = cockpit.strength_onerm_trend(
+                prs[prs["exercise_id"] == ex_id], label)
+            st.plotly_chart(fig, use_container_width=True)
 
 with tab_body:
     st.subheader("Bodyweight")
