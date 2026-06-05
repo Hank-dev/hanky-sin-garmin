@@ -306,6 +306,7 @@ with tab_log:
             st.rerun()
 
     st.divider()
+    # Phase 2: optional client-side rest timer (st.components.v1.html JS countdown)
     with st.expander("💾 Save this workout as a routine"):
         rname = st.text_input("Routine name", value=active["name"], key="save_rt")
         if st.button("Save routine") and active["exercises"] and rname.strip():

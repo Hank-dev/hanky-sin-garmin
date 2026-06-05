@@ -312,18 +312,25 @@ def ingest_body_metrics(client, start: str, end: str) -> int:
 
 def ingest_profile(client) -> None:
     """Pull the Garmin user profile (sex / birth year / height) into profile.
-    Won't overwrite a manual/.env profile (db.upsert_profile enforces this)."""
+    Won't overwrite a manual/.env profile (db.upsert_profile enforces this).
+    Only non-None fields are written, so a partial Garmin response never
+    clobbers a previously-good value with NULL."""
     data = _call_first(client, ["get_user_profile", "get_userprofile",
                                 "get_personal_information"])
     if not data:
         return
     db.save_raw(date.today().isoformat(), "user_profile", data)
-    db.upsert_profile({
-        "sex": _norm_sex(dig(data, "userData.gender", "gender")),
-        "birth_year": _year_from(dig(data, "userData.birthDate", "birthDate")),
-        "height_cm": dig(data, "userData.height", "height"),
-        "source": "garmin",
-    })
+    rec = {"source": "garmin"}
+    sex = _norm_sex(dig(data, "userData.gender", "gender"))
+    birth = _year_from(dig(data, "userData.birthDate", "birthDate"))
+    height = dig(data, "userData.height", "height")
+    if sex is not None:
+        rec["sex"] = sex
+    if birth is not None:
+        rec["birth_year"] = birth
+    if height is not None:
+        rec["height_cm"] = height
+    db.upsert_profile(rec)
 
 
 def smart_sync_days(

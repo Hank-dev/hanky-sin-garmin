@@ -44,3 +44,25 @@ def test_ingest_profile_extracts_sex_and_birth_year():
     assert prof["sex"] == "male"
     assert prof["birth_year"] == 1995
     assert abs(prof["height_cm"] - 182.0) < 1e-6
+
+
+class PartialProfileClient:
+    def get_user_profile(self):
+        return {"userData": {"gender": "MALE", "birthDate": "1995-03-10",
+                             "height": 182.0}}
+
+
+class NoBirthDateClient:
+    def get_user_profile(self):
+        return {"userData": {"gender": "MALE", "height": 182.0}}  # no birthDate
+
+
+def test_partial_profile_sync_does_not_null_existing_birth_year():
+    _fresh_db()
+    ingest.ingest_profile(PartialProfileClient())
+    assert db.load_profile()["birth_year"] == 1995
+    # a later sync without birthDate must NOT wipe the stored year
+    ingest.ingest_profile(NoBirthDateClient())
+    prof = db.load_profile()
+    assert prof["birth_year"] == 1995
+    assert prof["sex"] == "male"
