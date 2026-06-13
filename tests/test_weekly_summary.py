@@ -94,5 +94,19 @@ class WeeklySummaryDBTest(unittest.TestCase):
         self.assertIsNone(db.load_weekly_summary("2099-01-01"))
 
 
+import ai
+
+
+class WeeklySummaryAITest(unittest.TestCase):
+    def test_without_api_key_returns_note(self):
+        orig = config.ANTHROPIC_API_KEY
+        config.ANTHROPIC_API_KEY = ""
+        try:
+            out = ai.weekly_summary({"status": "ready", "week_start": "2026-06-01"})
+        finally:
+            config.ANTHROPIC_API_KEY = orig
+        self.assertIn("ANTHROPIC_API_KEY", out)
+
+
 if __name__ == "__main__":
     unittest.main()

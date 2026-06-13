@@ -66,6 +66,23 @@ Bullets with the relevant numbers and caveats.
 2-4 concrete actions."""
 
 
+WEEKLY_SYSTEM = """You are an evidence-based endurance and recovery coach writing a
+short weekly recap for one athlete from a compact JSON summary of the last
+completed week (Mon–Sun) versus the prior week. Ground every claim in the
+numbers. Be specific and concise; do not pad; give no medical disclaimers.
+
+Output exactly these two markdown sections:
+## Week in review
+One short paragraph: what moved this week and why — cite HRV / RHR / sleep /
+stress / load numbers and their deltas vs the prior week, the recovery-flag day
+counts, and any notable best/worst day. If a metric is missing or the week is
+sparse (low days_with_data), say so rather than inventing it.
+## Focus next week
+1-2 concrete priorities for the coming week, grounded in the data.
+
+If the week is too sparse to judge, say that plainly in one line."""
+
+
 def analyze(summary: dict, strength: dict | None = None, model: str | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
@@ -81,6 +98,24 @@ def analyze(summary: dict, strength: dict | None = None, model: str | None = Non
                        + "\n\nStrength-training profile:\n\n"
                        + json.dumps(strength or {}, indent=2)
                        + "\n\nAnalyse it.",
+        }],
+    )
+    return "".join(b.text for b in msg.content if b.type == "text")
+
+
+def weekly_summary(week_payload: dict, model: str | None = None) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        return "_Set ANTHROPIC_API_KEY in .env to enable the weekly summary._"
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=model or config.ANTHROPIC_MODEL,
+        max_tokens=900,
+        system=WEEKLY_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": "Here is my completed-week summary as JSON:\n\n"
+                       + json.dumps(week_payload, indent=2)
+                       + "\n\nWrite the recap.",
         }],
     )
     return "".join(b.text for b in msg.content if b.type == "text")
