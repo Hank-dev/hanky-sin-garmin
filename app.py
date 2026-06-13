@@ -99,6 +99,11 @@ def query_day(default_day: str | None, valid_days: set[str]) -> str | None:
     return day if day in valid_days else default_day
 
 
+def _week_label(start: str, end: str) -> str:
+    s, e = pd.to_datetime(start), pd.to_datetime(end)
+    return f"Week of {s.strftime('%b %-d')} – {e.strftime('%b %-d')}"
+
+
 def verdict_for(readiness, suppressed, rhr_elevated):
     """Rule-based hero call (the full prose comes from the AI card on demand)."""
     if suppressed and rhr_elevated:
@@ -216,6 +221,28 @@ else:
     st.markdown(
         cockpit.hero(readiness, verdict, tagline, chips_html, ribbon_html),
         unsafe_allow_html=True)
+
+
+# ── weekly summary (auto, cached once per completed ISO week) ─────────────────
+if not daily.empty:
+    week = analysis.summarize_week(daily, acts, checkins)
+    if week.get("status") == "ready":
+        ws = week["week_start"]
+        st.markdown(cockpit.section_label("Weekly summary"), unsafe_allow_html=True)
+        if not config.ANTHROPIC_API_KEY:
+            st.caption("Set `ANTHROPIC_API_KEY` in .env to enable the weekly summary.")
+        else:
+            regenerate = st.button("↻ Regenerate weekly summary", key="regen_week")
+            cached = None if regenerate else db.load_weekly_summary(ws)
+            if cached is None:
+                with st.spinner("Writing your weekly summary…"):
+                    md = ai.weekly_summary(week)
+                db.save_weekly_summary(ws, config.ANTHROPIC_MODEL, md)
+                cached = db.load_weekly_summary(ws)
+            meta_label = _week_label(week["week_start"], week["week_end"])
+            meta_label += f' · generated {cached["generated_at"][:10]}'
+            st.markdown(cockpit.weekly_summary_card(cached["summary_md"], meta_label),
+                        unsafe_allow_html=True)
 
 
 # ── key-stat tiles ───────────────────────────────────────────────────────────
