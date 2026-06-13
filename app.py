@@ -388,7 +388,7 @@ def chart_card(title, unit, fig):
             f'<div class="chart-title" style="font-family:\'Instrument Serif\',Georgia,serif;'
             f'font-weight:400;font-size:21px;margin:2px 0 -4px">'
             f'{title} <em style="font-style:normal;font-family:\'IBM Plex Mono\',monospace;'
-            f'color:#8A6063;font-size:10px;letter-spacing:.04em">{unit}</em></div>',
+            f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">{unit}</em></div>',
             unsafe_allow_html=True)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 

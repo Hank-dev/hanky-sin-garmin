@@ -4,9 +4,9 @@ Pure rendering helpers — they take plain Python values (or a windowed
 DataFrame for charts) and return HTML strings / Plotly figures. No Streamlit
 imports, no DB, no network, so the visual language stays separable from app.py.
 
-Ported from the Claude Design handoff bundle — the "Oxblood / burgundy" colour
-direction: deep wine surfaces with leather-grain + film-grain texture, a warm
-crimson accent, champagne/brass edges, and an Instrument Serif display face for
+Ported from the Claude Design handoff bundle, re-skinned to a deep-teal colour
+direction: dark teal surfaces with leather-grain + film-grain texture, a cool
+teal accent, champagne/brass edges, and an Instrument Serif display face for
 the big readiness numeral and headings (Hanken Grotesk body, IBM Plex Mono
 micro-labels). The serif numeric hero + sparklines and the design tokens mirror
 `themes-v2.css` (dir-oxblood) over `styles.css`; the trend charts are
@@ -23,23 +23,23 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ── design tokens (hex mirrors :root below; Plotly needs literals) ────────────
-#  Burgundy "Oxblood" direction — deep wine surfaces, warm crimson accent,
-#  champagne/brass secondary. Crimson reads as the brand/positive emphasis,
-#  gold = caution, deep red = alarm (a deliberately warm monochrome palette).
-BG        = "#1B0C10"
-BG2       = "#150A0D"
-SURFACE   = "#2A1318"
-SURFACE2  = "#321720"
-SURFACE3  = "#3E1C26"
-TEXT      = "#F4E3DF"
-TEXT_DIM  = "#C29A98"
-TEXT_FAINT = "#8A6063"
-ACCENT    = "#DC5D5F"   # warm crimson  (oklch .64 .16 22)
-ACCENT2   = "#BD4045"   # deeper crimson
+#  Deep-teal direction — dark teal surfaces, cool teal accent, champagne/brass
+#  secondary kept as a warm complement. Teal reads as the brand/positive
+#  emphasis, gold = caution, orange = alarm (cool palette, warm-metal edges).
+BG        = "#0C1A1A"
+BG2       = "#081414"
+SURFACE   = "#112A2B"
+SURFACE2  = "#153334"
+SURFACE3  = "#1B3F41"
+TEXT      = "#E6F2F1"
+TEXT_DIM  = "#9CC0BD"
+TEXT_FAINT = "#5E8483"
+ACCENT    = "#3FB6A8"   # teal          (oklch .72 .09 185)
+ACCENT2   = "#2E8B86"   # deeper teal
 SERIES2   = "#E3BE85"   # champagne / brass (oklch .82 .085 78)
 AMBER     = "#E4AB66"   # warm gold     (oklch .78 .11 70)
-RED       = "#DD4C5C"   # alarm red     (oklch .62 .18 18)
-GRID      = "rgba(255,210,190,0.06)"
+RED       = "#E0763C"   # alarm orange  (oklch .68 .15 52)
+GRID      = "rgba(200,240,238,0.06)"
 
 _ids = itertools.count(1)
 def _uid() -> str:
@@ -54,14 +54,14 @@ CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap');
 
 :root{
-  --bg:#1B0C10; --bg-2:#150A0D; --surface:#2A1318; --surface-2:#321720; --surface-3:#3E1C26;
-  --border:rgba(255,210,190,.11); --border-2:rgba(255,210,190,.20);
-  --hairline:rgba(255,210,190,.10); --inset-hi:rgba(255,225,205,.06);
+  --bg:#0C1A1A; --bg-2:#081414; --surface:#112A2B; --surface-2:#153334; --surface-3:#1B3F41;
+  --border:rgba(200,240,238,.11); --border-2:rgba(200,240,238,.20);
+  --hairline:rgba(200,240,238,.10); --inset-hi:rgba(215,245,243,.06);
   --brass:rgba(214,176,120,.26);
-  --text:#F4E3DF; --text-dim:#C29A98; --text-faint:#8A6063;
-  --accent:#DC5D5F; --accent-2:#BD4045; --accent-ink:#1B0C10;
-  --series-2:#E3BE85; --amber:#E4AB66; --red:#DD4C5C;
-  --ring-track:rgba(255,210,190,.10);
+  --text:#E6F2F1; --text-dim:#9CC0BD; --text-faint:#5E8483;
+  --accent:#3FB6A8; --accent-2:#2E8B86; --accent-ink:#0C1A1A;
+  --series-2:#E3BE85; --amber:#E4AB66; --red:#E0763C;
+  --ring-track:rgba(200,240,238,.10);
   --font-sans:"Hanken Grotesk",system-ui,sans-serif;
   --font-display:"Hanken Grotesk",system-ui,sans-serif;
   --font-serif:"Instrument Serif",Georgia,serif;
@@ -77,9 +77,9 @@ CSS = """
 .stApp{
   background-color:var(--bg);
   background-image:
-    radial-gradient(820px 480px at 18% -6%, rgba(168,40,58,.22), transparent 62%),
+    radial-gradient(820px 480px at 18% -6%, rgba(42,140,130,.22), transparent 62%),
     radial-gradient(680px 520px at 92% 104%, rgba(176,128,64,.11), transparent 60%),
-    radial-gradient(120% 80% at 50% 0%, #2A1014 0%, #1B0C10 46%, #110709 100%);
+    radial-gradient(120% 80% at 50% 0%, #12292A 0%, #0C1A1A 46%, #060F0F 100%);
   color:var(--text);
   font-family:var(--font-sans);
 }
@@ -122,12 +122,12 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── card primitive + bordered Streamlit containers become cards ───── */
 /* leather-grained panels: warm gradient, brass top hairline, grain via soft-light */
 .card{
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%; background-blend-mode:soft-light,normal;
   border:1px solid var(--border);border-top-color:var(--brass);
   border-radius:var(--r-lg);box-shadow:var(--sh-card);}
 [data-testid="stVerticalBlockBorderWrapper"]{
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%; background-blend-mode:soft-light,normal;
   border:1px solid var(--border)!important;border-top-color:var(--brass)!important;
   border-radius:var(--r-lg);box-shadow:var(--sh-card); padding:6px 18px 10px;}
@@ -136,11 +136,11 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   color:var(--text-faint);margin:var(--s5) 0 var(--s3);}
 .section-label::after{content:"";flex:1;height:1px;background:var(--hairline);}
 
-/* ── hero (serif numeric — the Oxblood signature) ──────────────────── */
+/* ── hero (serif numeric — the teal signature) ─────────────────────── */
 .hero{padding:var(--s6);}
 .hero.hero-numeric{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
   gap:var(--s6);align-items:center;
-  background:var(--grain),linear-gradient(180deg,#371A22,#2A1319 66%,#1F0E13);
+  background:var(--grain),linear-gradient(180deg,#143335,#102829 66%,#0B1E1F);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .num-block{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-faint);}
@@ -201,7 +201,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── horizontal day rail ───────────────────────────────────────────── */
 .day-rail{display:flex;gap:var(--s3);overflow-x:auto;padding:2px 0 9px;scrollbar-width:thin;
-  scrollbar-color:rgba(255,210,190,.2) transparent;}
+  scrollbar-color:rgba(200,240,238,.2) transparent;}
 .day-card{min-width:178px;max-width:178px;text-decoration:none;color:var(--text);
   padding:var(--s4) var(--s3);border-radius:var(--r-md);border:1px solid var(--border);border-top-color:var(--brass);
   background:linear-gradient(180deg,var(--surface-2),var(--surface));
@@ -227,7 +227,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .day-acts{display:flex;flex-wrap:wrap;gap:5px;min-height:20px;}
 .day-act{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border-radius:6px;
   font-size:10px;font-weight:600;color:var(--text-dim);border:1px solid var(--border);
-  background:rgba(255,210,190,.025);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  background:rgba(200,240,238,.025);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .day-act.bjj{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 28%,transparent);
   background:color-mix(in srgb,var(--amber) 10%,transparent);}
 .day-empty{color:var(--text-faint);font-size:11px;}
@@ -235,7 +235,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── AI coach readout ──────────────────────────────────────────────── */
 .coach{padding:var(--s6);position:relative;overflow:hidden;
   border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,#371A22,#2A1319 66%,#1F0E13);
+  background:var(--grain),linear-gradient(180deg,#143335,#102829 66%,#0B1E1F);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .coach::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--series-2);opacity:.9;}
@@ -273,7 +273,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── capacity envelope ────────────────────────────────────────────── */
 .capacity{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 16%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .capacity-head{display:flex;align-items:flex-start;gap:var(--s4);justify-content:space-between;margin-bottom:var(--s4);}
 .capacity-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -286,7 +286,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .cap-zone.learning{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 30%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
 .cap-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .cap-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s3);}
-.cap-metric{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,210,190,.02);}
+.cap-metric{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
 .cap-metric .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .cap-metric .now{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .cap-metric .range{font-size:12px;color:var(--text-dim);margin-top:3px;}
@@ -294,33 +294,33 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .cap-metric.bad .now{color:var(--red);} .cap-metric.flat .now{color:var(--text-dim);}
 .cap-flags{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s4);}
 .cap-flag{font-size:12px;color:var(--text-dim);border:1px solid var(--border);border-radius:999px;
-  padding:5px 9px;background:rgba(255,210,190,.02);}
+  padding:5px 9px;background:rgba(200,240,238,.02);}
 .cap-flag.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 25%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 @media (max-width:900px){ .cap-grid{grid-template-columns:repeat(2,1fr);} }
 @media (max-width:420px){ .cap-grid{grid-template-columns:1fr;} .capacity-head{display:grid;} }
 
 /* ── stress leak map ───────────────────────────────────────────────── */
 .leak{padding:var(--s6);border-color:color-mix(in srgb,var(--red) 16%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .leak-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .leak-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .leak-head .meta{font-size:12px;color:var(--text-faint);}
 .leak-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
-  border:1px solid var(--border);background:rgba(255,210,190,.025);}
+  border:1px solid var(--border);background:rgba(200,240,238,.025);}
 .leak-pill.ready{color:var(--red);border-color:color-mix(in srgb,var(--red) 32%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
 .leak-pill.learning{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 30%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
 .leak-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .leak-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--s3);margin-bottom:var(--s4);}
-.leak-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,210,190,.02);}
+.leak-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
 .leak-stat .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .leak-stat .val{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .leak-stat .sub{font-size:12px;color:var(--text-dim);margin-top:3px;}
 .leak-reason{font-size:13px;color:var(--text-dim);line-height:1.5;margin-bottom:var(--s4);}
 .leak-flags{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4);}
 .leak-flag{font-size:12px;color:var(--text-dim);border:1px solid var(--border);border-radius:999px;
-  padding:5px 9px;background:rgba(255,210,190,.02);}
+  padding:5px 9px;background:rgba(200,240,238,.02);}
 .leak-table{width:100%;border-collapse:collapse;}
 .leak-table th,.leak-table td{font-size:12.5px;text-align:right;padding:9px var(--s3);border-top:1px solid var(--hairline);}
 .leak-table th{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
@@ -330,19 +330,19 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── discovery panel ──────────────────────────────────────────────── */
 .discovery{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .discovery-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .discovery-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .discovery-head .meta{font-size:12px;color:var(--text-faint);}
 .discovery-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
-  border:1px solid var(--border);background:rgba(255,210,190,.025);}
+  border:1px solid var(--border);background:rgba(200,240,238,.025);}
 .discovery-pill.ready{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 32%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
 .discovery-pill.learning{color:var(--text-dim);border-color:var(--border-2);}
 .discovery-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .discovery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s3);margin-bottom:var(--s4);}
-.discovery-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,210,190,.02);}
+.discovery-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
 .discovery-stat .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .discovery-stat .val{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .discovery-stat .sub{font-size:12px;color:var(--text-dim);margin-top:3px;}
@@ -354,20 +354,20 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── research health panels ───────────────────────────────────────── */
 .research{padding:var(--s6);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .research-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .research-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .research-head .meta{font-size:12px;color:var(--text-faint);}
 .research-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
-  border:1px solid var(--border);background:rgba(255,210,190,.025);}
+  border:1px solid var(--border);background:rgba(200,240,238,.025);}
 .research-pill.ready,.research-pill.green{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,transparent);background:color-mix(in srgb,var(--accent) 8%,transparent);}
 .research-pill.learning,.research-pill.yellow{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 .research-pill.no_data,.research-pill.red{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
 .research-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .research-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s4);margin-bottom:var(--s4);}
-.research-panel{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(255,210,190,.02);}
+.research-panel{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(200,240,238,.02);}
 .research-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s3);margin-bottom:var(--s3);}
 .research-panel h4{font-family:var(--font-serif);font-size:20px;font-weight:400;margin:0;}
 .research-panel p{color:var(--text-dim);font-size:13.5px;line-height:1.5;margin:0 0 var(--s3);}
@@ -383,7 +383,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── grappling mode ───────────────────────────────────────────────── */
 .grapple{padding:var(--s6);border-color:color-mix(in srgb,var(--amber) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
   background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
 .grapple-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .grapple-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -394,7 +394,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .grapple-warning{padding:11px 13px;border-radius:var(--r-md);margin-bottom:var(--s4);
   color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 .grapple-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--s3);margin-bottom:var(--s4);}
-.grapple-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,210,190,.02);}
+.grapple-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
 .grapple-stat .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .grapple-stat .val{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .grapple-stat .sub{font-size:12px;color:var(--text-dim);margin-top:3px;}
@@ -414,7 +414,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .acts thead th:first-child,.acts tbody td:first-child{text-align:left;}
 .acts tbody td{text-align:right;padding:11px var(--s4);font-size:13.5px;font-variant-numeric:tabular-nums;
   border-top:1px solid var(--hairline);color:var(--text);}
-.acts tbody tr:hover td{background:rgba(255,210,190,.02);}
+.acts tbody tr:hover td{background:rgba(200,240,238,.02);}
 .acts .act-type{display:inline-flex;align-items:center;gap:9px;font-weight:500;}
 .acts .act-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
   background:var(--surface-3);border:1px solid var(--border);color:var(--text-dim);}
@@ -456,7 +456,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 """
 
 # brand mark + coach glyph (small inline SVG icons)
-_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#DC5D5F" stroke-width="2" '
+_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#3FB6A8" stroke-width="2" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2.5-7 4 14 3-9 2 2H22"/></svg>')
 _SPARK = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6m0 0 4-3m-4 3L8 6M5 13a7 7 0 1 0 14 0"/></svg>')
@@ -504,7 +504,7 @@ def topbar(date_str: str, sparse: bool) -> str:
 
 # ── readiness numeral + progress fill ────────────────────────────────────────
 def _num_fill(pct) -> str:
-    """Slim champagne→crimson progress track whose fill grows to `pct` (0–1) on load."""
+    """Slim champagne→teal progress track whose fill grows to `pct` (0–1) on load."""
     p = max(0.0, min(1.0, pct)) * 100
     uid = _uid()
     return f"""
@@ -1512,7 +1512,7 @@ def chart_body_battery_daily(day: pd.DataFrame) -> go.Figure:
     fig.add_trace(go.Scatter(
         x=x, y=y, name="Body Battery", mode="lines",
         line=dict(color=ACCENT, width=2.5, shape="spline"),
-        fill="tozeroy", fillcolor="rgba(220,93,95,0.12)",
+        fill="tozeroy", fillcolor="rgba(63,182,168,0.12)",
     ))
     if not y.empty:
         fig.add_trace(go.Scatter(
@@ -1547,7 +1547,7 @@ def chart_acwr(view: pd.DataFrame) -> go.Figure:
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     if "acute_load" in view:
         fig.add_trace(go.Bar(x=x, y=view["acute_load"], name="Acute load (7d)",
-                             marker_color="rgba(194,154,152,0.18)", marker_line_width=0),
+                             marker_color="rgba(156,192,189,0.18)", marker_line_width=0),
                       secondary_y=False)
     if "chronic_load" in view:
         fig.add_trace(go.Scatter(x=x, y=view["chronic_load"], name="Chronic (wkly)",
