@@ -61,5 +61,38 @@ class SummarizeWeekTest(unittest.TestCase):
         self.assertEqual(out["status"], "no_complete_week")
 
 
+import config
+import db
+
+
+class WeeklySummaryDBTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        self._orig_path = config.DB_PATH
+        config.DB_PATH = self.tmp.name
+        db.init_db()
+
+    def tearDown(self):
+        config.DB_PATH = self._orig_path
+        os.unlink(self.tmp.name)
+
+    def test_round_trip_and_upsert_overwrite(self):
+        db.save_weekly_summary("2026-06-01", "claude-x", "## Week in review\nGood week.")
+        row = db.load_weekly_summary("2026-06-01")
+        self.assertEqual(row["week_start"], "2026-06-01")
+        self.assertEqual(row["model"], "claude-x")
+        self.assertIn("Week in review", row["summary_md"])
+        self.assertTrue(row["generated_at"])
+
+        # Regenerate semantics: same key overwrites.
+        db.save_weekly_summary("2026-06-01", "claude-y", "## Week in review\nUpdated.")
+        row2 = db.load_weekly_summary("2026-06-01")
+        self.assertEqual(row2["model"], "claude-y")
+        self.assertIn("Updated", row2["summary_md"])
+
+        self.assertIsNone(db.load_weekly_summary("2099-01-01"))
+
+
 if __name__ == "__main__":
     unittest.main()

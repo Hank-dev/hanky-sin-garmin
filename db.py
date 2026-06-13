@@ -1,6 +1,7 @@
 """SQLite persistence. Idempotent upserts keyed on date / activity id."""
 import sqlite3
 import json
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import config
@@ -68,6 +69,13 @@ CREATE TABLE IF NOT EXISTS daily_checkins (
     energy INTEGER,
     note TEXT,
     updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS weekly_summaries (
+    week_start TEXT PRIMARY KEY,
+    generated_at TEXT,
+    model TEXT,
+    summary_md TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exercises (
@@ -176,6 +184,8 @@ ACTIVITY_COLS = [
 ]
 
 CHECKIN_COLS = ["date", "pain", "fatigue", "energy", "note"]
+
+WEEKLY_SUMMARY_COLS = ["week_start", "generated_at", "model", "summary_md"]
 
 EXERCISE_COLS = [
     "exercise_id", "name", "category", "movement_pattern", "primary_muscle",
@@ -410,6 +420,25 @@ def load_checkins_df():
             "SELECT * FROM daily_checkins ORDER BY date", conn, parse_dates=["date"]
         )
     return df
+
+
+def save_weekly_summary(week_start: str, model: str, summary_md: str):
+    """Upsert one weekly summary keyed by ISO-week Monday. Overwrites on
+    conflict so the Regenerate button replaces the cached text."""
+    _upsert("weekly_summaries", WEEKLY_SUMMARY_COLS, {
+        "week_start": week_start,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "model": model,
+        "summary_md": summary_md,
+    }, "week_start", touch_updated=False)
+
+
+def load_weekly_summary(week_start: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM weekly_summaries WHERE week_start=?", (week_start,)
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def load_exercises_df():
