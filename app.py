@@ -50,6 +50,7 @@ def load(local_timezone: str):
     )
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
     prebed_discovery = analysis.compute_prebed_discovery(daily, acts, sleep_timing)
+    health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
     strength_sessions = db.load_strength_sessions_df()
     strength_sets = db.load_strength_sets_df()
     exercises = db.load_exercises_df()
@@ -64,11 +65,11 @@ def load(local_timezone: str):
         strength_sessions, strength_sets, exercises, profile, bodyweight,
         formula=config.ONE_RM_FORMULA)
     return (daily, acts, checkins, body_battery, stress, grappling,
-            stress_leaks, prebed_discovery, strength_summary)
+            stress_leaks, prebed_discovery, health_research, strength_summary)
 
 
 (daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
- prebed_discovery, strength_summary) = load(config.LOCAL_TIMEZONE)
+ prebed_discovery, health_research, strength_summary) = load(config.LOCAL_TIMEZONE)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -320,6 +321,7 @@ question_payload = {
         "message": prebed_discovery.get("message"),
         "relationships": prebed_discovery.get("relationships", []),
     },
+    "health_research": {k: v for k, v in health_research.items() if k != "rows"},
     "strength_profile": strength_summary,
     "selected_day": selected_day,
 }
@@ -371,6 +373,7 @@ if pending_prompt:
                 question_payload["prebed_discovery"],
                 history,
                 strength=strength_summary,
+                health_research=question_payload["health_research"],
             )
         except Exception as e:
             answer = f"## Answer\n\nQuestion failed: {e}"
@@ -437,8 +440,8 @@ if not daily.empty:
     if selected_day and selected_day != default_day:
         st.caption(f"Daily graphs are focused on `{selected_day}`. Click the latest day card to return to today.")
 
-recovery_tab, training_tab, discovery_tab, experimental_tab = st.tabs(
-    ["Recovery", "Training", "Correlations", "Experimental"]
+recovery_tab, health_tab, training_tab, discovery_tab, experimental_tab = st.tabs(
+    ["Recovery", "Health Lab", "Training", "Correlations", "Experimental"]
 )
 
 with recovery_tab:
@@ -509,6 +512,42 @@ with recovery_tab:
                     st.caption("Only one pre-sleep HR value is synced in this window, so the chart shows it as a single point for now.")
             else:
                 st.caption("No pre-sleep heart-rate values stored yet. Sync days that include sleep start plus all-day HR samples.")
+
+with health_tab:
+    if daily.empty:
+        st.info("Sync Garmin history to build the Health Lab panels.")
+    else:
+        st.markdown(cockpit.health_research_card(health_research), unsafe_allow_html=True)
+        health_rows = pd.DataFrame(health_research.get("rows") or [])
+        if not health_rows.empty and "date" in health_rows:
+            health_rows["date"] = pd.to_datetime(health_rows["date"], errors="coerce")
+            health_view = health_rows.dropna(subset=["date"]).tail(win)
+        else:
+            health_view = pd.DataFrame()
+
+        chart_card("Primitive baseline deviations", "z-score", cockpit.chart_recovery_deviation(health_view))
+        c1, c2 = st.columns(2)
+        with c1:
+            if not health_view.empty and any(
+                col in health_view and health_view[col].notna().any()
+                for col in ("sleep_midpoint_variability_7d", "bedtime_variability_7d", "wake_time_variability_7d")
+            ):
+                chart_card("Sleep timing regularity", "rolling SD", cockpit.chart_sleep_regularity(health_view))
+            else:
+                st.caption("Sleep timing regularity needs raw sleep start/end data from synced sleep payloads.")
+        with c2:
+            if not health_view.empty and any(
+                col in health_view and health_view[col].notna().any()
+                for col in ("spo2_avg", "respiration_avg")
+            ):
+                chart_card("Respiratory watchlist", "SpO₂ / respiration", cockpit.chart_respiratory_watchlist(health_view))
+            else:
+                st.caption("Respiratory watchlist needs SpO₂ or respiration summaries.")
+
+        if ((health_research.get("fitness") or {}).get("activity") or {}).get("rows"):
+            chart_card("Run/walk adaptation", "pace + HR", cockpit.chart_foot_pace(health_research))
+        else:
+            st.caption("Run/walk adaptation unlocks after Garmin activities include distance and duration.")
 
 with training_tab:
     if sparse:

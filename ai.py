@@ -39,8 +39,9 @@ QUESTION_SYSTEM = """You answer an athlete's health and training questions using
 only the compact Garmin metrics, capacity-envelope model, stress-leak map,
 computed grappling metrics, pre-sleep discovery patterns, strength-training
 profile (standards vs population, muscle-balance flags, lifting load, and any
-readiness-vs-performance link), and check-in context provided. You are not a
-doctor and you must not diagnose disease.
+readiness-vs-performance link), Health Lab panels (baseline-normalized recovery,
+sleep regularity, respiratory watchlist, and fitness adaptation), and check-in
+context provided. You are not a doctor and you must not diagnose disease.
 
 Rules:
 - Ground every claim in the provided numbers. If the data does not answer the
@@ -87,7 +88,7 @@ def analyze(summary: dict, strength: dict | None = None, model: str | None = Non
 
 def _question_payload(question, summary, capacity, stress_leak_map,
                       grappling_sessions, prebed_discovery, chat_history,
-                      strength=None):
+                      strength=None, health_research=None):
     return {
         "question": question,
         "metrics_summary": summary,
@@ -95,6 +96,7 @@ def _question_payload(question, summary, capacity, stress_leak_map,
         "stress_leak_map": stress_leak_map or {},
         "grappling_sessions": grappling_sessions or [],
         "prebed_discovery": prebed_discovery or {},
+        "health_research": health_research or {},
         "strength_profile": strength or {},
         "previous_chat": chat_history or [],
     }
@@ -109,6 +111,7 @@ def answer_question(
     prebed_discovery: dict | None = None,
     chat_history: list[dict] | None = None,
     strength: dict | None = None,
+    health_research: dict | None = None,
     model: str | None = None,
 ) -> str:
     if not config.ANTHROPIC_API_KEY:
@@ -118,7 +121,7 @@ def answer_question(
         return "_Ask a question first._"
     payload = _question_payload(question, summary, capacity, stress_leak_map,
                                 grappling_sessions, prebed_discovery, chat_history,
-                                strength)
+                                strength, health_research)
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,

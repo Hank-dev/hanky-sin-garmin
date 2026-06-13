@@ -352,6 +352,35 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 @media (max-width:980px){ .discovery-grid{grid-template-columns:repeat(2,1fr);} }
 @media (max-width:520px){ .discovery-grid{grid-template-columns:1fr;} .discovery-head{display:grid;} }
 
+/* ── research health panels ───────────────────────────────────────── */
+.research{padding:var(--s6);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
+  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+.research-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
+.research-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
+.research-head .meta{font-size:12px;color:var(--text-faint);}
+.research-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
+  font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--border);background:rgba(255,210,190,.025);}
+.research-pill.ready,.research-pill.green{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,transparent);background:color-mix(in srgb,var(--accent) 8%,transparent);}
+.research-pill.learning,.research-pill.yellow{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
+.research-pill.no_data,.research-pill.red{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
+.research-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
+.research-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s4);margin-bottom:var(--s4);}
+.research-panel{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(255,210,190,.02);}
+.research-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s3);margin-bottom:var(--s3);}
+.research-panel h4{font-family:var(--font-serif);font-size:20px;font-weight:400;margin:0;}
+.research-panel p{color:var(--text-dim);font-size:13.5px;line-height:1.5;margin:0 0 var(--s3);}
+.research-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);}
+.research-stat{border-top:1px solid var(--hairline);padding-top:9px;min-width:0;}
+.research-stat .lab{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
+.research-stat .val{font-family:var(--font-serif);font-size:26px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:4px;white-space:nowrap;}
+.research-stat .sub{font-size:11.5px;color:var(--text-dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.research-flags{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s3);}
+.research-quality{display:flex;flex-wrap:wrap;gap:var(--s2);border-top:1px solid var(--hairline);padding-top:var(--s3);}
+@media (max-width:980px){ .research-panels{grid-template-columns:1fr;} }
+@media (max-width:640px){ .research-stats{grid-template-columns:repeat(2,1fr);} .research-head,.research-panel-head{display:grid;} }
+
 /* ── grappling mode ───────────────────────────────────────────────── */
 .grapple{padding:var(--s6);border-color:color-mix(in srgb,var(--amber) 18%,var(--border));
   background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#210F14);
@@ -419,7 +448,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 }
 @media (max-width:680px){
   .tiles{grid-template-columns:repeat(2,1fr);}
-  .hero,.coach,.capacity,.leak,.grapple{padding:var(--s5);}
+  .hero,.coach,.capacity,.leak,.grapple,.research{padding:var(--s5);}
   .acts{overflow-x:auto;} .acts table{min-width:560px;}
 }
 @media (max-width:420px){ .tiles{grid-template-columns:1fr;} }
@@ -460,7 +489,7 @@ def zone(readiness):
 
 def topbar(date_str: str, sparse: bool) -> str:
     pill = "" if sparse else '<span class="pill"><span class="dot"></span>synced</span>'
-    return f"""
+    return _collapse_html(f"""
     <div class="topbar">
       <div class="brand">
         <span class="mark">{_PULSE}</span>
@@ -470,7 +499,7 @@ def topbar(date_str: str, sparse: bool) -> str:
       <span class="date tnum">{html.escape(date_str)}</span>
       <span class="spacer"></span>
       {pill}
-    </div>"""
+    </div>""")
 
 
 # ── readiness numeral + progress fill ────────────────────────────────────────
@@ -1115,6 +1144,107 @@ def _signed_text(value, unit="pts") -> str:
     return f"{float(value):+.1f} {unit}".strip()
 
 
+# ── research health panels ──────────────────────────────────────────────────
+def _collapse_html(markup: str) -> str:
+    """Flatten multi-line HTML into a single line for ``st.markdown``.
+
+    Streamlit runs ``unsafe_allow_html`` content through a Markdown processor.
+    A whitespace-only line (e.g. an empty ``{flag_html}`` placeholder) is read
+    as a blank line that closes the raw-HTML block, after which the remaining
+    >=4-space-indented HTML renders as a literal code block. Stripping each line
+    and dropping the empties removes both triggers. Every text node lives on its
+    own line here, so joining without a separator can't merge words."""
+    return "".join(line.strip() for line in markup.splitlines())
+
+
+def _research_stat_value(stat: dict) -> str:
+    value = stat.get("value")
+    if value is None or pd.isna(value):
+        return '<span class="dash">—</span>'
+    digits = int(stat.get("digits") or 0)
+    signed = bool(stat.get("signed"))
+    n = float(value)
+    if digits == 0:
+        text = f"{n:+.0f}" if signed else f"{n:.0f}"
+    else:
+        text = f"{n:+.{digits}f}" if signed else f"{n:.{digits}f}"
+    unit = stat.get("unit") or ""
+    return f'{html.escape(text)}<u>{html.escape(unit)}</u>' if unit else html.escape(text)
+
+
+def _research_panel_html(panel: dict) -> str:
+    panel = panel or {}
+    title = panel.get("title") or "Panel"
+    zone_name = panel.get("zone") or panel.get("status") or "learning"
+    stats = []
+    for stat in (panel.get("stats") or [])[:6]:
+        stats.append(
+            f"""<div class="research-stat">
+              <div class="lab">{html.escape(str(stat.get("label") or ""))}</div>
+              <div class="val tnum">{_research_stat_value(stat)}</div>
+              <div class="sub">{html.escape(str(stat.get("sub") or ""))}</div>
+            </div>"""
+        )
+    flags = panel.get("flags") or []
+    flag_html = ""
+    if flags:
+        flag_html = '<div class="research-flags">' + "".join(
+            f'<span class="leak-flag">{html.escape(str(flag))}</span>' for flag in flags[:4]
+        ) + "</div>"
+    return f"""
+      <div class="research-panel">
+        <div class="research-panel-head">
+          <h4>{html.escape(str(title))}</h4>
+          <span class="research-pill {html.escape(str(zone_name))}">{html.escape(str(zone_name))}</span>
+        </div>
+        <p>{html.escape(str(panel.get("message") or ""))}</p>
+        <div class="research-stats">{"".join(stats)}</div>
+        {flag_html}
+      </div>"""
+
+
+def health_research_card(model: dict) -> str:
+    model = model or {}
+    status = model.get("status", "no_data")
+    if status == "no_data":
+        message = html.escape(model.get(
+            "message",
+            "Sync daily Garmin metrics to build research-grade health panels.",
+        ))
+        return (f'<div class="card research"><div class="empty-note" style="margin:0">'
+                f'<span class="ico">⚡</span> {message}</div></div>')
+
+    days = int(model.get("days_analyzed") or 0)
+    min_days = int(model.get("min_days") or 14)
+    meta = f"{days} days analyzed · {min_days} day baseline target"
+    head = f"""
+      <div class="research-head">
+        <div><h3>Health Lab</h3><div class="meta">{html.escape(meta)}</div></div>
+        <span class="research-pill {html.escape(str(status))}">{html.escape(str(status))}</span>
+      </div>"""
+    panels = [
+        model.get("recovery"),
+        model.get("sleep_regularity"),
+        model.get("respiratory"),
+        model.get("fitness"),
+    ]
+    panel_html = f'<div class="research-panels">{"".join(_research_panel_html(p) for p in panels)}</div>'
+    quality = model.get("data_quality") or {}
+    quality_items = []
+    for item in (quality.get("coverage") or [])[:7]:
+        quality_items.append(
+            f'<span class="leak-flag">{html.escape(str(item.get("label") or ""))}: '
+            f'{int(item.get("days") or 0)}d / {int(item.get("pct") or 0)}%</span>'
+        )
+    for missing in (quality.get("missing") or [])[:3]:
+        quality_items.append(f'<span class="leak-flag">{html.escape(str(missing))}</span>')
+    quality_html = f'<div class="research-quality">{"".join(quality_items)}</div>' if quality_items else ""
+    message = html.escape(str(model.get("message") or ""))
+    return _collapse_html(
+        f'<div class="card research">{head}<div class="research-message">{message}</div>{panel_html}{quality_html}</div>'
+    )
+
+
 # ── grappling mode ───────────────────────────────────────────────────────────
 def _gval(value, suffix="", blank="—") -> str:
     if value is None or pd.isna(value):
@@ -1274,6 +1404,22 @@ def _glow_line(fig, x, y, color, name, width=2, **kw):
     ))
 
 
+def _clamp_x_to_data(fig, view, cols) -> None:
+    """Clamp the x-axis to the date span where any of `cols` actually has data,
+    so leading/trailing no-data days don't leave a dead zone (and squash the
+    plot) on short or sparse history."""
+    if view is None or view.empty or "date" not in view:
+        return
+    mask = pd.Series(False, index=view.index)
+    for col in cols:
+        if col in view:
+            mask = mask | pd.to_numeric(view[col], errors="coerce").notna()
+    have = pd.to_datetime(view.loc[mask, "date"], errors="coerce").dropna()
+    if not have.empty:
+        pad = pd.Timedelta(hours=12)
+        fig.update_xaxes(range=[have.min() - pad, have.max() + pad])
+
+
 def chart_hrv(view: pd.DataFrame, band) -> go.Figure:
     x = view["date"]
     fig = go.Figure()
@@ -1299,7 +1445,9 @@ def chart_rhr(view: pd.DataFrame) -> go.Figure:
         fig.add_trace(go.Scatter(x=x, y=view["rhr_7d"], name="7-day", mode="lines",
                                  line=dict(color=TEXT_DIM, width=1.5, dash="dot")))
     _glow_line(fig, x, view["resting_hr"], SERIES2, "RHR")
-    return _dark(fig, 230)
+    fig = _dark(fig, 230)
+    _clamp_x_to_data(fig, view, ["resting_hr"])
+    return fig
 
 
 def chart_sleeping_hr(view: pd.DataFrame) -> go.Figure:
@@ -1425,6 +1573,108 @@ def chart_vo2(view: pd.DataFrame) -> go.Figure:
     if not ys.empty:
         fig.update_yaxes(range=[ys.min() - 0.6, ys.max() + 0.6])
     return _dark(fig, 220, legend=False)
+
+
+def chart_recovery_deviation(view: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    if view is None or view.empty or "date" not in view:
+        return _dark(fig, 250)
+    x = view["date"]
+    fig.add_hrect(y0=-4, y1=-1, fillcolor=RED, opacity=0.08, line_width=0)
+    fig.add_hrect(y0=1, y1=4, fillcolor=AMBER, opacity=0.06, line_width=0)
+    fig.add_hline(y=0, line=dict(color=TEXT_FAINT, width=1, dash="dot"), opacity=0.5)
+    specs = [
+        ("hrv_z", "HRV z", ACCENT),
+        ("rhr_z", "RHR z", SERIES2),
+        ("sleep_z", "Sleep z", AMBER),
+        ("stress_z", "Stress z", RED),
+    ]
+    for col, name, color in specs:
+        if col in view and pd.to_numeric(view[col], errors="coerce").notna().any():
+            _glow_line(fig, x, pd.to_numeric(view[col], errors="coerce"), color, name, width=1.8)
+    fig.update_yaxes(title_text="z-score vs prior 28d", range=[-3.2, 3.2])
+    _clamp_x_to_data(fig, view, [c for c, _, _ in specs])
+    return _dark(fig, 260)
+
+
+def chart_sleep_regularity(view: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    if view is None or view.empty or "date" not in view:
+        return _dark(fig, 250)
+    x = view["date"]
+    fig.add_hrect(y0=60, y1=240, fillcolor=AMBER, opacity=0.06, line_width=0)
+    fig.add_hline(y=60, line=dict(color=TEXT_FAINT, width=1, dash="dot"), opacity=0.5)
+    specs = [
+        ("sleep_midpoint_variability_7d", "Midpoint SD", ACCENT),
+        ("bedtime_variability_7d", "Bedtime SD", SERIES2),
+        ("wake_time_variability_7d", "Wake SD", AMBER),
+    ]
+    for col, name, color in specs:
+        if col in view and pd.to_numeric(view[col], errors="coerce").notna().any():
+            _glow_line(fig, x, pd.to_numeric(view[col], errors="coerce"), color, name, width=1.8)
+    fig.update_yaxes(title_text="minutes")
+    _clamp_x_to_data(fig, view, [c for c, _, _ in specs])
+    return _dark(fig, 260)
+
+
+def chart_respiratory_watchlist(view: pd.DataFrame) -> go.Figure:
+    from plotly.subplots import make_subplots
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    if view is None or view.empty or "date" not in view:
+        return _dark(fig, 260)
+    x = view["date"]
+    if "spo2_avg" in view and pd.to_numeric(view["spo2_avg"], errors="coerce").notna().any():
+        fig.add_hline(y=94, line=dict(color=AMBER, width=1, dash="dot"), opacity=0.55, secondary_y=False)
+        fig.add_trace(go.Scatter(
+            x=x, y=pd.to_numeric(view["spo2_avg"], errors="coerce"),
+            name="SpO₂", mode="lines+markers",
+            line=dict(color=ACCENT, width=2, shape="spline"),
+            marker=dict(color=ACCENT, size=5),
+        ), secondary_y=False)
+    if "respiration_avg" in view and pd.to_numeric(view["respiration_avg"], errors="coerce").notna().any():
+        fig.add_trace(go.Scatter(
+            x=x, y=pd.to_numeric(view["respiration_avg"], errors="coerce"),
+            name="Respiration", mode="lines+markers",
+            line=dict(color=SERIES2, width=2, shape="spline"),
+            marker=dict(color=SERIES2, size=5),
+        ), secondary_y=True)
+    fig.update_yaxes(title_text="SpO₂ %", secondary_y=False, gridcolor=GRID,
+                     tickfont=dict(color=TEXT_FAINT, size=10.5))
+    fig.update_yaxes(title_text="breaths/min", secondary_y=True,
+                     gridcolor="rgba(0,0,0,0)", tickfont=dict(color=TEXT_FAINT, size=10.5))
+    _clamp_x_to_data(fig, view, ["spo2_avg", "respiration_avg"])
+    return _dark(fig, 260)
+
+
+def chart_foot_pace(model: dict) -> go.Figure:
+    from plotly.subplots import make_subplots
+    rows = pd.DataFrame(((model or {}).get("fitness") or {}).get("activity", {}).get("rows") or [])
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    if rows.empty:
+        return _dark(fig, 260)
+    rows["date"] = pd.to_datetime(rows["date"], errors="coerce")
+    rows["pace_min_km"] = pd.to_numeric(rows["pace_min_km"], errors="coerce")
+    rows["avg_hr"] = pd.to_numeric(rows.get("avg_hr"), errors="coerce")
+    rows = rows.dropna(subset=["date", "pace_min_km"]).sort_values("date")
+    if rows.empty:
+        return _dark(fig, 260)
+    fig.add_trace(go.Scatter(
+        x=rows["date"], y=rows["pace_min_km"], name="Pace",
+        mode="lines+markers", line=dict(color=ACCENT, width=2, shape="spline"),
+        marker=dict(color=ACCENT, size=6),
+        text=rows.get("name"),
+        hovertemplate="%{y:.2f} min/km<br>%{text}<extra></extra>",
+    ), secondary_y=False)
+    if rows["avg_hr"].notna().any():
+        fig.add_trace(go.Bar(
+            x=rows["date"], y=rows["avg_hr"], name="Avg HR",
+            marker_color="rgba(227,190,133,0.18)", marker_line_width=0,
+        ), secondary_y=True)
+    fig.update_yaxes(title_text="min/km", autorange="reversed", secondary_y=False,
+                     gridcolor=GRID, tickfont=dict(color=TEXT_FAINT, size=10.5))
+    fig.update_yaxes(title_text="avg HR", secondary_y=True,
+                     gridcolor="rgba(0,0,0,0)", tickfont=dict(color=TEXT_FAINT, size=10.5))
+    return _dark(fig, 260)
 
 
 def chart_prebed_relationship(model: dict, y_col: str, x_col: str | None = None) -> go.Figure:

@@ -62,7 +62,38 @@ def enrich_daily(df: pd.DataFrame) -> pd.DataFrame:
     # Sleep debt vs personal need
     df["sleep_debt_h"] = config.SLEEP_NEED_HOURS - df["sleep_hours"]
 
-    return df
+    return _add_daily_deviations(df)
+
+
+def _add_daily_deviations(df: pd.DataFrame) -> pd.DataFrame:
+    """Add prior-28-day baseline means and z-scores for primitive signals.
+
+    These are deliberately primitive-signal deviations, not Garmin composite
+    score comparisons. The baseline is shifted by one row so today's anomaly
+    does not dilute its own reference range.
+    """
+    out = df.copy()
+    specs = {
+        "hrv_overnight_avg": "hrv",
+        "resting_hr": "rhr",
+        "sleep_hours": "sleep",
+        "steps": "steps",
+        "intensity_minutes": "intensity",
+        "stress_avg": "stress",
+        "spo2_avg": "spo2",
+        "respiration_avg": "respiration",
+        "body_battery_current": "body_battery",
+    }
+    for col, prefix in specs.items():
+        if col not in out:
+            continue
+        s = pd.to_numeric(out[col], errors="coerce")
+        baseline = s.rolling(28, min_periods=7).mean().shift(1)
+        sd = s.rolling(28, min_periods=7).std(ddof=0).shift(1).replace(0, np.nan)
+        z = ((s - baseline) / sd).replace([np.inf, -np.inf], np.nan)
+        out[f"{prefix}_baseline_28d"] = baseline
+        out[f"{prefix}_z"] = z
+    return out
 
 
 def compute_acwr(activities: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
@@ -1059,6 +1090,530 @@ def _stress_leak_missing(stress: pd.DataFrame, day_count: int, min_days: int) ->
     if evening.empty:
         missing.append("no 21:00-00:00 stress samples yet")
     return missing
+
+
+def compute_health_research_panels(
+    daily: pd.DataFrame,
+    activities: pd.DataFrame | None = None,
+    sleep_timing: pd.DataFrame | None = None,
+    min_days: int = 14,
+) -> dict:
+    """Research-report-inspired health panels from primitive Garmin signals.
+
+    The panels intentionally prefer baseline-normalized physiology, sleep
+    timing, activity volume/load, respiration and SpO2 over Garmin's proprietary
+    composite scores. They are descriptive monitoring tools, not diagnoses.
+    """
+    if daily is None or daily.empty:
+        return {
+            "status": "no_data",
+            "message": "Sync daily Garmin metrics to build research-grade health panels.",
+            "days_analyzed": 0,
+            "recovery": _empty_research_panel("Recovery and resilience"),
+            "sleep_regularity": _empty_research_panel("Sleep regularity"),
+            "respiratory": _empty_research_panel("Respiratory watchlist"),
+            "fitness": _empty_research_panel("Fitness adaptation"),
+            "data_quality": {"coverage": [], "missing": ["daily metrics"]},
+        }
+
+    df = daily.sort_values("date").copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    df = df.dropna(subset=["date"])
+    if df.empty:
+        return compute_health_research_panels(pd.DataFrame(), activities, sleep_timing, min_days)
+    if "sleep_hours" not in df and "sleep_seconds" in df:
+        df["sleep_hours"] = pd.to_numeric(df["sleep_seconds"], errors="coerce") / 3600.0
+
+    df = _attach_cardio_load(df, activities)
+    df = _attach_sleep_regularity(df, sleep_timing)
+    df = _add_body_battery_recharge(df)
+    latest = df.iloc[-1]
+
+    recovery = _research_recovery_panel(df)
+    sleep = _research_sleep_panel(df)
+    respiratory = _research_respiratory_panel(df)
+    fitness = _research_fitness_panel(df, activities)
+    quality = _research_data_quality(df, activities, sleep_timing, min_days)
+
+    panel_statuses = [recovery["status"], sleep["status"], respiratory["status"], fitness["status"]]
+    if "ready" in panel_statuses and len(df) >= min_days:
+        status = "ready"
+    elif any(s in ("ready", "learning") for s in panel_statuses):
+        status = "learning"
+    else:
+        status = "no_data"
+
+    alerts = []
+    if recovery.get("zone") in ("red", "yellow"):
+        alerts.append(f"recovery {recovery['zone']}")
+    if respiratory.get("zone") in ("red", "yellow"):
+        alerts.append(f"respiratory {respiratory['zone']}")
+    if sleep.get("zone") in ("red", "yellow"):
+        alerts.append(f"sleep regularity {sleep['zone']}")
+    if alerts:
+        message = "Watchlist active: " + ", ".join(alerts[:3]) + "."
+    elif status == "ready":
+        message = "Research panels are online: recovery, sleep regularity, respiration, and conditioning look stable."
+    elif status == "learning":
+        message = f"Learning research baselines from {len(df)}/{min_days} synced days."
+    else:
+        message = "Not enough primitive Garmin signals for research panels yet."
+
+    return {
+        "status": status,
+        "message": message,
+        "as_of": str(latest["date"].date()),
+        "days_analyzed": int(len(df)),
+        "min_days": int(min_days),
+        "recovery": recovery,
+        "sleep_regularity": sleep,
+        "respiratory": respiratory,
+        "fitness": fitness,
+        "data_quality": quality,
+        "rows": _research_chart_rows(df.tail(90)),
+    }
+
+
+def _empty_research_panel(title: str) -> dict:
+    return {
+        "title": title,
+        "status": "no_data",
+        "zone": "learning",
+        "message": "No data yet.",
+        "stats": [],
+        "flags": [],
+    }
+
+
+def _research_recovery_panel(df: pd.DataFrame) -> dict:
+    latest = df.iloc[-1]
+    recent = df.tail(14)
+    flags = _research_recovery_flags(latest)
+    flag_counts = recent.apply(_research_recovery_flag_count, axis=1)
+    recovery_debt = flag_counts >= 2
+    streak = _trailing_true_streak(recovery_debt)
+    suppressed_days = int((recent.get("hrv_flag", pd.Series(index=recent.index, dtype=object)) == "suppressed").sum())
+    elevated_rhr_days = int(
+        recent.get("rhr_elevated", pd.Series(False, index=recent.index)).fillna(False).astype(bool).sum()
+    )
+    short_sleep_days = int((pd.to_numeric(recent.get("sleep_debt_h"), errors="coerce") >= 1.0).sum()) if "sleep_debt_h" in recent else 0
+    risk_score = min(100, len(flags) * 22 + streak * 8 + max(0, suppressed_days - 2) * 3)
+    if len(flags) >= 3 or streak >= 2:
+        zone = "red"
+    elif flags or suppressed_days >= 3 or elevated_rhr_days >= 3 or short_sleep_days >= 3:
+        zone = "yellow"
+    else:
+        zone = "green"
+    status = "ready" if _has_any(df, ("hrv_overnight_avg", "resting_hr", "sleep_hours")) else "no_data"
+
+    if status == "no_data":
+        message = "No HRV, resting-heart-rate, or sleep-duration signals are available yet."
+    elif zone == "red":
+        message = "Recovery debt is stacking: multiple primitive signals are away from baseline."
+    elif zone == "yellow":
+        message = "Recovery is mixed. Watch the next one to three nights before adding load."
+    else:
+        message = "Recovery primitives are inside the current personal baseline."
+
+    return {
+        "title": "Recovery and resilience",
+        "status": status,
+        "zone": zone,
+        "message": message,
+        "risk_score": int(round(risk_score)),
+        "flags": flags,
+        "stats": [
+            _research_stat("Risk", risk_score, "", "primitive-signal score", 0),
+            _research_stat("Debt streak", streak, "d", ">=2 daily flags", 0),
+            _research_stat("Suppressed HRV", suppressed_days, "d", "last 14 days", 0),
+            _research_stat("Elevated RHR", elevated_rhr_days, "d", "last 14 days", 0),
+            _research_stat("Short sleep", short_sleep_days, "d", "last 14 days", 0),
+        ],
+    }
+
+
+def _research_sleep_panel(df: pd.DataFrame) -> dict:
+    latest = df.iloc[-1]
+    recent = df.tail(14)
+    sleep_samples = int(pd.to_numeric(df.get("sleep_hours"), errors="coerce").notna().sum()) if "sleep_hours" in df else 0
+    timing_samples = int(pd.to_numeric(df.get("sleep_midpoint_minute"), errors="coerce").notna().sum()) if "sleep_midpoint_minute" in df else 0
+    midpoint_sd = _first_number(latest.get("sleep_midpoint_variability_7d"))
+    bedtime_sd = _first_number(latest.get("bedtime_variability_7d"))
+    wake_sd = _first_number(latest.get("wake_time_variability_7d"))
+    avg_sleep = _first_number(pd.to_numeric(recent.get("sleep_hours"), errors="coerce").mean()) if "sleep_hours" in recent else None
+    debt_7d = None
+    short_nights_14 = 0
+    if "sleep_debt_h" in df:
+        debt = pd.to_numeric(df["sleep_debt_h"], errors="coerce").clip(lower=0)
+        debt_7d = _first_number(debt.tail(7).sum())
+        short_nights_14 = int((debt.tail(14) >= 1.0).sum())
+    weekend_drift = _weekend_midpoint_drift(df)
+
+    flags = []
+    if midpoint_sd is not None and midpoint_sd > 75:
+        flags.append("sleep midpoint is highly variable")
+    elif midpoint_sd is not None and midpoint_sd > 45:
+        flags.append("sleep midpoint is drifting")
+    if debt_7d is not None and debt_7d >= 7:
+        flags.append("seven-day sleep debt is high")
+    elif debt_7d is not None and debt_7d >= 3.5:
+        flags.append("seven-day sleep debt is accumulating")
+    if weekend_drift is not None and abs(weekend_drift) > 90:
+        flags.append("weekend sleep timing is shifted")
+
+    if timing_samples >= 5:
+        status = "ready"
+    elif sleep_samples >= 3:
+        status = "learning"
+    else:
+        status = "no_data"
+    if status == "no_data":
+        zone = "learning"
+        message = "Sleep duration and timing data are not available yet."
+    elif flags and any(x in flags[0] for x in ("highly",)):
+        zone = "red"
+        message = "Sleep regularity is a priority: timing variation is large enough to blur recovery signals."
+    elif flags:
+        zone = "yellow"
+        message = "Sleep timing or debt is drifting; keep the wake/sleep window tighter this week."
+    else:
+        zone = "green"
+        message = "Sleep duration and timing look stable for the current baseline."
+
+    return {
+        "title": "Sleep regularity",
+        "status": status,
+        "zone": zone,
+        "message": message,
+        "flags": flags,
+        "stats": [
+            _research_stat("Avg sleep", avg_sleep, "h", "last 14 days", 1),
+            _research_stat("7d debt", debt_7d, "h", "vs target", 1),
+            _research_stat("Midpoint SD", midpoint_sd, "min", "rolling 7d", 0),
+            _research_stat("Wake SD", wake_sd, "min", "rolling 7d", 0),
+            _research_stat("Weekend drift", weekend_drift, "min", "midpoint vs weekdays", 0, signed=True),
+            _research_stat("Short nights", short_nights_14, "d", "last 14 days", 0),
+        ],
+    }
+
+
+def _research_respiratory_panel(df: pd.DataFrame) -> dict:
+    latest = df.iloc[-1]
+    recent = df.tail(14)
+    has_resp = _has_any(df, ("spo2_avg", "respiration_avg"))
+    if not has_resp:
+        return {
+            **_empty_research_panel("Respiratory watchlist"),
+            "message": "No SpO2 or respiration summaries are stored yet.",
+        }
+
+    flags = _research_respiratory_flags(latest)
+    day_flags = recent.apply(lambda r: len(_research_respiratory_flags(r)), axis=1)
+    severe_spo2 = pd.to_numeric(recent.get("spo2_avg"), errors="coerce") <= 92 if "spo2_avg" in recent else pd.Series(False, index=recent.index)
+    anomaly_days = int(((day_flags >= 2) | severe_spo2.fillna(False)).sum())
+    if any("SpO2 very low" in f for f in flags) or len(flags) >= 3:
+        zone = "red"
+    elif flags or anomaly_days >= 2:
+        zone = "yellow"
+    else:
+        zone = "green"
+
+    if zone == "red":
+        message = "Respiratory watchlist is active: SpO2, respiration, sleep, or RHR are clustering away from baseline."
+    elif zone == "yellow":
+        message = "One or more respiratory-adjacent signals are off baseline; look for repeated nights before acting."
+    else:
+        message = "Respiratory-adjacent signals look stable against the current baseline."
+
+    return {
+        "title": "Respiratory watchlist",
+        "status": "ready" if _has_any(df.tail(14), ("spo2_avg", "respiration_avg")) else "learning",
+        "zone": zone,
+        "message": message,
+        "flags": flags,
+        "stats": [
+            _research_stat("SpO2", latest.get("spo2_avg"), "%", "night average", 1),
+            _research_stat("SpO2 z", latest.get("spo2_z"), "z", "vs 28d", 1, signed=True),
+            _research_stat("Resp", latest.get("respiration_avg"), "/min", "sleep/waking avg", 1),
+            _research_stat("Resp z", latest.get("respiration_z"), "z", "vs 28d", 1, signed=True),
+            _research_stat("Anomaly days", anomaly_days, "d", "last 14 days", 0),
+        ],
+    }
+
+
+def _research_fitness_panel(df: pd.DataFrame, activities: pd.DataFrame | None) -> dict:
+    latest = df.iloc[-1]
+    vo2 = pd.to_numeric(df.get("vo2max"), errors="coerce") if "vo2max" in df else pd.Series(dtype=float)
+    vo2_recent = vo2.dropna().tail(28)
+    vo2_delta = None
+    if len(vo2_recent) >= 2:
+        vo2_delta = float(vo2_recent.iloc[-1] - vo2_recent.iloc[0])
+    acwr = _first_number(latest.get("acwr"))
+    high_load_days = int((pd.to_numeric(df.tail(14).get("acwr"), errors="coerce") > 1.3).sum()) if "acwr" in df else 0
+    low_load_days = int((pd.to_numeric(df.tail(14).get("acwr"), errors="coerce") < 0.8).sum()) if "acwr" in df else 0
+    activity_summary = _research_activity_performance(activities)
+    has_data = bool(vo2.dropna().any()) or acwr is not None or activity_summary["sessions_28d"] > 0
+    if not has_data:
+        return {
+            **_empty_research_panel("Fitness adaptation"),
+            "message": "No VO2max, training load, or distance-session data is available yet.",
+        }
+
+    flags = []
+    if acwr is not None and acwr > 1.5:
+        flags.append("training load spike")
+    elif acwr is not None and acwr > 1.3:
+        flags.append("training load above sweet spot")
+    elif acwr is not None and acwr < 0.8:
+        flags.append("training load below maintenance range")
+    if vo2_delta is not None and vo2_delta <= -1.0:
+        flags.append("VO2max estimate is falling")
+    if activity_summary.get("pace_trend") == "slower":
+        flags.append("distance-session pace is slowing")
+
+    if any(f == "training load spike" for f in flags):
+        zone = "red"
+    elif flags:
+        zone = "yellow"
+    else:
+        zone = "green"
+    if zone == "red":
+        message = "Conditioning signal is load-limited: recent ACWR is high enough to respect."
+    elif zone == "yellow":
+        message = "Fitness adaptation is mixed; load, VO2max, or pace is moving outside the useful range."
+    else:
+        message = "Conditioning signals look stable enough for normal progression."
+
+    return {
+        "title": "Fitness adaptation",
+        "status": "ready",
+        "zone": zone,
+        "message": message,
+        "flags": flags,
+        "activity": activity_summary,
+        "stats": [
+            _research_stat("VO2max", latest.get("vo2max"), "", "ml/kg/min", 1),
+            _research_stat("VO2 28d", vo2_delta, "", "change", 1, signed=True),
+            _research_stat("ACWR", acwr, "", "7d vs 28d load", 2),
+            _research_stat("High load", high_load_days, "d", "last 14 days", 0),
+            _research_stat("Foot sessions", activity_summary["sessions_28d"], "", "last 28 days", 0),
+            _research_stat("Median pace", activity_summary["median_pace_min_km"], "min/km", activity_summary["pace_trend"], 1),
+        ],
+    }
+
+
+def _research_recovery_flags(row: pd.Series) -> list[str]:
+    flags = []
+    if row.get("hrv_flag") == "suppressed" or _le(row.get("hrv_z"), -1.0):
+        flags.append("HRV below personal baseline")
+    if _truthy(row.get("rhr_elevated")) or _ge(row.get("rhr_z"), 1.0):
+        flags.append("resting HR above baseline")
+    if _ge(row.get("sleep_debt_h"), 1.0):
+        flags.append("sleep debt >1h")
+    if _ge(row.get("stress_avg"), 60) or _ge(row.get("stress_z"), 1.0):
+        flags.append("stress above baseline")
+    if _lt(row.get("body_battery_current"), 35) or _le(row.get("body_battery_z"), -1.0):
+        flags.append("Body Battery low")
+    return flags
+
+
+def _research_recovery_flag_count(row: pd.Series) -> int:
+    return len(_research_recovery_flags(row))
+
+
+def _research_respiratory_flags(row: pd.Series) -> list[str]:
+    flags = []
+    spo2 = _first_number(row.get("spo2_avg"))
+    if spo2 is not None and spo2 <= 92:
+        flags.append("SpO2 very low")
+    elif spo2 is not None and spo2 <= 94:
+        flags.append("SpO2 low")
+    elif _le(row.get("spo2_z"), -1.5):
+        flags.append("SpO2 below baseline")
+    if _ge(row.get("respiration_z"), 1.5):
+        flags.append("respiration above baseline")
+    if _ge(row.get("rhr_z"), 1.0):
+        flags.append("resting HR above baseline")
+    if _le(row.get("sleep_score"), 60):
+        flags.append("sleep disruption")
+    return flags
+
+
+def _research_data_quality(
+    df: pd.DataFrame,
+    activities: pd.DataFrame | None,
+    sleep_timing: pd.DataFrame | None,
+    min_days: int,
+) -> dict:
+    specs = [
+        ("hrv_overnight_avg", "overnight HRV"),
+        ("resting_hr", "resting HR"),
+        ("sleep_hours", "sleep duration"),
+        ("stress_avg", "daily stress"),
+        ("spo2_avg", "SpO2"),
+        ("respiration_avg", "respiration"),
+        ("vo2max", "VO2max"),
+    ]
+    coverage = []
+    for col, label in specs:
+        count = int(pd.to_numeric(df.get(col), errors="coerce").notna().sum()) if col in df else 0
+        coverage.append({"label": label, "days": count, "pct": round(100 * count / max(len(df), 1), 0)})
+    missing = []
+    if len(df) < min_days:
+        missing.append(f"{min_days - len(df)} more days for stable research baselines")
+    if sleep_timing is None or sleep_timing.empty:
+        missing.append("sleep start/end raw JSON needed for timing regularity")
+    if activities is None or activities.empty:
+        missing.append("activities needed for conditioning and load context")
+    if not _has_any(df, ("spo2_avg", "respiration_avg")):
+        missing.append("SpO2 or respiration summaries needed for respiratory watchlist")
+    return {"coverage": coverage, "missing": missing}
+
+
+def _research_stat(label: str, value, unit: str, sub: str, digits: int, signed: bool = False) -> dict:
+    n = _first_number(value)
+    return {
+        "label": label,
+        "value": None if n is None else round(n, digits),
+        "unit": unit,
+        "sub": sub,
+        "digits": digits,
+        "signed": signed,
+    }
+
+
+def _research_chart_rows(df: pd.DataFrame) -> list[dict]:
+    cols = [
+        "date",
+        "hrv_z",
+        "rhr_z",
+        "sleep_z",
+        "stress_z",
+        "sleep_midpoint_variability_7d",
+        "bedtime_variability_7d",
+        "wake_time_variability_7d",
+        "spo2_avg",
+        "spo2_z",
+        "respiration_avg",
+        "respiration_z",
+    ]
+    rows = []
+    keep = [c for c in cols if c in df]
+    if "date" not in keep:
+        return rows
+    for _, row in df[keep].iterrows():
+        rec = {"date": str(pd.Timestamp(row["date"]).date())}
+        for col in keep:
+            if col == "date":
+                continue
+            rec[col] = _round_or_none(row.get(col), 3)
+        rows.append(rec)
+    return rows
+
+
+def _has_any(df: pd.DataFrame, cols: tuple[str, ...]) -> bool:
+    for col in cols:
+        if col in df and pd.to_numeric(df[col], errors="coerce").notna().any():
+            return True
+    return False
+
+
+def _truthy(value) -> bool:
+    return bool(value) if value is not None and pd.notna(value) else False
+
+
+def _trailing_true_streak(mask) -> int:
+    streak = 0
+    for value in list(mask)[::-1]:
+        if bool(value):
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _weekend_midpoint_drift(df: pd.DataFrame) -> float | None:
+    if "sleep_midpoint_minute" not in df or "date" not in df:
+        return None
+    s = df.dropna(subset=["sleep_midpoint_minute"]).tail(28).copy()
+    if s.empty:
+        return None
+    s["dow"] = pd.to_datetime(s["date"], errors="coerce").dt.dayofweek
+    weekday = s[s["dow"] < 5]["sleep_midpoint_minute"]
+    weekend = s[s["dow"] >= 5]["sleep_midpoint_minute"]
+    if len(weekday) < 3 or len(weekend) < 2:
+        return None
+    return float(weekend.median() - weekday.median())
+
+
+def _research_activity_performance(activities: pd.DataFrame | None) -> dict:
+    empty = {
+        "sessions_28d": 0,
+        "median_pace_min_km": None,
+        "pace_trend": "insufficient_data",
+        "latest_pace_min_km": None,
+        "latest_avg_hr": None,
+        "rows": [],
+    }
+    if activities is None or activities.empty or "date" not in activities:
+        return empty
+    a = activities.copy()
+    a["date"] = pd.to_datetime(a["date"], errors="coerce")
+    a = a.dropna(subset=["date"])
+    if a.empty:
+        return empty
+    if "distance_m" not in a or "duration_s" not in a:
+        return empty
+    a["distance_km"] = pd.to_numeric(a["distance_m"], errors="coerce") / 1000.0
+    a["duration_min"] = pd.to_numeric(a["duration_s"], errors="coerce") / 60.0
+    foot_mask = a.apply(_is_foot_distance_activity, axis=1)
+    foot = a[foot_mask & (a["distance_km"] > 0.4) & (a["duration_min"] > 4)].copy()
+    if foot.empty:
+        return empty
+    foot["pace_min_km"] = foot["duration_min"] / foot["distance_km"]
+    foot = foot.replace([np.inf, -np.inf], np.nan).dropna(subset=["pace_min_km"])
+    if foot.empty:
+        return empty
+    latest_day = foot["date"].max()
+    last28 = foot[foot["date"] >= latest_day - pd.Timedelta(days=28)].sort_values("date")
+    trend = _pace_trend(last28["pace_min_km"])
+    latest = last28.iloc[-1]
+    rows = []
+    for _, row in last28.tail(20).iterrows():
+        rows.append({
+            "date": str(row["date"].date()),
+            "pace_min_km": _round_or_none(row.get("pace_min_km"), 2),
+            "avg_hr": _round_or_none(row.get("avg_hr"), 0),
+            "distance_km": _round_or_none(row.get("distance_km"), 1),
+            "training_load": _round_or_none(row.get("training_load"), 0),
+            "name": row.get("name") or row.get("type") or "activity",
+        })
+    return {
+        "sessions_28d": int(len(last28)),
+        "median_pace_min_km": _round_or_none(last28["pace_min_km"].median(), 1),
+        "pace_trend": trend,
+        "latest_pace_min_km": _round_or_none(latest.get("pace_min_km"), 1),
+        "latest_avg_hr": _round_or_none(latest.get("avg_hr"), 0),
+        "rows": rows,
+    }
+
+
+def _is_foot_distance_activity(row: pd.Series) -> bool:
+    text = f"{row.get('name') or ''} {row.get('type') or ''}".lower()
+    return any(word in text for word in ("run", "walk", "hike", "trail", "treadmill"))
+
+
+def _pace_trend(series: pd.Series) -> str:
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) < 4:
+        return "insufficient_data"
+    half = len(s) // 2
+    early, late = s.iloc[:half].median(), s.iloc[half:].median()
+    if late > early * 1.03:
+        return "slower"
+    if late < early * 0.97:
+        return "faster"
+    return "stable"
 
 
 def _cap_like_num(value) -> str:
