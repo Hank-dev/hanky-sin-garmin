@@ -108,5 +108,25 @@ class WeeklySummaryAITest(unittest.TestCase):
         self.assertIn("ANTHROPIC_API_KEY", out)
 
 
+import cockpit
+
+
+class WeeklySummaryCardTest(unittest.TestCase):
+    def test_renders_sections_and_is_one_html_block(self):
+        md = ("## Week in review\nHRV averaged 42ms, up 3 vs last week.\n"
+              "## Focus next week\n- Keep sleep above 7h.\n- Add one easy day.")
+        out = cockpit.weekly_summary_card(md, "Week of Jun 1 – Jun 7")
+        self.assertIn("Week of Jun 1", out)
+        self.assertIn("Week in review", out)
+        self.assertIn("Focus next week", out)
+        # No blank line (would break st.markdown's raw-HTML block).
+        self.assertFalse([ln for ln in out.splitlines() if ln.strip() == ""])
+
+    def test_empty_state_shows_note(self):
+        out = cockpit.weekly_summary_card("", "—")
+        self.assertIn("empty-note", out)
+        self.assertNotIn("coach-body", out)
+
+
 if __name__ == "__main__":
     unittest.main()

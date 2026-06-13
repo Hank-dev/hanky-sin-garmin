@@ -903,6 +903,18 @@ def coach_card(date_str, result, summary, sparse=False) -> str:
     return f'<div class="card coach">{head}{body}{disc}</div>'
 
 
+def weekly_summary_card(summary_md, meta) -> str:
+    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
+            f'<div><h3>Weekly summary</h3>'
+            f'<div class="meta">{html.escape(str(meta))}</div></div></div>')
+    if not summary_md:
+        body = ('<div class="empty-note" style="margin:0"><span class="ico">⚡</span> '
+                'No completed week to summarize yet — sync a full Mon–Sun of data.</div>')
+        return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+    body = f'<div class="coach-body">{_md_sections(summary_md)}</div>'
+    return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+
+
 def question_card(question: str | None, result: str | None, payload: dict | None = None) -> str:
     head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
             f'<div><h3>Ask about your health</h3><div class="meta">metrics-grounded answer</div></div></div>')
