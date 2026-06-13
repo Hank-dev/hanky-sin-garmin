@@ -2786,3 +2786,105 @@ def last_session_sets(exercise_id, sessions_df, sets_df):
         except (TypeError, ValueError):
             continue
     return out
+
+
+def summarize_week(daily, acts, checkins) -> dict:
+    """Compact recap of the last *completed* ISO week (Mon–Sun) vs the prior
+    week. Pure: reads the enriched `daily` frame (hrv_flag, rhr_elevated,
+    sleep_debt_h, acwr, ...), the activities frame, and check-ins. No raw
+    time-series — same privacy boundary as `summarize()`."""
+    out = {"status": "no_complete_week"}
+    if daily is None or getattr(daily, "empty", True) or "date" not in daily:
+        return out
+    d = daily.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    d = d.dropna(subset=["date"]).sort_values("date")
+    if d.empty:
+        return out
+
+    latest = d["date"].max().normalize()
+    this_monday = (latest - pd.Timedelta(days=int(latest.weekday()))).normalize()
+    week_start = this_monday - pd.Timedelta(days=7)
+    week_end = week_start + pd.Timedelta(days=6)
+    prior_start = week_start - pd.Timedelta(days=7)
+    prior_end = week_start - pd.Timedelta(days=1)
+
+    week = d[(d["date"] >= week_start) & (d["date"] <= week_end)]
+    if week.empty:
+        return out
+    prior = d[(d["date"] >= prior_start) & (d["date"] <= prior_end)]
+
+    def _avg(frame, col):
+        if col in frame:
+            s = pd.to_numeric(frame[col], errors="coerce")
+            if s.notna().any():
+                return round(float(s.mean()), 1)
+        return None
+
+    def _metric(col):
+        a, b = _avg(week, col), _avg(prior, col)
+        delta = round(a - b, 1) if (a is not None and b is not None) else None
+        return {"avg": a, "delta_vs_prior": delta}
+
+    if "hrv_flag" in week:
+        suppressed = week["hrv_flag"].eq("suppressed")
+    else:
+        suppressed = pd.Series(False, index=week.index)
+    if "rhr_elevated" in week:
+        rhr_elev = week["rhr_elevated"].fillna(False).astype(bool)
+    else:
+        rhr_elev = pd.Series(False, index=week.index)
+
+    notable = {"best_recovery_day": None, "worst_recovery_day": None}
+    if "hrv_overnight_avg" in week:
+        h = pd.to_numeric(week["hrv_overnight_avg"], errors="coerce")
+        if h.notna().any():
+            notable["best_recovery_day"] = week.loc[h.idxmax(), "date"].strftime("%Y-%m-%d")
+            notable["worst_recovery_day"] = week.loc[h.idxmin(), "date"].strftime("%Y-%m-%d")
+
+    sessions, total_load = 0, None
+    if acts is not None and not getattr(acts, "empty", True) and "date" in acts:
+        a = acts.copy()
+        a["date"] = pd.to_datetime(a["date"], errors="coerce")
+        aw = a[(a["date"] >= week_start) & (a["date"] <= week_end)]
+        sessions = int(len(aw))
+        if "training_load" in aw:
+            tl = pd.to_numeric(aw["training_load"], errors="coerce")
+            total_load = round(float(tl.sum()), 1) if tl.notna().any() else None
+
+    acwr_end = None
+    if "acwr" in week:
+        ac = pd.to_numeric(week["acwr"], errors="coerce").dropna()
+        acwr_end = round(float(ac.iloc[-1]), 2) if not ac.empty else None
+
+    checkin_out = {}
+    if checkins is not None and not getattr(checkins, "empty", True) and "date" in checkins:
+        c = checkins.copy()
+        c["date"] = pd.to_datetime(c["date"], errors="coerce")
+        cw = c[(c["date"] >= week_start) & (c["date"] <= week_end)]
+        for col, key in (("pain", "avg_pain"), ("fatigue", "avg_fatigue"), ("energy", "avg_energy")):
+            if col in cw:
+                s = pd.to_numeric(cw[col], errors="coerce")
+                if s.notna().any():
+                    checkin_out[key] = round(float(s.mean()), 1)
+
+    return {
+        "week_start": week_start.strftime("%Y-%m-%d"),
+        "week_end": week_end.strftime("%Y-%m-%d"),
+        "days_with_data": int(week["date"].nunique()),
+        "hrv": _metric("hrv_overnight_avg"),
+        "rhr": _metric("resting_hr"),
+        "sleep_hours": _metric("sleep_hours"),
+        "sleep_debt": _metric("sleep_debt_h"),
+        "stress": _metric("stress_avg"),
+        "body_battery": _metric("body_battery_current"),
+        "recovery_flags": {
+            "suppressed_days": int(suppressed.sum()),
+            "rhr_elevated_days": int(rhr_elev.sum()),
+            "red_days": int((suppressed & rhr_elev).sum()),
+        },
+        "training": {"sessions": sessions, "total_load": total_load, "acwr_end": acwr_end},
+        "notable": notable,
+        "checkins": checkin_out,
+        "status": "ready",
+    }
