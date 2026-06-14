@@ -33,7 +33,13 @@ is missing, say so rather than inventing it.
 2-4 concrete, actionable recommendations for the next few days.
 
 Do not pad. Do not give medical disclaimers. If data is too sparse to judge,
-say that plainly."""
+say that plainly.
+
+You may also receive coach_memory — durable, user-approved facts about this
+athlete (goals, injuries, observed patterns, prior coaching). When present,
+honor injuries when advising load, orient advice toward the athlete's goals,
+build on prior coaching, and reference these facts naturally so the athlete
+feels known. They are curated facts, not raw data."""
 
 QUESTION_SYSTEM = """You answer an athlete's health and training questions using
 only the compact Garmin metrics, capacity-envelope model, stress-leak map,
@@ -63,7 +69,13 @@ Direct answer to the question.
 ## What the metrics say
 Bullets with the relevant numbers and caveats.
 ## Next steps
-2-4 concrete actions."""
+2-4 concrete actions.
+
+You may also receive coach_memory — durable, user-approved facts about this
+athlete (goals, injuries, observed patterns, prior coaching). When present,
+honor injuries when advising load, orient advice toward the athlete's goals,
+build on prior coaching, and reference these facts naturally so the athlete
+feels known. They are curated facts, not raw data."""
 
 
 WEEKLY_SYSTEM = """You are an evidence-based endurance and recovery coach writing a
@@ -80,10 +92,24 @@ sparse (low days_with_data), say so rather than inventing it.
 ## Focus next week
 1-2 concrete priorities for the coming week, grounded in the data.
 
-If the week is too sparse to judge, say that plainly in one line."""
+If the week is too sparse to judge, say that plainly in one line.
+
+You may also receive coach_memory — durable, user-approved facts about this
+athlete (goals, injuries, observed patterns, prior coaching). When present,
+honor injuries when advising load, orient advice toward the athlete's goals,
+build on prior coaching, and reference these facts naturally so the athlete
+feels known. They are curated facts, not raw data."""
 
 
-def analyze(summary: dict, strength: dict | None = None, model: str | None = None) -> str:
+def _memory_block(coach_memory: dict | None) -> str:
+    if not coach_memory:
+        return ""
+    return ("\n\nCoach memory (durable, user-approved facts about this athlete):\n\n"
+            + json.dumps(coach_memory, indent=2))
+
+
+def analyze(summary: dict, strength: dict | None = None,
+            coach_memory: dict | None = None, model: str | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -97,13 +123,15 @@ def analyze(summary: dict, strength: dict | None = None, model: str | None = Non
                        + json.dumps(summary, indent=2)
                        + "\n\nStrength-training profile:\n\n"
                        + json.dumps(strength or {}, indent=2)
+                       + _memory_block(coach_memory)
                        + "\n\nAnalyse it.",
         }],
     )
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
-def weekly_summary(week_payload: dict, model: str | None = None) -> str:
+def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
+                   model: str | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable the weekly summary._"
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -115,6 +143,7 @@ def weekly_summary(week_payload: dict, model: str | None = None) -> str:
             "role": "user",
             "content": "Here is my completed-week summary as JSON:\n\n"
                        + json.dumps(week_payload, indent=2)
+                       + _memory_block(coach_memory)
                        + "\n\nWrite the recap.",
         }],
     )
@@ -123,7 +152,7 @@ def weekly_summary(week_payload: dict, model: str | None = None) -> str:
 
 def _question_payload(question, summary, capacity, stress_leak_map,
                       grappling_sessions, prebed_discovery, chat_history,
-                      strength=None, health_research=None):
+                      strength=None, health_research=None, coach_memory=None):
     return {
         "question": question,
         "metrics_summary": summary,
@@ -134,6 +163,7 @@ def _question_payload(question, summary, capacity, stress_leak_map,
         "health_research": health_research or {},
         "strength_profile": strength or {},
         "previous_chat": chat_history or [],
+        "coach_memory": coach_memory or {},
     }
 
 
@@ -147,6 +177,7 @@ def answer_question(
     chat_history: list[dict] | None = None,
     strength: dict | None = None,
     health_research: dict | None = None,
+    coach_memory: dict | None = None,
     model: str | None = None,
 ) -> str:
     if not config.ANTHROPIC_API_KEY:
@@ -156,7 +187,7 @@ def answer_question(
         return "_Ask a question first._"
     payload = _question_payload(question, summary, capacity, stress_leak_map,
                                 grappling_sessions, prebed_discovery, chat_history,
-                                strength, health_research)
+                                strength, health_research, coach_memory)
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,

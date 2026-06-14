@@ -3,6 +3,7 @@ import tempfile
 
 import pandas as pd
 
+import ai
 import analysis
 import config
 import db
@@ -108,3 +109,31 @@ def test_digest_caps_non_coaching_categories():
             for i in range(12)]
     d = analysis.build_coach_memory_digest(_mem_df(rows), per_category_cap=8)
     assert len(d["goals"]) == 8
+
+
+# ---------------------------------------------------------------------------
+# ai._memory_block and coach_memory threading tests (Task 3)
+# ---------------------------------------------------------------------------
+
+def test_memory_block_empty_is_blank():
+    assert ai._memory_block(None) == ""
+    assert ai._memory_block({}) == ""
+
+
+def test_memory_block_includes_json():
+    block = ai._memory_block({"goals": [{"text": "comp", "target_date": None}]})
+    assert "Coach memory" in block
+    assert "comp" in block
+
+
+def test_question_payload_includes_coach_memory():
+    payload = ai._question_payload(
+        "q", {"a": 1}, None, None, None, None, None,
+        strength=None, health_research=None,
+        coach_memory={"goals": [{"text": "comp"}]})
+    assert payload["coach_memory"] == {"goals": [{"text": "comp"}]}
+
+
+def test_question_payload_defaults_coach_memory_empty():
+    payload = ai._question_payload("q", {}, None, None, None, None, None)
+    assert payload["coach_memory"] == {}
