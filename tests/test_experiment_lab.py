@@ -151,3 +151,24 @@ def test_compute_result_malformed_end_date_treated_as_ongoing():
     res = analysis.compute_experiment_result(exp, daily, checkins=None)
     assert res["intervention_window"] == ["2026-06-01", "2026-06-14"]
     assert res["metrics"]["resting_hr"]["verdict"] == "likely helped"
+
+
+def test_summarize_active_experiments():
+    daily = _daily_for_experiment()   # latest date 2026-06-14
+    df = pd.DataFrame([
+        {"name": "Mag", "hypothesis": "better sleep", "status": "active",
+         "metrics": ["hrv_overnight_avg", "sleep_hours"], "start_date": "2026-06-01"},
+        {"name": "Done", "hypothesis": None, "status": "complete",
+         "metrics": ["resting_hr"], "start_date": "2026-05-01"},
+    ])
+    out = analysis.summarize_active_experiments(df, daily)
+    assert len(out) == 1
+    a = out[0]
+    assert a["name"] == "Mag"
+    assert a["metrics"] == ["HRV (overnight avg)", "Sleep (hours)"]
+    assert a["days_running"] == 13      # 06-01 -> 06-14
+    assert a["hypothesis"] == "better sleep"
+
+
+def test_summarize_active_experiments_empty():
+    assert analysis.summarize_active_experiments(pd.DataFrame(), pd.DataFrame()) == []

@@ -3088,3 +3088,36 @@ def compute_experiment_result(experiment, daily, checkins=None) -> dict:
         "metrics": out_metrics,
         "notes": notes,
     }
+
+
+def summarize_active_experiments(experiments_df, daily, cap: int = 6) -> list[dict]:
+    """Compact list of active experiments for AI context. Pure."""
+    if experiments_df is None or len(experiments_df) == 0:
+        return []
+    df = experiments_df
+    if "status" in df.columns:
+        df = df[df["status"] == "active"]
+    if len(df) == 0:
+        return []
+    latest = None
+    if daily is not None and len(daily):
+        latest = pd.to_datetime(daily["date"]).dt.normalize().max()
+    out = []
+    for _, r in df.head(cap).iterrows():
+        metrics = r.get("metrics") or []
+        if isinstance(metrics, str):
+            metrics = json.loads(metrics) if metrics else []
+        labels = [_EXPERIMENT_METRIC_BY_KEY[m]["label"]
+                  for m in metrics if m in _EXPERIMENT_METRIC_BY_KEY]
+        start = str(r.get("start_date"))[:10]
+        start_ts = pd.to_datetime(start, errors="coerce")
+        days_running = None
+        if latest is not None and not pd.isna(start_ts):
+            days_running = max(0, int((latest - start_ts.normalize()).days))
+        hyp = r.get("hypothesis")
+        hyp = hyp if (hyp not in (None, "") and pd.notna(hyp)) else None
+        out.append({
+            "name": r.get("name"), "hypothesis": hyp, "metrics": labels,
+            "start_date": start, "days_running": days_running,
+        })
+    return out
