@@ -2888,3 +2888,59 @@ def summarize_week(daily, acts, checkins) -> dict:
         "checkins": checkin_out,
         "status": "ready",
     }
+
+
+def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
+                              coaching_cap: int = 5) -> dict:
+    """Shape active coach memories into a compact dict for the AI.
+
+    Pure: takes the memory DataFrame, returns a category-grouped dict. Only
+    'active' rows are included, empty categories are omitted, and each category
+    is capped to bound the AI token budget. Returns {} when nothing is active.
+    """
+    if memory_df is None or len(memory_df) == 0:
+        return {}
+    df = memory_df
+    if "status" in df.columns:
+        df = df[df["status"] == "active"]
+    if len(df) == 0:
+        return {}
+
+    def _clean(v):
+        return None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+
+    def _rows(cat):
+        return df[df["category"] == cat]
+
+    out: dict = {}
+
+    goals = _rows("goal").head(per_category_cap)
+    if len(goals):
+        out["goals"] = [{"text": str(r["text"]),
+                         "target_date": _clean(r.get("target_date"))}
+                        for _, r in goals.iterrows()]
+
+    injuries = _rows("injury").head(per_category_cap)
+    if len(injuries):
+        out["injuries"] = [{"text": str(r["text"]),
+                            "body_part": _clean(r.get("body_part"))}
+                           for _, r in injuries.iterrows()]
+
+    patterns = _rows("pattern").head(per_category_cap)
+    if len(patterns):
+        out["patterns"] = [{"text": str(r["text"]),
+                            "confidence": _clean(r.get("confidence"))}
+                           for _, r in patterns.iterrows()]
+
+    coaching = _rows("coaching")
+    if len(coaching):
+        coaching = coaching.sort_values("created_at", ascending=False).head(coaching_cap)
+        out["coaching"] = [{"text": str(r["text"]),
+                            "date": str(r["created_at"])[:10]}
+                           for _, r in coaching.iterrows()]
+
+    notes = _rows("note").head(per_category_cap)
+    if len(notes):
+        out["notes"] = [str(r["text"]) for _, r in notes.iterrows()]
+
+    return out

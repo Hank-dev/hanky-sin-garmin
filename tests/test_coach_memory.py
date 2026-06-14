@@ -1,6 +1,9 @@
 import importlib
 import tempfile
 
+import pandas as pd
+
+import analysis
 import config
 import db
 
@@ -56,3 +59,45 @@ def test_memory_delete_removes_row():
     mid = db.add_memory({"category": "note", "text": "x", "source": "user"})
     db.delete_memory(mid)
     assert len(db.load_memory_df(status=None)) == 0
+
+
+# ---------------------------------------------------------------------------
+# analysis.build_coach_memory_digest tests
+# ---------------------------------------------------------------------------
+
+def _mem_df(rows):
+    cols = ["id", "category", "text", "status", "source", "confidence",
+            "target_date", "body_part", "created_at", "updated_at"]
+    return pd.DataFrame([{c: r.get(c) for c in cols} for r in rows])
+
+
+def test_digest_empty_returns_empty_dict():
+    assert analysis.build_coach_memory_digest(pd.DataFrame()) == {}
+    df = _mem_df([{"category": "note", "text": "x", "status": "archived"}])
+    assert analysis.build_coach_memory_digest(df) == {}
+
+
+def test_digest_groups_and_shapes_active_only():
+    df = _mem_df([
+        {"category": "goal", "text": "comp", "status": "active",
+         "target_date": "2026-08-15"},
+        {"category": "injury", "text": "knee", "status": "active",
+         "body_part": "knee"},
+        {"category": "pattern", "text": "late coffee → low HRV",
+         "status": "active", "confidence": "high"},
+        {"category": "note", "text": "ignored", "status": "archived"},
+    ])
+    d = analysis.build_coach_memory_digest(df)
+    assert d["goals"] == [{"text": "comp", "target_date": "2026-08-15"}]
+    assert d["injuries"] == [{"text": "knee", "body_part": "knee"}]
+    assert d["patterns"] == [{"text": "late coffee → low HRV",
+                              "confidence": "high"}]
+    assert "notes" not in d            # the only note was archived
+
+
+def test_digest_coaching_recent_first_and_capped():
+    rows = [{"category": "coaching", "text": f"advice {i}", "status": "active",
+             "created_at": f"2026-06-0{i}T00:00:00"} for i in range(1, 8)]
+    d = analysis.build_coach_memory_digest(_mem_df(rows), coaching_cap=3)
+    assert [c["text"] for c in d["coaching"]] == ["advice 7", "advice 6", "advice 5"]
+    assert d["coaching"][0]["date"] == "2026-06-07"
