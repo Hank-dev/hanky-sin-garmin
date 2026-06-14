@@ -73,6 +73,8 @@ def load(local_timezone: str):
 
 coach_memory_df = db.load_memory_df()                       # fresh: not cached
 coach_memory_digest = analysis.build_coach_memory_digest(coach_memory_df)
+active_experiments = analysis.summarize_active_experiments(
+    db.load_experiments_df(status="active"), daily)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -239,7 +241,8 @@ if not daily.empty:
             cached = None if regenerate else db.load_weekly_summary(ws)
             if cached is None:
                 with st.spinner("Writing your weekly summary…"):
-                    md = ai.weekly_summary(week, coach_memory=coach_memory_digest)
+                    md = ai.weekly_summary(week, coach_memory=coach_memory_digest,
+                                           active_experiments=active_experiments)
                 db.save_weekly_summary(ws, config.ANTHROPIC_MODEL, md)
                 cached = db.load_weekly_summary(ws)
             meta_label = _week_label(week["week_start"], week["week_end"])
@@ -421,6 +424,7 @@ if pending_prompt:
                 strength=strength_summary,
                 health_research=question_payload["health_research"],
                 coach_memory=coach_memory_digest,
+                active_experiments=active_experiments,
             )
         except Exception as e:
             answer = f"## Answer\n\nQuestion failed: {e}"
