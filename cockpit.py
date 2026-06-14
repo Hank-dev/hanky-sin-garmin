@@ -915,6 +915,42 @@ def weekly_summary_card(summary_md, meta) -> str:
     return _collapse_html(f'<div class="card coach">{head}{body}</div>')
 
 
+def coach_memory_peek(digest: dict) -> str:
+    """Compact 'Coach knows' card for the main dashboard."""
+    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
+            f'<div><h3>Coach knows</h3>'
+            f'<div class="meta">your long-term context</div></div></div>')
+    if not digest:
+        body = ('<div class="empty-note" style="margin:0"><span class="ico">🧠</span> '
+                'Nothing remembered yet — add goals, injuries, or notes on the '
+                'Coach page.</div>')
+        return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+
+    chip_style = ("display:inline-block;padding:2px 8px;margin:0 6px 6px 0;"
+                  "border-radius:10px;background:rgba(255,255,255,.06);"
+                  "font-size:12px;opacity:.85")
+    chips = "".join(
+        f'<span style="{chip_style}">{html.escape(label)}: {len(digest.get(key, []))}</span>'
+        for label, key in (("Goals", "goals"), ("Injuries", "injuries"),
+                            ("Patterns", "patterns"), ("Coaching", "coaching"),
+                            ("Notes", "notes"))
+        if digest.get(key))
+
+    lines = []
+    for g in digest.get("goals", [])[:2]:
+        when = (f' · {html.escape(str(g["target_date"]))}'
+                if g.get("target_date") else "")
+        lines.append(f'<div style="margin:2px 0">🎯 {html.escape(str(g["text"]))}{when}</div>')
+    for inj in digest.get("injuries", [])[:2]:
+        where = (f' ({html.escape(str(inj["body_part"]))})'
+                 if inj.get("body_part") else "")
+        lines.append(f'<div style="margin:2px 0">🩹 {html.escape(str(inj["text"]))}{where}</div>')
+
+    body = (f'<div style="margin-bottom:6px">{chips}</div>'
+            + "".join(lines))
+    return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+
+
 def question_card(question: str | None, result: str | None, payload: dict | None = None) -> str:
     head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
             f'<div><h3>Ask about your health</h3><div class="meta">metrics-grounded answer</div></div></div>')

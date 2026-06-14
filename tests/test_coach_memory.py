@@ -5,6 +5,7 @@ import pandas as pd
 
 import ai
 import analysis
+import cockpit
 import config
 import db
 
@@ -189,3 +190,26 @@ def test_parse_candidates_ignores_trailing_prose():
     text = '[{"category":"goal","text":"squat 150"}] hope this helps!'
     out = ai._parse_memory_candidates(text)
     assert out == [{"category": "goal", "text": "squat 150"}]
+
+
+# ---------------------------------------------------------------------------
+# cockpit.coach_memory_peek tests (Task 5)
+# ---------------------------------------------------------------------------
+
+def test_peek_empty_shows_prompt():
+    html_out = cockpit.coach_memory_peek({})
+    assert "Coach knows" in html_out
+    assert "Nothing remembered yet" in html_out
+
+
+def test_peek_lists_goals_and_injuries_and_escapes():
+    digest = {
+        "goals": [{"text": "comp <b>", "target_date": "2026-08-15"}],
+        "injuries": [{"text": "left knee", "body_part": "knee"}],
+        "patterns": [{"text": "p", "confidence": "high"}],
+    }
+    html_out = cockpit.coach_memory_peek(digest)
+    assert "comp &lt;b&gt;" in html_out          # html-escaped
+    assert "2026-08-15" in html_out
+    assert "left knee" in html_out
+    assert "Goals" in html_out and "Injuries" in html_out
