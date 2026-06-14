@@ -122,6 +122,7 @@ def test_memory_block_empty_is_blank():
 
 def test_memory_block_includes_json():
     block = ai._memory_block({"goals": [{"text": "comp", "target_date": None}]})
+    assert block.startswith("\n\nCoach memory")   # separator glue is structural
     assert "Coach memory" in block
     assert "comp" in block
 
