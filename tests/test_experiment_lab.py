@@ -3,6 +3,7 @@ import tempfile
 
 import config
 import db
+import analysis
 
 
 def _fresh_db():
@@ -47,3 +48,21 @@ def test_experiment_update_and_status_and_delete():
     assert len(db.load_experiments_df(status=None)) == 1
     db.delete_experiment(eid)
     assert len(db.load_experiments_df(status=None)) == 0
+
+
+def test_experiment_metric_catalog_shapes():
+    keys = {m["key"] for m in analysis.EXPERIMENT_METRICS}
+    assert {"hrv_overnight_avg", "resting_hr", "sleep_hours", "energy",
+            "pain"} <= keys
+    by_key = analysis._EXPERIMENT_METRIC_BY_KEY
+    assert by_key["resting_hr"]["polarity"] == "lower"
+    assert by_key["hrv_overnight_avg"]["polarity"] == "higher"
+    assert by_key["energy"]["source"] == "checkin"
+
+
+def test_t_critical_975():
+    assert abs(analysis._t_critical_975(1) - 12.706) < 1e-6
+    assert abs(analysis._t_critical_975(10) - 2.228) < 1e-6
+    assert abs(analysis._t_critical_975(35) - 2.042) < 1e-6   # nearest <= 35 is 30
+    assert abs(analysis._t_critical_975(500) - 1.960) < 1e-6
+    assert abs(analysis._t_critical_975(float("nan")) - 1.960) < 1e-6

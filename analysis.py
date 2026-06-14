@@ -4,9 +4,53 @@ Produces (a) an enriched daily dataframe for charting and (b) a compact
 summary dict that the AI layer turns into prose. Everything here is
 deterministic and unit-testable.
 """
+import json
 import pandas as pd
 import numpy as np
 import config
+
+
+EXPERIMENT_METRICS = [
+    {"key": "hrv_overnight_avg", "label": "HRV (overnight avg)", "source": "daily", "polarity": "higher"},
+    {"key": "resting_hr", "label": "Resting HR", "source": "daily", "polarity": "lower"},
+    {"key": "sleep_hours", "label": "Sleep (hours)", "source": "daily", "polarity": "higher"},
+    {"key": "sleep_score", "label": "Sleep score", "source": "daily", "polarity": "higher"},
+    {"key": "body_battery_high", "label": "Body Battery (peak)", "source": "daily", "polarity": "higher"},
+    {"key": "stress_avg", "label": "Stress (avg)", "source": "daily", "polarity": "lower"},
+    {"key": "energy", "label": "Energy (check-in)", "source": "checkin", "polarity": "higher"},
+    {"key": "pain", "label": "Pain (check-in)", "source": "checkin", "polarity": "lower"},
+    {"key": "fatigue", "label": "Fatigue (check-in)", "source": "checkin", "polarity": "lower"},
+]
+
+_EXPERIMENT_METRIC_BY_KEY = {m["key"]: m for m in EXPERIMENT_METRICS}
+
+EXPERIMENT_MIN_DAYS = 5
+
+_T_TABLE_975 = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
+    7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179,
+    13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101,
+    19: 2.093, 20: 2.086, 21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064,
+    25: 2.060, 26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+    40: 2.021, 60: 2.000, 120: 1.980,
+}
+
+
+def _t_critical_975(df) -> float:
+    """Two-sided 95% Student-t critical value via a built-in table (no scipy).
+    Picks the largest tabulated df not exceeding `df` (conservative for
+    fractional Welch df); asymptotes to 1.960 for df >= 120 or invalid input."""
+    if df is None or df != df or df < 1:    # None / NaN / invalid
+        return 1.960
+    if df >= 120:
+        return 1.960
+    chosen = 1
+    for k in sorted(_T_TABLE_975):
+        if k <= df:
+            chosen = k
+        else:
+            break
+    return _T_TABLE_975[chosen]
 
 
 GRAPPLING_PATTERNS = (
