@@ -7,6 +7,7 @@ import config
 import db
 import analysis
 import ai
+import cockpit
 
 
 def _fresh_db():
@@ -203,3 +204,31 @@ def test_interpret_experiment_without_key(monkeypatch):
     monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
     out = ai.interpret_experiment({"name": "Mag", "metrics": {}})
     assert "ANTHROPIC_API_KEY" in out
+
+
+def test_experiment_card_renders_verdicts_and_escapes():
+    result = {
+        "name": "Mag <b>", "baseline_window": ["2026-05-18", "2026-05-31"],
+        "intervention_window": ["2026-06-01", "2026-06-14"],
+        "metrics": {
+            "resting_hr": {"label": "Resting HR", "polarity": "lower",
+                           "n_before": 14, "n_after": 14, "mean_before": 60.0,
+                           "mean_after": 52.0, "delta": -8.0, "ci_low": -10.0,
+                           "ci_high": -6.0, "verdict": "likely helped"},
+            "sleep_hours": {"label": "Sleep (hours)", "polarity": "higher",
+                            "n_before": 2, "n_after": 2, "mean_before": None,
+                            "mean_after": None, "delta": None, "ci_low": None,
+                            "ci_high": None, "verdict": "insufficient_data"},
+        },
+        "notes": ["Sleep (hours): not enough data"],
+    }
+    out = cockpit.experiment_result_card(result)
+    assert "Mag &lt;b&gt;" in out               # escaped
+    assert "Resting HR" in out
+    assert "likely helped" in out
+    assert "insufficient_data" in out
+
+
+def test_experiment_card_empty_metrics():
+    out = cockpit.experiment_result_card({"name": "Empty", "metrics": {}})
+    assert "No metrics selected" in out
