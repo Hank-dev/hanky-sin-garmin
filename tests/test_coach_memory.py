@@ -138,3 +138,42 @@ def test_question_payload_includes_coach_memory():
 def test_question_payload_defaults_coach_memory_empty():
     payload = ai._question_payload("q", {}, None, None, None, None, None)
     assert payload["coach_memory"] == {}
+
+
+# ---------------------------------------------------------------------------
+# ai._parse_memory_candidates and ai.suggest_memories tests (Task 4)
+# ---------------------------------------------------------------------------
+
+def test_parse_candidates_clean_array():
+    text = '[{"category":"goal","text":"deadlift 200kg","target_date":"2026-12-01"}]'
+    out = ai._parse_memory_candidates(text)
+    assert out == [{"category": "goal", "text": "deadlift 200kg",
+                    "target_date": "2026-12-01"}]
+
+
+def test_parse_candidates_strips_code_fence_and_prose():
+    text = ('Here you go:\n```json\n'
+            '[{"category":"pattern","text":"late coffee lowers HRV",'
+            '"confidence":"high"}]\n```\nhope that helps')
+    out = ai._parse_memory_candidates(text)
+    assert out == [{"category": "pattern", "text": "late coffee lowers HRV",
+                    "confidence": "high"}]
+
+
+def test_parse_candidates_drops_bad_items():
+    text = ('[{"category":"goal","text":"keep"},'
+            '{"category":"unknown","text":"bad category"},'
+            '{"category":"note","text":""},'
+            '"not an object"]')
+    out = ai._parse_memory_candidates(text)
+    assert out == [{"category": "goal", "text": "keep"}]
+
+
+def test_parse_candidates_malformed_returns_empty():
+    assert ai._parse_memory_candidates("not json at all") == []
+    assert ai._parse_memory_candidates("") == []
+
+
+def test_suggest_memories_without_key_returns_empty(monkeypatch):
+    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    assert ai.suggest_memories({"a": 1}) == []

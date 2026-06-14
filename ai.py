@@ -5,6 +5,7 @@ three things: a plain-English readiness summary, flagged trends/anomalies, and
 concrete training advice grounded in the HRV / RHR / sleep / load signals.
 """
 import json
+import re
 import anthropic
 import config
 
@@ -99,6 +100,90 @@ athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
 feels known. They are curated facts, not raw data."""
+
+
+SUGGEST_SYSTEM = """You help maintain a coach's long-term memory of one athlete.
+Given a compact metrics summary, the athlete's strength profile, and the memories
+the coach ALREADY has, propose between 0 and 5 NEW durable facts worth remembering
+for weeks or months. Never duplicate an existing memory. Never record transient
+day-to-day noise (a single night's HRV, today's readiness). Only propose what a
+good coach would want to remember long-term: stable patterns, goals, injuries, or
+constraints implied by the data. If nothing durable stands out, return [].
+
+Respond with ONLY a JSON array (no prose). Each item:
+{"category": "goal|injury|pattern|coaching|note",
+ "text": "<short fact>",
+ "confidence": "low|med|high",   // optional
+ "target_date": "YYYY-MM-DD",    // optional, goals
+ "body_part": "<area>",          // optional, injuries
+ "rationale": "<one short clause on why>"}"""
+
+
+_MEMORY_CATEGORIES = ("goal", "injury", "pattern", "coaching", "note")
+
+
+def _parse_memory_candidates(text: str) -> list[dict]:
+    """Extract a JSON array of memory candidates from a model response.
+
+    Tolerates ```json fences and surrounding prose. Drops items that aren't
+    objects, lack a non-empty 'text', or carry an unknown 'category'. Keeps
+    only known fields. Returns [] on any failure.
+    """
+    if not text:
+        return []
+    raw = text.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
+    if fence:
+        raw = fence.group(1).strip()
+    if not raw.startswith("["):
+        span = re.search(r"\[.*\]", raw, re.DOTALL)
+        raw = span.group(0) if span else raw
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    out = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        cat = str(it.get("category", "")).strip().lower()
+        txt = str(it.get("text", "")).strip()
+        if cat not in _MEMORY_CATEGORIES or not txt:
+            continue
+        cand = {"category": cat, "text": txt}
+        for opt in ("confidence", "target_date", "body_part", "rationale"):
+            v = it.get(opt)
+            if v not in (None, ""):
+                cand[opt] = str(v).strip()
+        out.append(cand)
+    return out
+
+
+def suggest_memories(summary: dict, strength: dict | None = None,
+                     existing_memories: dict | None = None,
+                     model: str | None = None) -> list[dict]:
+    if not config.ANTHROPIC_API_KEY:
+        return []
+    payload = {
+        "metrics_summary": summary or {},
+        "strength_profile": strength or {},
+        "existing_memories": existing_memories or {},
+    }
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=model or config.ANTHROPIC_MODEL,
+        max_tokens=700,
+        system=SUGGEST_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": "Propose new coach memories from this context:\n\n"
+                       + json.dumps(payload, indent=2),
+        }],
+    )
+    text = "".join(b.text for b in msg.content if b.type == "text")
+    return _parse_memory_candidates(text)
 
 
 def _memory_block(coach_memory: dict | None) -> str:
