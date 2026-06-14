@@ -101,3 +101,10 @@ def test_digest_coaching_recent_first_and_capped():
     d = analysis.build_coach_memory_digest(_mem_df(rows), coaching_cap=3)
     assert [c["text"] for c in d["coaching"]] == ["advice 7", "advice 6", "advice 5"]
     assert d["coaching"][0]["date"] == "2026-06-07"
+
+
+def test_digest_caps_non_coaching_categories():
+    rows = [{"category": "goal", "text": f"goal {i}", "status": "active"}
+            for i in range(12)]
+    d = analysis.build_coach_memory_digest(_mem_df(rows), per_category_cap=8)
+    assert len(d["goals"]) == 8

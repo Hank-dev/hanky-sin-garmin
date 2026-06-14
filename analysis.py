@@ -2934,9 +2934,12 @@ def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
 
     coaching = _rows("coaching")
     if len(coaching):
-        coaching = coaching.sort_values("created_at", ascending=False).head(coaching_cap)
+        if "created_at" in coaching.columns:
+            coaching = coaching.sort_values("created_at", ascending=False)
+        coaching = coaching.head(coaching_cap)
         out["coaching"] = [{"text": str(r["text"]),
-                            "date": str(r["created_at"])[:10]}
+                            "date": (str(r["created_at"])[:10]
+                                     if pd.notna(r.get("created_at")) else None)}
                            for _, r in coaching.iterrows()]
 
     notes = _rows("note").head(per_category_cap)
