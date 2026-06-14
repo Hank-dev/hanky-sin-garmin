@@ -141,6 +141,7 @@ the numbers suggest. Stress N-of-1 caveats: a before/after change can be caused 
 confounders (seasonality, training load, life stress, sleep debt), and a wide or
 zero-crossing confidence interval means the effect is not established. Do not
 overclaim. If everything is 'insufficient_data', say more days are needed.
+You are not a doctor; do not diagnose or prescribe.
 
 Output two short markdown sections:
 ## What this suggests
