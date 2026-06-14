@@ -123,3 +123,31 @@ def test_compute_result_checkin_metric():
            "baseline_days": 14, "start_date": "2026-06-01", "end_date": None}
     res = analysis.compute_experiment_result(exp, daily, checkins=checkins)
     assert res["metrics"]["energy"]["verdict"] == "likely helped"
+
+
+def test_verdict_ci_straddles_zero_and_directions():
+    # se>0 path: CI crosses zero -> no clear effect
+    assert analysis._experiment_verdict(1.0, -0.5, 2.5, "higher") == "no clear effect"
+    # narrow CI above zero, higher-better -> likely helped
+    assert analysis._experiment_verdict(1.0, 0.1, 1.9, "higher") == "likely helped"
+    # CI below zero, lower-better -> likely helped (metric went down, good)
+    assert analysis._experiment_verdict(-2.0, -3.5, -0.5, "lower") == "likely helped"
+    # CI above zero, lower-better -> likely hurt (metric went up, bad)
+    assert analysis._experiment_verdict(2.0, 0.5, 3.5, "lower") == "likely hurt"
+
+
+def test_compute_result_daily_none():
+    exp = {"id": 9, "name": "None daily", "metrics": ["resting_hr"],
+           "baseline_days": 14, "start_date": "2026-06-01", "end_date": None}
+    res = analysis.compute_experiment_result(exp, daily=None)
+    assert res["metrics"]["resting_hr"]["verdict"] == "insufficient_data"
+
+
+def test_compute_result_malformed_end_date_treated_as_ongoing():
+    daily = _daily_for_experiment()
+    exp = {"id": 7, "name": "Bad end", "status": "active",
+           "metrics": ["resting_hr"], "baseline_days": 14,
+           "start_date": "2026-06-01", "end_date": "ongoing"}
+    res = analysis.compute_experiment_result(exp, daily, checkins=None)
+    assert res["intervention_window"] == ["2026-06-01", "2026-06-14"]
+    assert res["metrics"]["resting_hr"]["verdict"] == "likely helped"

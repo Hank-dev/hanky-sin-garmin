@@ -3019,6 +3019,8 @@ def compute_experiment_result(experiment, daily, checkins=None) -> dict:
         latest = pd.to_datetime(daily["date"]).dt.normalize().max()
     end_raw = experiment.get("end_date")
     end_ts = pd.to_datetime(end_raw, errors="coerce") if end_raw else None
+    if end_ts is not None and pd.isna(end_ts):
+        end_ts = None          # malformed end_date string → treat as ongoing
     if end_ts is None or (latest is not None and end_ts > latest):
         end_ts = latest
     baseline_start = start_ts - pd.Timedelta(days=baseline_days)
