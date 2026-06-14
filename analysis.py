@@ -2991,3 +2991,98 @@ def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
         out["notes"] = [str(r["text"]) for _, r in notes.iterrows()]
 
     return out
+
+
+def _experiment_verdict(delta, ci_low, ci_high, polarity) -> str:
+    if ci_low is None or ci_high is None:
+        return "insufficient_data"
+    excludes_zero = (ci_low > 0) or (ci_high < 0)
+    if not excludes_zero:
+        return "no clear effect"
+    improved = (delta > 0) if polarity == "higher" else (delta < 0)
+    return "likely helped" if improved else "likely hurt"
+
+
+def compute_experiment_result(experiment, daily, checkins=None) -> dict:
+    """Before/after analysis for one experiment. Pure: slices baseline vs
+    intervention windows from `daily` (and `checkins` for check-in metrics),
+    returns per-metric aggregates + a polarity-aware verdict. No I/O."""
+    start = str(experiment.get("start_date"))[:10]
+    baseline_days = int(experiment.get("baseline_days") or 14)
+    metrics = experiment.get("metrics") or []
+    if isinstance(metrics, str):
+        metrics = json.loads(metrics) if metrics else []
+
+    start_ts = pd.to_datetime(start, errors="coerce")
+    latest = None
+    if daily is not None and len(daily):
+        latest = pd.to_datetime(daily["date"]).dt.normalize().max()
+    end_raw = experiment.get("end_date")
+    end_ts = pd.to_datetime(end_raw, errors="coerce") if end_raw else None
+    if end_ts is None or (latest is not None and end_ts > latest):
+        end_ts = latest
+    baseline_start = start_ts - pd.Timedelta(days=baseline_days)
+    baseline_end = start_ts - pd.Timedelta(days=1)
+
+    def _window_values(key, source, w_start, w_end):
+        if w_start is None or w_end is None or pd.isna(w_start) or pd.isna(w_end):
+            return np.array([])
+        frame = checkins if source == "checkin" else daily
+        if frame is None or len(frame) == 0 or key not in frame.columns:
+            return np.array([])
+        f = frame.copy()
+        f["_d"] = pd.to_datetime(f["date"]).dt.normalize()
+        mask = (f["_d"] >= w_start.normalize()) & (f["_d"] <= w_end.normalize())
+        vals = pd.to_numeric(f.loc[mask, key], errors="coerce").dropna()
+        return vals.to_numpy(dtype=float)
+
+    out_metrics, notes = {}, []
+    for key in metrics:
+        meta = _EXPERIMENT_METRIC_BY_KEY.get(key)
+        if meta is None:
+            continue
+        before = _window_values(key, meta["source"], baseline_start, baseline_end)
+        after = _window_values(key, meta["source"], start_ts, end_ts)
+        n_b, n_a = int(before.size), int(after.size)
+        entry = {
+            "label": meta["label"], "polarity": meta["polarity"],
+            "n_before": n_b, "n_after": n_a,
+            "mean_before": None, "mean_after": None, "delta": None,
+            "ci_low": None, "ci_high": None, "verdict": "insufficient_data",
+        }
+        if n_b >= EXPERIMENT_MIN_DAYS and n_a >= EXPERIMENT_MIN_DAYS:
+            mean_b, mean_a = float(np.mean(before)), float(np.mean(after))
+            var_b, var_a = float(np.var(before, ddof=1)), float(np.var(after, ddof=1))
+            delta = mean_a - mean_b
+            se = (var_b / n_b + var_a / n_a) ** 0.5
+            if se > 0:
+                df_num = (var_b / n_b + var_a / n_a) ** 2
+                df_den = ((var_b / n_b) ** 2) / (n_b - 1) + ((var_a / n_a) ** 2) / (n_a - 1)
+                dfree = df_num / df_den if df_den > 0 else (n_b + n_a - 2)
+                t_crit = _t_critical_975(dfree)
+                ci_low, ci_high = delta - t_crit * se, delta + t_crit * se
+            else:
+                ci_low = ci_high = delta
+            entry.update({
+                "mean_before": round(mean_b, 2), "mean_after": round(mean_a, 2),
+                "delta": round(delta, 2),
+                "ci_low": round(ci_low, 2), "ci_high": round(ci_high, 2),
+                "verdict": _experiment_verdict(delta, ci_low, ci_high, meta["polarity"]),
+            })
+        else:
+            notes.append(f"{meta['label']}: not enough data "
+                         f"({n_b} baseline / {n_a} intervention days; need ≥{EXPERIMENT_MIN_DAYS}).")
+        out_metrics[key] = entry
+
+    def _fmt(ts):
+        return None if ts is None or pd.isna(ts) else ts.strftime("%Y-%m-%d")
+
+    return {
+        "experiment_id": experiment.get("id"),
+        "name": experiment.get("name"),
+        "status": experiment.get("status", "active"),
+        "baseline_window": [_fmt(baseline_start), _fmt(baseline_end)],
+        "intervention_window": [_fmt(start_ts), _fmt(end_ts)],
+        "metrics": out_metrics,
+        "notes": notes,
+    }
