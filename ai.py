@@ -125,9 +125,11 @@ _MEMORY_CATEGORIES = ("goal", "injury", "pattern", "coaching", "note")
 def _parse_memory_candidates(text: str) -> list[dict]:
     """Extract a JSON array of memory candidates from a model response.
 
-    Tolerates ```json fences and surrounding prose. Drops items that aren't
-    objects, lack a non-empty 'text', or carry an unknown 'category'. Keeps
-    only known fields. Returns [] on any failure.
+    Tolerates ```json fences, leading/trailing prose, and stray brackets in
+    prose: it tries a straight parse first, then scans each '[' with a JSON
+    decoder that ignores trailing content and returns the first valid array.
+    Drops items that aren't objects, lack a non-empty 'text', or carry an
+    unknown 'category'. Keeps only known fields. Returns [] on any failure.
     """
     if not text:
         return []
@@ -135,15 +137,29 @@ def _parse_memory_candidates(text: str) -> list[dict]:
     fence = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
     if fence:
         raw = fence.group(1).strip()
-    if not raw.startswith("["):
-        span = re.search(r"\[.*\]", raw, re.DOTALL)
-        raw = span.group(0) if span else raw
+
+    items = None
     try:
-        items = json.loads(raw)
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            items = parsed
     except (ValueError, TypeError):
+        pass
+    if items is None:
+        decoder = json.JSONDecoder()
+        idx = raw.find("[")
+        while idx != -1:
+            try:
+                parsed, _ = decoder.raw_decode(raw, idx)
+            except (ValueError, TypeError):
+                parsed = None
+            if isinstance(parsed, list):
+                items = parsed
+                break
+            idx = raw.find("[", idx + 1)
+    if items is None:
         return []
-    if not isinstance(items, list):
-        return []
+
     out = []
     for it in items:
         if not isinstance(it, dict):

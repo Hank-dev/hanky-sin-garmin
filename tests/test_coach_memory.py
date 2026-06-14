@@ -177,3 +177,15 @@ def test_parse_candidates_malformed_returns_empty():
 def test_suggest_memories_without_key_returns_empty(monkeypatch):
     monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
     assert ai.suggest_memories({"a": 1}) == []
+
+
+def test_parse_candidates_prose_with_bracket_before_array():
+    text = 'Based on [the data]: [{"category":"note","text":"stable weight"}]'
+    out = ai._parse_memory_candidates(text)
+    assert out == [{"category": "note", "text": "stable weight"}]
+
+
+def test_parse_candidates_ignores_trailing_prose():
+    text = '[{"category":"goal","text":"squat 150"}] hope this helps!'
+    out = ai._parse_memory_candidates(text)
+    assert out == [{"category": "goal", "text": "squat 150"}]
