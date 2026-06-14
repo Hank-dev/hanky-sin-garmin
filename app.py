@@ -71,6 +71,9 @@ def load(local_timezone: str):
 (daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
  prebed_discovery, health_research, strength_summary) = load(config.LOCAL_TIMEZONE)
 
+coach_memory_df = db.load_memory_df()                       # fresh: not cached
+coach_memory_digest = analysis.build_coach_memory_digest(coach_memory_df)
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 def val(row, key):
@@ -236,7 +239,7 @@ if not daily.empty:
             cached = None if regenerate else db.load_weekly_summary(ws)
             if cached is None:
                 with st.spinner("Writing your weekly summary…"):
-                    md = ai.weekly_summary(week)
+                    md = ai.weekly_summary(week, coach_memory=coach_memory_digest)
                 db.save_weekly_summary(ws, config.ANTHROPIC_MODEL, md)
                 cached = db.load_weekly_summary(ws)
             meta_label = _week_label(week["week_start"], week["week_end"])
@@ -334,6 +337,22 @@ st.markdown(cockpit.grappling_card(grappling), unsafe_allow_html=True)
 
 # ── AI coach readout ─────────────────────────────────────────────────────────
 st.markdown(cockpit.section_label("Coach"), unsafe_allow_html=True)
+st.markdown(cockpit.coach_memory_peek(coach_memory_digest), unsafe_allow_html=True)
+with st.form("coach_quickadd", clear_on_submit=True):
+    qa_cols = st.columns([1, 3, 1])
+    with qa_cols[0]:
+        qcat = st.selectbox("Remember a",
+                            ["note", "goal", "injury", "pattern", "coaching"],
+                            key="qa_cat")
+    with qa_cols[1]:
+        qtext = st.text_input("Tell the coach something",
+                              placeholder="e.g. tweaked left knee in BJJ", key="qa_text")
+    with qa_cols[2]:
+        qa_submit = st.form_submit_button("Remember", width="stretch")
+    if qa_submit and qtext.strip():
+        db.add_memory({"category": qcat, "text": qtext.strip(), "source": "user"})
+        st.rerun()
+st.page_link("pages/02_Coach.py", label="Manage everything the coach knows →")
 if "health_chat" not in st.session_state:
     st.session_state.health_chat = []
 
@@ -401,6 +420,7 @@ if pending_prompt:
                 history,
                 strength=strength_summary,
                 health_research=question_payload["health_research"],
+                coach_memory=coach_memory_digest,
             )
         except Exception as e:
             answer = f"## Answer\n\nQuestion failed: {e}"
