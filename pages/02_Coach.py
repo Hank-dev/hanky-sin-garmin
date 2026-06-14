@@ -60,6 +60,8 @@ if memory.empty:
 else:
     for cat in CATEGORIES:
         rows = memory[memory["category"] == cat]
+        if cat == "coaching":
+            rows = rows.sort_values("created_at", ascending=False)
         if rows.empty:
             continue
         st.markdown(f"#### {LABELS[cat]}")
@@ -102,9 +104,15 @@ else:
         acts = db.load_activities_df()
         summary = (analysis.summarize(daily, acts, lookback=14)
                    if not daily.empty else {})
+        body_metrics = db.load_body_metrics_df()
+        bodyweight = None
+        if not body_metrics.empty:
+            bw = body_metrics.dropna(subset=["weight_kg"]).sort_values("date")
+            if not bw.empty:
+                bodyweight = float(bw.iloc[-1]["weight_kg"])
         strength = analysis.summarize_strength(
             db.load_strength_sessions_df(), db.load_strength_sets_df(),
-            db.load_exercises_df(), db.load_profile(), None,
+            db.load_exercises_df(), db.load_profile(), bodyweight,
             formula=config.ONE_RM_FORMULA)
         digest = analysis.build_coach_memory_digest(memory)
         with st.spinner("Looking for durable patterns worth remembering…"):
