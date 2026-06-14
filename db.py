@@ -177,6 +177,19 @@ CREATE TABLE IF NOT EXISTS coach_memory (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS experiments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    hypothesis TEXT,
+    metrics TEXT NOT NULL,
+    baseline_days INTEGER NOT NULL DEFAULT 14,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 DAILY_COLS = [
@@ -228,6 +241,11 @@ PROFILE_COLS = ["id", "sex", "birth_year", "height_cm", "source"]
 COACH_MEMORY_COLS = [
     "id", "category", "text", "status", "source",
     "confidence", "target_date", "body_part", "created_at", "updated_at",
+]
+
+EXPERIMENT_COLS = [
+    "id", "name", "hypothesis", "metrics", "baseline_days",
+    "start_date", "end_date", "status", "created_at", "updated_at",
 ]
 
 
@@ -566,6 +584,76 @@ def load_memory_df(status: str | None = "active"):
             df = pd.read_sql_query(
                 "SELECT * FROM coach_memory WHERE status=? ORDER BY created_at",
                 conn, params=(status,))
+    return df
+
+
+def add_experiment(record: dict) -> int:
+    """Insert one experiment. `name`, `metrics` (list), `start_date` required.
+    `metrics` is stored as a JSON string; status defaults to 'active'."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fields = {
+        "name": record["name"],
+        "hypothesis": record.get("hypothesis"),
+        "metrics": json.dumps(list(record.get("metrics", []))),
+        "baseline_days": int(record.get("baseline_days", 14)),
+        "start_date": record["start_date"],
+        "end_date": record.get("end_date"),
+        "status": record.get("status", "active"),
+        "created_at": now,
+        "updated_at": now,
+    }
+    cols = list(fields)
+    with connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO experiments ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' for _ in cols)})",
+            [fields[c] for c in cols],
+        )
+        return int(cur.lastrowid)
+
+
+def update_experiment(experiment_id: int, fields: dict):
+    """Update editable experiment fields and bump updated_at. `metrics` (if
+    present) is re-encoded to JSON."""
+    allowed = ("name", "hypothesis", "metrics", "baseline_days",
+               "start_date", "end_date", "status")
+    sets = {}
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        sets[k] = json.dumps(list(v)) if k == "metrics" else v
+    if not sets:
+        return
+    sets["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    assignments = ", ".join(f"{k}=?" for k in sets)
+    with connect() as conn:
+        conn.execute(f"UPDATE experiments SET {assignments} WHERE id=?",
+                     [*sets.values(), experiment_id])
+
+
+def set_experiment_status(experiment_id: int, status: str):
+    update_experiment(experiment_id, {"status": status})
+
+
+def delete_experiment(experiment_id: int):
+    with connect() as conn:
+        conn.execute("DELETE FROM experiments WHERE id=?", (experiment_id,))
+
+
+def load_experiments_df(status: str | None = "active"):
+    """Load experiments. status=None loads all. `metrics` is decoded to a list."""
+    import pandas as pd
+    with connect() as conn:
+        if status is None:
+            df = pd.read_sql_query(
+                "SELECT * FROM experiments ORDER BY created_at", conn)
+        else:
+            df = pd.read_sql_query(
+                "SELECT * FROM experiments WHERE status=? ORDER BY created_at",
+                conn, params=(status,))
+    if not df.empty:
+        df["metrics"] = df["metrics"].apply(
+            lambda s: json.loads(s) if isinstance(s, str) and s else [])
     return df
 
 
