@@ -164,6 +164,19 @@ CREATE TABLE IF NOT EXISTS profile (
     source TEXT DEFAULT 'garmin',
     updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS coach_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT NOT NULL,
+    confidence TEXT,
+    target_date TEXT,
+    body_part TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 DAILY_COLS = [
@@ -211,6 +224,11 @@ BODY_METRIC_COLS = [
     "body_water_pct", "bone_mass_kg", "source",
 ]
 PROFILE_COLS = ["id", "sex", "birth_year", "height_cm", "source"]
+
+COACH_MEMORY_COLS = [
+    "id", "category", "text", "status", "source",
+    "confidence", "target_date", "body_part", "created_at", "updated_at",
+]
 
 
 @contextmanager
@@ -487,6 +505,68 @@ def load_profile() -> dict:
     with connect() as conn:
         row = conn.execute("SELECT * FROM profile WHERE id=1").fetchone()
     return dict(row) if row is not None else {}
+
+
+def add_memory(record: dict) -> int:
+    """Insert one coach memory. Returns the new row id. `category` and `text`
+    are required; `status` defaults to 'active', `source` to 'user'."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fields = {
+        "category": record["category"],
+        "text": record["text"],
+        "status": record.get("status", "active"),
+        "source": record.get("source", "user"),
+        "confidence": record.get("confidence"),
+        "target_date": record.get("target_date"),
+        "body_part": record.get("body_part"),
+        "created_at": now,
+        "updated_at": now,
+    }
+    cols = list(fields)
+    with connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO coach_memory ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' for _ in cols)})",
+            [fields[c] for c in cols],
+        )
+        return int(cur.lastrowid)
+
+
+def update_memory(memory_id: int, fields: dict):
+    """Update editable fields of one memory and bump updated_at."""
+    allowed = ("category", "text", "status", "confidence",
+               "target_date", "body_part")
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return
+    sets["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    assignments = ", ".join(f"{k}=?" for k in sets)
+    with connect() as conn:
+        conn.execute(f"UPDATE coach_memory SET {assignments} WHERE id=?",
+                     [*sets.values(), memory_id])
+
+
+def archive_memory(memory_id: int):
+    update_memory(memory_id, {"status": "archived"})
+
+
+def delete_memory(memory_id: int):
+    with connect() as conn:
+        conn.execute("DELETE FROM coach_memory WHERE id=?", (memory_id,))
+
+
+def load_memory_df(status: str | None = "active"):
+    """Load coach memories. status=None loads all; otherwise filters by status."""
+    import pandas as pd
+    with connect() as conn:
+        if status is None:
+            df = pd.read_sql_query(
+                "SELECT * FROM coach_memory ORDER BY created_at", conn)
+        else:
+            df = pd.read_sql_query(
+                "SELECT * FROM coach_memory WHERE status=? ORDER BY created_at",
+                conn, params=(status,))
+    return df
 
 
 def load_body_battery_df(date: str | None = None):
