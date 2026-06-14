@@ -6,6 +6,7 @@ import pandas as pd
 import config
 import db
 import analysis
+import ai
 
 
 def _fresh_db():
@@ -172,3 +173,33 @@ def test_summarize_active_experiments():
 
 def test_summarize_active_experiments_empty():
     assert analysis.summarize_active_experiments(pd.DataFrame(), pd.DataFrame()) == []
+
+
+# ---------------------------------------------------------------------------
+# Task 5 – ai._experiment_block, active_experiments threading, interpret_experiment
+# ---------------------------------------------------------------------------
+
+def test_experiment_block_empty_and_full():
+    assert ai._experiment_block(None) == ""
+    assert ai._experiment_block([]) == ""
+    block = ai._experiment_block([{"name": "Mag", "days_running": 5}])
+    assert block.startswith("\n\nActive experiments")
+    assert "Mag" in block
+
+
+def test_question_payload_includes_active_experiments():
+    payload = ai._question_payload(
+        "q", {"a": 1}, None, None, None, None, None,
+        active_experiments=[{"name": "Mag"}])
+    assert payload["active_experiments"] == [{"name": "Mag"}]
+
+
+def test_question_payload_defaults_active_experiments_empty():
+    payload = ai._question_payload("q", {}, None, None, None, None, None)
+    assert payload["active_experiments"] == []
+
+
+def test_interpret_experiment_without_key(monkeypatch):
+    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    out = ai.interpret_experiment({"name": "Mag", "metrics": {}})
+    assert "ANTHROPIC_API_KEY" in out
