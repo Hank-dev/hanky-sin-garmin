@@ -2,8 +2,8 @@
 AI-suggested memories. Manual entries save instantly; AI suggestions require
 your approval before they are stored."""
 import importlib
-from datetime import date
 
+import pandas as pd
 import streamlit as st
 
 import config
@@ -68,9 +68,9 @@ else:
             cols = st.columns([6, 1, 1])
             with cols[0]:
                 meta = []
-                if r.get("target_date"):
+                if pd.notna(r.get("target_date")) and str(r.get("target_date") or "").strip():
                     meta.append(f"target {r['target_date']}")
-                if r.get("body_part"):
+                if pd.notna(r.get("body_part")) and str(r.get("body_part") or "").strip():
                     meta.append(str(r["body_part"]))
                 if r.get("source") == "ai":
                     meta.append("ai")
@@ -112,7 +112,7 @@ else:
                 summary, strength, digest)
 
     candidates = st.session_state.get("mem_candidates", [])
-    if candidates == []:
+    if not candidates:
         st.caption("No pending suggestions. Press the button to generate some.")
     for i, cand in enumerate(candidates):
         with st.container(border=True):
