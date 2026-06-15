@@ -2,6 +2,8 @@
 AI-suggested memories. Manual entries save instantly; AI suggestions require
 your approval before they are stored."""
 import importlib
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import streamlit as st
@@ -27,6 +29,50 @@ CATEGORIES = ["goal", "injury", "pattern", "coaching", "note"]
 LABELS = {"goal": "🎯 Goals", "injury": "🩹 Injuries", "pattern": "🔁 Patterns",
           "coaching": "🗒️ Coaching log", "note": "📌 Notes"}
 
+
+def _local_now():
+    try:
+        return datetime.now(ZoneInfo(config.LOCAL_TIMEZONE))
+    except ZoneInfoNotFoundError:
+        return datetime.now()
+
+
+def _present(value) -> bool:
+    return pd.notna(value) and str(value or "").strip() != ""
+
+
+def _clean_text(value) -> str:
+    return "" if not _present(value) else str(value).strip()
+
+
+def _timestamp_label(value) -> str:
+    return _clean_text(value).replace("T", " ")[:16]
+
+
+def _memory_meta(r) -> list[str]:
+    meta = []
+    if _present(r.get("target_date")):
+        meta.append(f"target {r['target_date']}")
+    if _present(r.get("body_part")):
+        meta.append(str(r["body_part"]))
+    if r.get("category") in ("injury", "note"):
+        metadata_date = _clean_text(r.get("metadata_date"))
+        metadata_time = _clean_text(r.get("metadata_time"))
+        if metadata_date and metadata_time:
+            meta.append(f"{metadata_date} {metadata_time}")
+        elif metadata_date:
+            meta.append(metadata_date)
+        elif metadata_time:
+            meta.append(metadata_time)
+        if _present(r.get("created_at")):
+            meta.append(f"added {_timestamp_label(r.get('created_at'))}")
+        if _present(r.get("updated_at")) and r.get("updated_at") != r.get("created_at"):
+            meta.append(f"updated {_timestamp_label(r.get('updated_at'))}")
+    if r.get("source") == "ai":
+        meta.append("ai")
+    return meta
+
+
 st.markdown(cockpit.section_label("What the coach knows"), unsafe_allow_html=True)
 
 memory = db.load_memory_df()           # active only
@@ -44,12 +90,26 @@ with st.expander("➕ Add a memory", expanded=memory.empty):
             target_date = st.text_input("Target date (goals, YYYY-MM-DD)", "")
         with extra[1]:
             body_part = st.text_input("Body part (injuries)", "")
+        metadata_date = metadata_time = None
+        if cat in ("injury", "note"):
+            now = _local_now()
+            metadata = st.columns(2)
+            with metadata[0]:
+                metadata_date = st.date_input("Date", value=now.date())
+            with metadata[1]:
+                metadata_time = st.time_input(
+                    "Time",
+                    value=now.replace(second=0, microsecond=0, tzinfo=None).time(),
+                )
         if st.form_submit_button("Save") and text.strip():
             rec = {"category": cat, "text": text.strip(), "source": "user"}
             if target_date.strip():
                 rec["target_date"] = target_date.strip()
             if body_part.strip():
                 rec["body_part"] = body_part.strip()
+            if cat in ("injury", "note"):
+                rec["metadata_date"] = metadata_date.isoformat()
+                rec["metadata_time"] = metadata_time.strftime("%H:%M")
             db.add_memory(rec)
             st.rerun()
 
@@ -69,13 +129,7 @@ else:
             mid = int(r["id"])
             cols = st.columns([6, 1, 1])
             with cols[0]:
-                meta = []
-                if pd.notna(r.get("target_date")) and str(r.get("target_date") or "").strip():
-                    meta.append(f"target {r['target_date']}")
-                if pd.notna(r.get("body_part")) and str(r.get("body_part") or "").strip():
-                    meta.append(str(r["body_part"]))
-                if r.get("source") == "ai":
-                    meta.append("ai")
+                meta = _memory_meta(r)
                 suffix = f"  ·  _{', '.join(meta)}_" if meta else ""
                 new_text = st.text_input(f"edit-{mid}", value=str(r["text"]),
                                          label_visibility="collapsed")
@@ -84,6 +138,32 @@ else:
                 if new_text.strip() and new_text.strip() != str(r["text"]):
                     db.update_memory(mid, {"text": new_text.strip()})
                     st.rerun()
+                if cat in ("injury", "note"):
+                    metadata = st.columns(2)
+                    with metadata[0]:
+                        new_date = st.text_input(
+                            "Metadata date",
+                            value=_clean_text(r.get("metadata_date")),
+                            key=f"memory_metadata_date_{mid}",
+                            placeholder="YYYY-MM-DD",
+                        )
+                    with metadata[1]:
+                        new_time = st.text_input(
+                            "Metadata time",
+                            value=_clean_text(r.get("metadata_time")),
+                            key=f"memory_metadata_time_{mid}",
+                            placeholder="HH:MM",
+                        )
+                    new_date = new_date.strip()
+                    new_time = new_time.strip()
+                    old_date = _clean_text(r.get("metadata_date"))
+                    old_time = _clean_text(r.get("metadata_time"))
+                    if new_date != old_date or new_time != old_time:
+                        db.update_memory(mid, {
+                            "metadata_date": new_date or None,
+                            "metadata_time": new_time or None,
+                        })
+                        st.rerun()
             with cols[1]:
                 if st.button("Archive", key=f"arch-{mid}", width="stretch"):
                     db.archive_memory(mid)

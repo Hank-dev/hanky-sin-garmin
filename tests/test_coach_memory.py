@@ -63,13 +63,29 @@ def test_memory_delete_removes_row():
     assert len(db.load_memory_df(status=None)) == 0
 
 
+def test_note_injury_metadata_defaults_and_updates():
+    _fresh_db()
+    mid = db.add_memory({"category": "note", "text": "felt flat",
+                         "source": "user"})
+    row = db.load_memory_df().iloc[0]
+    assert row["metadata_date"]
+    assert row["metadata_time"]
+
+    db.update_memory(mid, {"metadata_date": "2026-06-14",
+                           "metadata_time": "08:30"})
+    row = db.load_memory_df().iloc[0]
+    assert row["metadata_date"] == "2026-06-14"
+    assert row["metadata_time"] == "08:30"
+
+
 # ---------------------------------------------------------------------------
 # analysis.build_coach_memory_digest tests
 # ---------------------------------------------------------------------------
 
 def _mem_df(rows):
     cols = ["id", "category", "text", "status", "source", "confidence",
-            "target_date", "body_part", "created_at", "updated_at"]
+            "target_date", "body_part", "metadata_date", "metadata_time",
+            "created_at", "updated_at"]
     return pd.DataFrame([{c: r.get(c) for c in cols} for r in rows])
 
 
@@ -95,6 +111,33 @@ def test_digest_groups_and_shapes_active_only():
     assert d["patterns"] == [{"text": "late coffee → low HRV",
                               "confidence": "high"}]
     assert "notes" not in d            # the only note was archived
+
+
+def test_digest_includes_note_and_injury_metadata_for_coach():
+    df = _mem_df([
+        {"category": "injury", "text": "left shoulder irritated",
+         "status": "active", "body_part": "shoulder",
+         "metadata_date": "2026-06-14", "metadata_time": "07:45",
+         "created_at": "2026-06-14T05:45:00+00:00",
+         "updated_at": "2026-06-14T06:00:00+00:00"},
+        {"category": "note", "text": "slept badly after late meal",
+         "status": "active", "metadata_date": "2026-06-13",
+         "metadata_time": "22:10"},
+    ])
+    d = analysis.build_coach_memory_digest(df)
+    assert d["injuries"] == [{
+        "text": "left shoulder irritated",
+        "body_part": "shoulder",
+        "metadata_date": "2026-06-14",
+        "metadata_time": "07:45",
+        "created_at": "2026-06-14T05:45:00+00:00",
+        "updated_at": "2026-06-14T06:00:00+00:00",
+    }]
+    assert d["notes"] == [{
+        "text": "slept badly after late meal",
+        "metadata_date": "2026-06-13",
+        "metadata_time": "22:10",
+    }]
 
 
 def test_digest_coaching_recent_first_and_capped():
@@ -205,11 +248,17 @@ def test_peek_empty_shows_prompt():
 def test_peek_lists_goals_and_injuries_and_escapes():
     digest = {
         "goals": [{"text": "comp <b>", "target_date": "2026-08-15"}],
-        "injuries": [{"text": "left knee", "body_part": "knee"}],
+        "injuries": [{"text": "left knee", "body_part": "knee",
+                      "metadata_date": "2026-06-14",
+                      "metadata_time": "09:20"}],
         "patterns": [{"text": "p", "confidence": "high"}],
+        "notes": [{"text": "late meal", "metadata_date": "2026-06-13"}],
     }
     html_out = cockpit.coach_memory_peek(digest)
     assert "comp &lt;b&gt;" in html_out          # html-escaped
     assert "2026-08-15" in html_out
     assert "left knee" in html_out
+    assert "2026-06-14 09:20" in html_out
+    assert "late meal" in html_out
+    assert "2026-06-13" in html_out
     assert "Goals" in html_out and "Injuries" in html_out

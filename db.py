@@ -174,6 +174,8 @@ CREATE TABLE IF NOT EXISTS coach_memory (
     confidence TEXT,
     target_date TEXT,
     body_part TEXT,
+    metadata_date TEXT,
+    metadata_time TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -227,7 +229,8 @@ PROFILE_COLS = ["id", "sex", "birth_year", "height_cm", "source"]
 
 COACH_MEMORY_COLS = [
     "id", "category", "text", "status", "source",
-    "confidence", "target_date", "body_part", "created_at", "updated_at",
+    "confidence", "target_date", "body_part", "metadata_date",
+    "metadata_time", "created_at", "updated_at",
 ]
 
 
@@ -242,6 +245,13 @@ def connect():
         conn.close()
 
 
+def _local_now():
+    try:
+        return datetime.now(ZoneInfo(config.LOCAL_TIMEZONE))
+    except ZoneInfoNotFoundError:
+        return datetime.now()
+
+
 def init_db():
     with connect() as conn:
         conn.executescript(SCHEMA)
@@ -253,6 +263,10 @@ def init_db():
                 kind = "TEXT" if col in ("hrv_status", "training_readiness_level",
                                          "training_status") else "REAL"
                 conn.execute(f"ALTER TABLE daily_metrics ADD COLUMN {col} {kind}")
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(coach_memory)")}
+        for col in ("metadata_date", "metadata_time"):
+            if col not in existing:
+                conn.execute(f"ALTER TABLE coach_memory ADD COLUMN {col} TEXT")
     # Seed the strength library + apply any .env profile override. Done AFTER
     # the schema `with connect()` transaction has committed, so these nested
     # connections don't contend with an open write transaction (which on an
@@ -367,6 +381,16 @@ def upsert_strength_set(record: dict):
 def delete_strength_set(set_id: str):
     with connect() as conn:
         conn.execute("DELETE FROM strength_sets WHERE set_id=?", (set_id,))
+
+
+def delete_strength_session(session_id: str) -> bool:
+    """Delete one saved strength workout and all of its logged sets."""
+    with connect() as conn:
+        conn.execute("DELETE FROM strength_sets WHERE session_id=?", (session_id,))
+        cur = conn.execute(
+            "DELETE FROM strength_sessions WHERE session_id=?", (session_id,)
+        )
+        return cur.rowcount > 0
 
 
 def upsert_body_metric(record: dict):
@@ -511,14 +535,23 @@ def add_memory(record: dict) -> int:
     """Insert one coach memory. Returns the new row id. `category` and `text`
     are required; `status` defaults to 'active', `source` to 'user'."""
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    category = record["category"]
+    metadata_date = record.get("metadata_date")
+    metadata_time = record.get("metadata_time")
+    if category in ("injury", "note") and (not metadata_date or not metadata_time):
+        local = _local_now()
+        metadata_date = metadata_date or local.date().isoformat()
+        metadata_time = metadata_time or local.strftime("%H:%M")
     fields = {
-        "category": record["category"],
+        "category": category,
         "text": record["text"],
         "status": record.get("status", "active"),
         "source": record.get("source", "user"),
         "confidence": record.get("confidence"),
         "target_date": record.get("target_date"),
         "body_part": record.get("body_part"),
+        "metadata_date": metadata_date,
+        "metadata_time": metadata_time,
         "created_at": now,
         "updated_at": now,
     }
@@ -535,7 +568,7 @@ def add_memory(record: dict) -> int:
 def update_memory(memory_id: int, fields: dict):
     """Update editable fields of one memory and bump updated_at."""
     allowed = ("category", "text", "status", "confidence",
-               "target_date", "body_part")
+               "target_date", "body_part", "metadata_date", "metadata_time")
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return

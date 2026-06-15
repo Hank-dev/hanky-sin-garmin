@@ -56,6 +56,29 @@ def test_session_and_set_upserts_idempotent():
     assert int(sets.iloc[0]["reps"]) == 6
 
 
+def test_delete_strength_session_removes_session_and_sets():
+    _fresh_db()
+    db.upsert_strength_session({"session_id": "s1", "date": "2026-06-05",
+                                "name": "Push"})
+    db.upsert_strength_session({"session_id": "s2", "date": "2026-06-06",
+                                "name": "Pull"})
+    db.upsert_strength_set({"set_id": "x1", "session_id": "s1",
+                            "exercise_id": "bench-press", "position": 0,
+                            "set_index": 1, "side": "both", "reps": 5,
+                            "weight_kg": 100.0, "is_warmup": 0, "completed": 1})
+    db.upsert_strength_set({"set_id": "x2", "session_id": "s2",
+                            "exercise_id": "barbell-row", "position": 0,
+                            "set_index": 1, "side": "both", "reps": 8,
+                            "weight_kg": 80.0, "is_warmup": 0, "completed": 1})
+
+    assert db.delete_strength_session("s1") is True
+
+    sessions = db.load_strength_sessions_df()
+    sets = db.load_strength_sets_df()
+    assert set(sessions["session_id"]) == {"s2"}
+    assert set(sets["set_id"]) == {"x2"}
+
+
 def test_garmin_body_metric_does_not_overwrite_manual():
     _fresh_db()
     db.upsert_body_metric({"date": "2026-06-05", "weight_kg": 81.0, "source": "manual"})

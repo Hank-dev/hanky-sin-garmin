@@ -2907,10 +2907,39 @@ def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
         return {}
 
     def _clean(v):
-        return None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+        if v is None:
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return v
+
+    def _metadata(r):
+        out = {}
+        for key in ("metadata_date", "metadata_time", "created_at", "updated_at"):
+            value = _clean(r.get(key))
+            if value:
+                out[key] = str(value)
+        return out
 
     def _rows(cat):
         return df[df["category"] == cat]
+
+    def _recent_rows(cat):
+        rows = _rows(cat)
+        sort_cols = [
+            col for col in ("metadata_date", "metadata_time", "created_at")
+            if col in rows.columns
+        ]
+        if sort_cols:
+            rows = rows.sort_values(
+                sort_cols,
+                ascending=[False] * len(sort_cols),
+                na_position="last",
+            )
+        return rows
 
     out: dict = {}
 
@@ -2920,10 +2949,11 @@ def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
                          "target_date": _clean(r.get("target_date"))}
                         for _, r in goals.iterrows()]
 
-    injuries = _rows("injury").head(per_category_cap)
+    injuries = _recent_rows("injury").head(per_category_cap)
     if len(injuries):
         out["injuries"] = [{"text": str(r["text"]),
-                            "body_part": _clean(r.get("body_part"))}
+                            "body_part": _clean(r.get("body_part")),
+                            **_metadata(r)}
                            for _, r in injuries.iterrows()]
 
     patterns = _rows("pattern").head(per_category_cap)
@@ -2942,8 +2972,9 @@ def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
                                      if pd.notna(r.get("created_at")) else None)}
                            for _, r in coaching.iterrows()]
 
-    notes = _rows("note").head(per_category_cap)
+    notes = _recent_rows("note").head(per_category_cap)
     if len(notes):
-        out["notes"] = [str(r["text"]) for _, r in notes.iterrows()]
+        out["notes"] = [{"text": str(r["text"]), **_metadata(r)}
+                        for _, r in notes.iterrows()]
 
     return out

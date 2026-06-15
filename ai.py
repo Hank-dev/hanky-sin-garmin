@@ -40,7 +40,8 @@ You may also receive coach_memory — durable, user-approved facts about this
 athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
-feels known. They are curated facts, not raw data."""
+feels known. Notes and injuries can include metadata_date/metadata_time; use
+that timing context when judging recency. They are curated facts, not raw data."""
 
 QUESTION_SYSTEM = """You answer an athlete's health and training questions using
 only the compact Garmin metrics, capacity-envelope model, stress-leak map,
@@ -76,7 +77,8 @@ You may also receive coach_memory — durable, user-approved facts about this
 athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
-feels known. They are curated facts, not raw data."""
+feels known. Notes and injuries can include metadata_date/metadata_time; use
+that timing context when judging recency. They are curated facts, not raw data."""
 
 
 WEEKLY_SYSTEM = """You are an evidence-based endurance and recovery coach writing a
@@ -99,7 +101,8 @@ You may also receive coach_memory — durable, user-approved facts about this
 athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
-feels known. They are curated facts, not raw data."""
+feels known. Notes and injuries can include metadata_date/metadata_time; use
+that timing context when judging recency. They are curated facts, not raw data."""
 
 
 SUGGEST_SYSTEM = """You help maintain a coach's long-term memory of one athlete.

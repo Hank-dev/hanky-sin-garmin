@@ -937,6 +937,20 @@ def coach_memory_peek(digest: dict) -> str:
         if digest.get(key))
 
     lines = []
+    def _memory_when(item) -> str:
+        if not isinstance(item, dict):
+            return ""
+        date = item.get("metadata_date")
+        time = item.get("metadata_time")
+        if date and time:
+            return f' · {html.escape(str(date))} {html.escape(str(time))}'
+        if date:
+            return f' · {html.escape(str(date))}'
+        if item.get("created_at"):
+            stamp = html.escape(str(item["created_at"]).replace("T", " ")[:16])
+            return f" · added {stamp}"
+        return ""
+
     for g in digest.get("goals", [])[:2]:
         when = (f' · {html.escape(str(g["target_date"]))}'
                 if g.get("target_date") else "")
@@ -944,7 +958,19 @@ def coach_memory_peek(digest: dict) -> str:
     for inj in digest.get("injuries", [])[:2]:
         where = (f' ({html.escape(str(inj["body_part"]))})'
                  if inj.get("body_part") else "")
-        lines.append(f'<div style="margin:2px 0">🩹 {html.escape(str(inj["text"]))}{where}</div>')
+        lines.append(
+            f'<div style="margin:2px 0">🩹 {html.escape(str(inj["text"]))}'
+            f'{where}{_memory_when(inj)}</div>'
+        )
+    for note in digest.get("notes", [])[:2]:
+        if isinstance(note, dict):
+            text = note.get("text")
+        else:
+            text = note
+        lines.append(
+            f'<div style="margin:2px 0">📌 {html.escape(str(text))}'
+            f'{_memory_when(note)}</div>'
+        )
 
     body = (f'<div style="margin-bottom:6px">{chips}</div>'
             + "".join(lines))
