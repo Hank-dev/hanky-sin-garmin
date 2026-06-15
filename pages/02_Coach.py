@@ -182,6 +182,8 @@ else:
     if st.button("✨ Find things to remember"):
         daily = db.load_daily_df()
         acts = db.load_activities_df()
+        if not daily.empty:
+            daily = analysis.compute_acwr(acts, analysis.enrich_daily(daily))
         summary = (analysis.summarize(daily, acts, lookback=14)
                    if not daily.empty else {})
         body_metrics = db.load_body_metrics_df()

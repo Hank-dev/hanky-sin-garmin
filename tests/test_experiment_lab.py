@@ -127,6 +127,21 @@ def test_compute_result_checkin_metric():
     assert res["metrics"]["energy"]["verdict"] == "likely helped"
 
 
+def test_compute_result_checkin_metric_uses_checkin_latest_date():
+    daily = pd.DataFrame([{"date": pd.Timestamp("2026-05-31"),
+                           "resting_hr": 60.0}])
+    cdates = pd.date_range("2026-05-27", "2026-06-07", freq="D")
+    checkins = pd.DataFrame([
+        {"date": d, "energy": (4 if d >= pd.Timestamp("2026-06-01") else 2)}
+        for d in cdates])
+    exp = {"id": 4, "name": "E", "status": "active", "metrics": ["energy"],
+           "baseline_days": 5, "start_date": "2026-06-01", "end_date": None}
+    res = analysis.compute_experiment_result(exp, daily, checkins=checkins)
+    assert res["intervention_window"] == ["2026-06-01", "2026-06-07"]
+    assert res["metrics"]["energy"]["n_after"] == 7
+    assert res["metrics"]["energy"]["verdict"] == "likely helped"
+
+
 def test_verdict_ci_straddles_zero_and_directions():
     # se>0 path: CI crosses zero -> no clear effect
     assert analysis._experiment_verdict(1.0, -0.5, 2.5, "higher") == "no clear effect"

@@ -96,4 +96,3 @@ copy/layout changes, a smoke run can be enough if behavior is unchanged.
 - Keep Streamlit rendering code separate from pure calculations when practical.
 - Use config values from `config.py` instead of duplicating environment reads.
 - Avoid broad refactors unless they are required for the requested change.
-

@@ -3045,9 +3045,17 @@ def compute_experiment_result(experiment, daily, checkins=None) -> dict:
         metrics = json.loads(metrics) if metrics else []
 
     start_ts = pd.to_datetime(start, errors="coerce")
-    latest = None
-    if daily is not None and len(daily):
-        latest = pd.to_datetime(daily["date"]).dt.normalize().max()
+    selected_sources = {
+        _EXPERIMENT_METRIC_BY_KEY[m]["source"]
+        for m in metrics if m in _EXPERIMENT_METRIC_BY_KEY
+    }
+    latest_candidates = []
+    if "daily" in selected_sources and daily is not None and len(daily):
+        latest_candidates.append(pd.to_datetime(daily["date"]).dt.normalize().max())
+    if "checkin" in selected_sources and checkins is not None and len(checkins):
+        latest_candidates.append(pd.to_datetime(checkins["date"]).dt.normalize().max())
+    latest_candidates = [d for d in latest_candidates if pd.notna(d)]
+    latest = max(latest_candidates) if latest_candidates else None
     end_raw = experiment.get("end_date")
     end_ts = pd.to_datetime(end_raw, errors="coerce") if end_raw else None
     if end_ts is not None and pd.isna(end_ts):
