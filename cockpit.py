@@ -1949,6 +1949,62 @@ def strength_balance_panel(balance: dict) -> str:
     return "".join(out)
 
 
+def _exp_num(v):
+    return "—" if v is None else f"{v:g}"
+
+
+def _exp_signed(v):
+    return "—" if v is None else (f"+{v:g}" if v >= 0 else f"{v:g}")
+
+
+_VERDICT_TONE = {
+    "likely helped": ("✅", "#7CE7A6"),
+    "likely hurt": ("⚠️", "#FF8B8B"),
+    "no clear effect": ("•", "#A9B3C1"),
+    "insufficient_data": ("…", "#A9B3C1"),
+}
+
+
+def experiment_result_card(result: dict) -> str:
+    """Render one experiment's per-metric before/after result. Pure HTML."""
+    name = html.escape(str(result.get("name", "Experiment")))
+    bw = result.get("baseline_window") or [None, None]
+    iw = result.get("intervention_window") or [None, None]
+    meta = f"baseline {bw[0]}–{bw[1]} · intervention {iw[0]}–{iw[1]}"
+    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
+            f'<div><h3>{name}</h3>'
+            f'<div class="meta">{html.escape(meta)}</div></div></div>')
+    metrics = result.get("metrics") or {}
+    if not metrics:
+        body = ('<div class="empty-note" style="margin:0"><span class="ico">🧪</span> '
+                'No metrics selected for this experiment.</div>')
+        return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+    rows = []
+    for key, m in metrics.items():
+        verdict = str(m.get("verdict", ""))
+        icon, color = _VERDICT_TONE.get(verdict, ("•", "#A9B3C1"))
+        label = html.escape(str(m.get("label", key)))
+        if verdict == "insufficient_data" or m.get("delta") is None:
+            detail = (f'<span style="opacity:.7">not enough data '
+                      f'({m.get("n_before", 0)}/{m.get("n_after", 0)} days)</span>')
+        else:
+            detail = (f'{_exp_num(m.get("mean_before"))} → {_exp_num(m.get("mean_after"))} '
+                      f'(Δ {_exp_signed(m.get("delta"))}, 95% CI '
+                      f'{_exp_num(m.get("ci_low"))}…{_exp_num(m.get("ci_high"))})')
+        rows.append(
+            f'<div style="margin:4px 0">'
+            f'<span style="color:{color}">{icon}</span> <b>{label}</b> — '
+            f'<span style="color:{color}">{html.escape(verdict)}</span><br>'
+            f'<span style="font-size:12px;opacity:.85">{detail}</span></div>')
+    notes = result.get("notes") or []
+    note_html = ""
+    if notes:
+        note_html = ('<div style="font-size:11px;opacity:.6;margin-top:6px">'
+                     + html.escape(" ".join(str(n) for n in notes)) + "</div>")
+    body = "".join(rows) + note_html
+    return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+
+
 def strength_correlation_panel(corr: dict):
     """Plotly bar (readiness bucket vs avg relative performance) when ok, else a
     string message."""

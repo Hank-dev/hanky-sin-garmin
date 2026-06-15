@@ -41,7 +41,11 @@ athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
 feels known. Notes and injuries can include metadata_date/metadata_time; use
-that timing context when judging recency. They are curated facts, not raw data."""
+that timing context when judging recency. They are curated facts, not raw data.
+
+The athlete may also be running self-experiments (before/after tests of a habit
+or supplement). When experiments are provided, factor them in, but do not
+attribute changes to an intervention beyond what the data supports."""
 
 QUESTION_SYSTEM = """You answer an athlete's health and training questions using
 only the compact Garmin metrics, capacity-envelope model, stress-leak map,
@@ -78,7 +82,11 @@ athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
 feels known. Notes and injuries can include metadata_date/metadata_time; use
-that timing context when judging recency. They are curated facts, not raw data."""
+that timing context when judging recency. They are curated facts, not raw data.
+
+The athlete may also be running self-experiments (before/after tests of a habit
+or supplement). When experiments are provided, factor them in, but do not
+attribute changes to an intervention beyond what the data supports."""
 
 
 WEEKLY_SYSTEM = """You are an evidence-based endurance and recovery coach writing a
@@ -102,7 +110,11 @@ athlete (goals, injuries, observed patterns, prior coaching). When present,
 honor injuries when advising load, orient advice toward the athlete's goals,
 build on prior coaching, and reference these facts naturally so the athlete
 feels known. Notes and injuries can include metadata_date/metadata_time; use
-that timing context when judging recency. They are curated facts, not raw data."""
+that timing context when judging recency. They are curated facts, not raw data.
+
+The athlete may also be running self-experiments (before/after tests of a habit
+or supplement). When experiments are provided, factor them in, but do not
+attribute changes to an intervention beyond what the data supports."""
 
 
 SUGGEST_SYSTEM = """You help maintain a coach's long-term memory of one athlete.
@@ -120,6 +132,23 @@ Respond with ONLY a JSON array (no prose). Each item:
  "target_date": "YYYY-MM-DD",    // optional, goals
  "body_part": "<area>",          // optional, injuries
  "rationale": "<one short clause on why>"}"""
+
+
+INTERPRET_SYSTEM = """You interpret one N-of-1 self-experiment result for an
+athlete. You receive a computed result: per-metric mean-before, mean-after, the
+change, its 95% confidence interval, sample sizes, and a verdict. You do NOT see
+raw daily data.
+
+Be concise and honest. For each metric with a verdict, say in plain language what
+the numbers suggest. Stress N-of-1 caveats: a before/after change can be caused by
+confounders (seasonality, training load, life stress, sleep debt), and a wide or
+zero-crossing confidence interval means the effect is not established. Do not
+overclaim. If everything is 'insufficient_data', say more days are needed.
+You are not a doctor; do not diagnose or prescribe.
+
+Output two short markdown sections:
+## What this suggests
+## Caveats"""
 
 
 _MEMORY_CATEGORIES = ("goal", "injury", "pattern", "coaching", "note")
@@ -212,8 +241,16 @@ def _memory_block(coach_memory: dict | None) -> str:
             + json.dumps(coach_memory, indent=2))
 
 
+def _experiment_block(active_experiments: list | None) -> str:
+    if not active_experiments:
+        return ""
+    return ("\n\nActive experiments the athlete is currently running:\n\n"
+            + json.dumps(active_experiments, indent=2))
+
+
 def analyze(summary: dict, strength: dict | None = None,
-            coach_memory: dict | None = None, model: str | None = None) -> str:
+            coach_memory: dict | None = None, active_experiments: list | None = None,
+            model: str | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -228,6 +265,7 @@ def analyze(summary: dict, strength: dict | None = None,
                        + "\n\nStrength-training profile:\n\n"
                        + json.dumps(strength or {}, indent=2)
                        + _memory_block(coach_memory)
+                       + _experiment_block(active_experiments)
                        + "\n\nAnalyse it.",
         }],
     )
@@ -235,6 +273,7 @@ def analyze(summary: dict, strength: dict | None = None,
 
 
 def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
+                   active_experiments: list | None = None,
                    model: str | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable the weekly summary._"
@@ -248,6 +287,7 @@ def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
             "content": "Here is my completed-week summary as JSON:\n\n"
                        + json.dumps(week_payload, indent=2)
                        + _memory_block(coach_memory)
+                       + _experiment_block(active_experiments)
                        + "\n\nWrite the recap.",
         }],
     )
@@ -256,7 +296,8 @@ def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
 
 def _question_payload(question, summary, capacity, stress_leak_map,
                       grappling_sessions, prebed_discovery, chat_history,
-                      strength=None, health_research=None, coach_memory=None):
+                      strength=None, health_research=None, coach_memory=None,
+                      active_experiments=None):
     return {
         "question": question,
         "metrics_summary": summary,
@@ -268,6 +309,7 @@ def _question_payload(question, summary, capacity, stress_leak_map,
         "strength_profile": strength or {},
         "previous_chat": chat_history or [],
         "coach_memory": coach_memory or {},
+        "active_experiments": active_experiments or [],
     }
 
 
@@ -282,6 +324,7 @@ def answer_question(
     strength: dict | None = None,
     health_research: dict | None = None,
     coach_memory: dict | None = None,
+    active_experiments: list | None = None,
     model: str | None = None,
 ) -> str:
     if not config.ANTHROPIC_API_KEY:
@@ -291,7 +334,8 @@ def answer_question(
         return "_Ask a question first._"
     payload = _question_payload(question, summary, capacity, stress_leak_map,
                                 grappling_sessions, prebed_discovery, chat_history,
-                                strength, health_research, coach_memory)
+                                strength, health_research, coach_memory,
+                                active_experiments)
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,
@@ -301,6 +345,23 @@ def answer_question(
             "role": "user",
             "content": "Answer my question using this compact local health context:\n\n"
                        + json.dumps(payload, indent=2)
+        }],
+    )
+    return "".join(b.text for b in msg.content if b.type == "text")
+
+
+def interpret_experiment(result: dict, model: str | None = None) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        return "_Set ANTHROPIC_API_KEY in .env to enable experiment interpretation._"
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=model or config.ANTHROPIC_MODEL,
+        max_tokens=600,
+        system=INTERPRET_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": "Interpret this experiment result:\n\n"
+                       + json.dumps(result, indent=2),
         }],
     )
     return "".join(b.text for b in msg.content if b.type == "text")
