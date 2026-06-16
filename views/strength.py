@@ -23,8 +23,6 @@ analysis = importlib.reload(analysis)
 cockpit = importlib.reload(cockpit)
 strength_catalog = importlib.reload(strength_catalog)
 
-st.set_page_config(page_title="Strength — Hankø", page_icon="🏋️", layout="wide")
-st.markdown(cockpit.CSS, unsafe_allow_html=True)
 st.markdown("""
 <style>
 .st-key-strong_logger{

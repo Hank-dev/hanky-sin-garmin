@@ -437,8 +437,8 @@ def compute_prebed_discovery(
 ) -> dict:
     """Discover sleep-adjacent links to sleep quality and next-day stress.
 
-    `hr_bedtime` is the Garmin HR sample nearest sleep start, usually from the
-    30 minutes before sleep. `hrv_overnight_avg` is treated as sleep HRV.
+    `hr_bedtime` is the pre-sleep HR median derived from Garmin heart-rate
+    samples before sleep start. `hrv_overnight_avg` is treated as sleep HRV.
     Relationships are associations only: this ranks paired observations and
     split effects, not causal mechanisms.
     """
@@ -467,10 +467,11 @@ def compute_prebed_discovery(
     has_prebed = "hr_bedtime" in df and df["hr_bedtime"].notna().any()
     has_hrv = "hrv_overnight_avg" in df and df["hrv_overnight_avg"].notna().any()
     has_cardio_load = "cardio_load" in df and df["cardio_load"].notna().any()
-    if not has_prebed and not has_hrv and not has_cardio_load:
+    has_daily_stress = "stress_avg" in df and df["stress_avg"].notna().any()
+    if not has_prebed and not has_hrv and not has_cardio_load and not has_daily_stress:
         return {
             "status": "no_data",
-            "message": "No pre-sleep heart-rate, overnight HRV, or activity load values are stored yet.",
+            "message": "No pre-sleep heart-rate median, overnight HRV, daily stress, or activity load values are stored yet.",
             "relationships": [],
             "rows": [],
             "missing": ["sync sleep, HRV, activities, and daily stress metrics"],
@@ -478,10 +479,14 @@ def compute_prebed_discovery(
 
     stress_by_date = df.set_index("date")["stress_avg"] if "stress_avg" in df else pd.Series(dtype=float)
     hrv_by_date = df.set_index("date")["hrv_overnight_avg"] if "hrv_overnight_avg" in df else pd.Series(dtype=float)
+    sleep_score_by_date = df.set_index("date")["sleep_score"] if "sleep_score" in df else pd.Series(dtype=float)
+    sleep_hours_by_date = df.set_index("date")["sleep_hours"] if "sleep_hours" in df else pd.Series(dtype=float)
     recharge_by_date = df.set_index("date")["body_battery_recharge"] if "body_battery_recharge" in df else pd.Series(dtype=float)
     df["next_date"] = df["date"] + pd.Timedelta(days=1)
     df["next_day_stress"] = df["next_date"].map(stress_by_date)
     df["next_day_hrv"] = df["next_date"].map(hrv_by_date)
+    df["next_day_sleep_score"] = df["next_date"].map(sleep_score_by_date)
+    df["next_day_sleep_hours"] = df["next_date"].map(sleep_hours_by_date)
     df["next_day_body_battery_recharge"] = df["next_date"].map(recharge_by_date)
 
     sleep_col = None
@@ -495,18 +500,29 @@ def compute_prebed_discovery(
         sleep_label = "Sleep duration"
         sleep_unit = "h"
 
+    next_sleep_col = None
+    next_sleep_label = None
+    next_sleep_unit = ""
+    if has_daily_stress and int(df[["stress_avg", "next_day_sleep_score"]].dropna().shape[0]) >= 3:
+        next_sleep_col = "next_day_sleep_score"
+        next_sleep_label = "Following-night sleep score"
+    elif has_daily_stress and int(df[["stress_avg", "next_day_sleep_hours"]].dropna().shape[0]) >= 3:
+        next_sleep_col = "next_day_sleep_hours"
+        next_sleep_label = "Following-night sleep duration"
+        next_sleep_unit = "h"
+
     relationships = []
     if "bedtime_hr_delta" in df and df["bedtime_hr_delta"].notna().any():
         bedtime_targets = [
-            ("sleep_score", "Sleep score", "", -1, "Bedtime HR deviation vs sleep quality"),
-            ("hrv_overnight_avg", "Overnight HRV", "ms", -1, "Bedtime HR deviation vs overnight HRV"),
-            ("resting_hr", "Resting HR", "bpm", 1, "Bedtime HR deviation vs overnight resting HR"),
+            ("sleep_score", "Sleep score", "", -1, "Pre-sleep HR median deviation vs sleep quality"),
+            ("hrv_overnight_avg", "Overnight HRV", "ms", -1, "Pre-sleep HR median deviation vs overnight HRV"),
+            ("resting_hr", "Resting HR", "bpm", 1, "Pre-sleep HR median deviation vs overnight resting HR"),
         ]
         for y_col, y_label, y_unit, desired, label in bedtime_targets:
             rel = _prebed_relationship(
                 df,
                 x_col="bedtime_hr_delta",
-                x_label="Bedtime HR deviation",
+                x_label="Pre-sleep HR median deviation",
                 x_unit="bpm",
                 y_col=y_col,
                 label=label,
@@ -522,10 +538,10 @@ def compute_prebed_discovery(
         sleep_rel = _prebed_relationship(
             df,
             x_col="hr_bedtime",
-            x_label="Pre-sleep HR",
+            x_label="Pre-sleep HR median",
             x_unit="bpm",
             y_col=sleep_col,
-            label="Pre-sleep HR vs same-night sleep quality",
+            label="Pre-sleep HR median vs same-night sleep quality",
             y_label=sleep_label,
             y_unit=sleep_unit,
             desired_direction=-1,
@@ -538,10 +554,10 @@ def compute_prebed_discovery(
         stress_rel = _prebed_relationship(
             df,
             x_col="hr_bedtime",
-            x_label="Pre-sleep HR",
+            x_label="Pre-sleep HR median",
             x_unit="bpm",
             y_col="next_day_stress",
-            label="Pre-sleep HR vs next-day stress",
+            label="Pre-sleep HR median vs next-day stress",
             y_label="Next-day avg stress",
             y_unit="",
             desired_direction=1,
@@ -565,6 +581,38 @@ def compute_prebed_discovery(
         )
         if hrv_stress_rel:
             relationships.append(hrv_stress_rel)
+
+    if has_daily_stress:
+        stress_hrv_rel = _prebed_relationship(
+            df,
+            x_col="stress_avg",
+            x_label="Daily avg stress",
+            x_unit="",
+            y_col="next_day_hrv",
+            label="Daily avg stress vs next overnight HRV",
+            y_label="Next overnight HRV",
+            y_unit="ms",
+            desired_direction=-1,
+            min_pairs=min_pairs,
+        )
+        if stress_hrv_rel:
+            relationships.append(stress_hrv_rel)
+
+        if next_sleep_col is not None:
+            stress_sleep_rel = _prebed_relationship(
+                df,
+                x_col="stress_avg",
+                x_label="Daily avg stress",
+                x_unit="",
+                y_col=next_sleep_col,
+                label="Daily avg stress vs following-night sleep quality",
+                y_label=next_sleep_label,
+                y_unit=next_sleep_unit,
+                desired_direction=-1,
+                min_pairs=min_pairs,
+            )
+            if stress_sleep_rel:
+                relationships.append(stress_sleep_rel)
 
     if has_cardio_load:
         cardio_stress_rel = _prebed_relationship(
@@ -1686,7 +1734,7 @@ def summarize(df: pd.DataFrame, activities: pd.DataFrame, lookback: int = 14) ->
             "rhr_elevated_vs_baseline": bool(latest.get("rhr_elevated"))
             if pd.notna(latest.get("rhr_elevated")) else None,
             "sleeping_hr_overnight_low": f(latest.get("hr_overnight_low")),
-            "sleeping_hr_at_bedtime": f(latest.get("hr_bedtime")),
+            "pre_sleep_hr_median": f(latest.get("hr_bedtime")),
             "hrv_overnight": f(latest.get("hrv_overnight_avg")),
             "hrv_status": latest.get("hrv_status"),
             "hrv_flag": latest.get("hrv_flag"),
@@ -2932,6 +2980,71 @@ def summarize_week(daily, acts, checkins) -> dict:
         "checkins": checkin_out,
         "status": "ready",
     }
+
+
+def compute_weekly_stress_overview(daily, days: int = 7, anchor_date=None) -> dict:
+    """Daily average stress for the latest rolling week plus SD bands.
+
+    Uses only the daily aggregate `stress_avg`, not intraday stress samples.
+    """
+    out = {"status": "no_data", "rows": [], "missing": ["daily stress averages"]}
+    if daily is None or getattr(daily, "empty", True) or "date" not in daily or "stress_avg" not in daily:
+        return out
+
+    d = daily.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
+    d["stress_avg"] = pd.to_numeric(d["stress_avg"], errors="coerce")
+    d = d.dropna(subset=["date"]).sort_values("date")
+    if d.empty:
+        return out
+
+    days = max(1, int(days or 7))
+    anchor = pd.to_datetime(anchor_date, errors="coerce") if anchor_date is not None else d["date"].max()
+    if pd.isna(anchor):
+        return out
+    anchor = pd.Timestamp(anchor).normalize()
+    start = anchor - pd.Timedelta(days=days - 1)
+
+    daily_stress = d.groupby("date", as_index=False)["stress_avg"].mean()
+    calendar = pd.DataFrame({"date": pd.date_range(start, anchor, freq="D")})
+    week = calendar.merge(daily_stress, on="date", how="left")
+    observed = week["stress_avg"].dropna()
+    if observed.empty:
+        return {
+            **out,
+            "week_start": start.strftime("%Y-%m-%d"),
+            "week_end": anchor.strftime("%Y-%m-%d"),
+        }
+
+    mean = float(observed.mean())
+    std = float(observed.std(ddof=0)) if len(observed) >= 2 else None
+    rows = [
+        {
+            "date": row["date"].strftime("%Y-%m-%d"),
+            "stress_avg": _round_or_none(row.get("stress_avg"), 1),
+        }
+        for _, row in week.iterrows()
+    ]
+
+    result = {
+        "status": "ready",
+        "week_start": start.strftime("%Y-%m-%d"),
+        "week_end": anchor.strftime("%Y-%m-%d"),
+        "days": days,
+        "days_with_data": int(observed.size),
+        "mean": _round_or_none(mean, 1),
+        "std": _round_or_none(std, 1),
+        "rows": rows,
+        "missing": [],
+    }
+    if std is not None:
+        result.update({
+            "band_1sd_low": _round_or_none(max(0.0, mean - std), 1),
+            "band_1sd_high": _round_or_none(min(100.0, mean + std), 1),
+            "band_2sd_low": _round_or_none(max(0.0, mean - 2 * std), 1),
+            "band_2sd_high": _round_or_none(min(100.0, mean + 2 * std), 1),
+        })
+    return result
 
 
 def build_coach_memory_digest(memory_df, per_category_cap: int = 8,

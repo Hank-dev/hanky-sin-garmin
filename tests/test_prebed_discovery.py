@@ -57,6 +57,36 @@ class PrebedDiscoveryTest(unittest.TestCase):
         self.assertLess(rel["correlation"], 0)
         self.assertEqual(rel["pairs"], 7)
 
+    def test_daily_stress_links_to_next_overnight_hrv_and_sleep_quality(self):
+        start = pd.Timestamp("2026-05-01")
+        stress_values = [22, 24, 26, 28, 68, 70, 72, 74, 76]
+        rows = []
+        for i, stress in enumerate(stress_values):
+            previous_stress = stress_values[i - 1] if i > 0 else 22
+            high_prev_stress = previous_stress >= 60
+            rows.append({
+                "date": start + pd.Timedelta(days=i),
+                "stress_avg": stress,
+                "hrv_overnight_avg": 34 if high_prev_stress else 58,
+                "sleep_score": 60 if high_prev_stress else 88,
+                "sleep_seconds": (6.2 if high_prev_stress else 8.0) * 3600,
+                "resting_hr": 55,
+                "hrv_baseline_low": None,
+                "hrv_baseline_high": None,
+            })
+        daily = analysis.enrich_daily(pd.DataFrame(rows))
+
+        model = analysis.compute_prebed_discovery(daily, min_pairs=5)
+
+        by_pair = {(r["x_col"], r["y_col"]): r for r in model["relationships"]}
+        hrv_rel = by_pair[("stress_avg", "next_day_hrv")]
+        sleep_rel = by_pair[("stress_avg", "next_day_sleep_score")]
+        self.assertLess(hrv_rel["correlation"], 0)
+        self.assertLess(sleep_rel["correlation"], 0)
+        self.assertEqual(hrv_rel["pairs"], 8)
+        self.assertEqual(sleep_rel["x_label"], "Daily avg stress")
+        self.assertEqual(sleep_rel["y_label"], "Following-night sleep score")
+
     def test_cardio_load_links_to_next_day_stress(self):
         start = pd.Timestamp("2026-05-01")
         daily_rows = []
@@ -142,6 +172,14 @@ class PrebedDiscoveryTest(unittest.TestCase):
         self.assertLess(by_pair[("bedtime_hr_delta", "sleep_score")]["correlation"], 0)
         self.assertLess(by_pair[("bedtime_hr_delta", "hrv_overnight_avg")]["correlation"], 0)
         self.assertGreater(by_pair[("bedtime_hr_delta", "resting_hr")]["correlation"], 0)
+        self.assertEqual(
+            by_pair[("bedtime_hr_delta", "sleep_score")]["x_label"],
+            "Pre-sleep HR median deviation",
+        )
+        self.assertIn(
+            "Pre-sleep HR median deviation",
+            by_pair[("bedtime_hr_delta", "sleep_score")]["label"],
+        )
 
     def test_sleep_midpoint_variability_links_to_next_day_stress(self):
         start = pd.Timestamp("2026-05-01")
@@ -213,6 +251,8 @@ class PrebedDiscoveryTest(unittest.TestCase):
             "relationships": [{
                 "y_col": "next_day_stress",
                 "y_label": "Next-day avg stress",
+                "x_label": "Pre-sleep HR median",
+                "x_unit": "bpm",
                 "rows": [
                     {"date": "2026-05-01", "prebed_hr": 58, "value": 25},
                     {"date": "2026-05-02", "prebed_hr": 72, "value": 55},
@@ -223,6 +263,7 @@ class PrebedDiscoveryTest(unittest.TestCase):
         fig = cockpit.chart_prebed_relationship(model, "next_day_stress")
 
         self.assertIn("markers", [trace.mode for trace in fig.data])
+        self.assertEqual(fig.layout.xaxis.title.text, "Pre-sleep HR median bpm")
 
 
 if __name__ == "__main__":

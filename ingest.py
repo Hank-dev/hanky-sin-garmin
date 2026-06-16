@@ -6,6 +6,7 @@ is also stored verbatim in the raw_json table, so if a derived column comes up
 empty you can inspect the raw payload and adjust the `dig()` paths here.
 """
 from datetime import date, datetime, timedelta
+import statistics
 import db
 
 GRAPPLING_PATTERNS = (
@@ -104,19 +105,33 @@ def is_grappling_activity(record: dict) -> bool:
 
 
 def _sleep_hr(series, sleep_start, sleep_end, day_min):
-    """Derive (lowest_overnight_hr, bedtime_hr) from a day's HR time-series.
+    """Derive (lowest_overnight_hr, pre_sleep_hr) from a day's HR time-series.
 
     `series` is Garmin's heartRateValues: a list of [epoch_ms, bpm] pairs (bpm
     may be None). `sleep_start`/`sleep_end` are GMT epoch-ms or None. Pure and
     deterministic — no I/O — so it can be unit-tested with a synthetic series.
 
     overnight low: min HR inside the sleep window; falls back to the day's
-    minHeartRate when the sleep window is unknown. bedtime HR: the sample
-    nearest to (and preferentially at/just before) sleep start, within 30 min;
-    None when there is no sleep-start time or no nearby sample.
+    minHeartRate when the sleep window is unknown. pre-sleep HR: median HR from
+    the 10 minutes before sleep start when at least 3 samples exist; otherwise
+    median from the prior 30 minutes with the same sample threshold. If Garmin
+    only has sparse points near bedtime, fall back to the previous nearest-sample
+    behavior so old/sparse payloads still produce a value.
     """
-    pts = [(p[0], p[1]) for p in (series or [])
-           if isinstance(p, (list, tuple)) and len(p) == 2 and p[1] is not None]
+    pts = []
+    for p in series or []:
+        if not isinstance(p, (list, tuple)) or len(p) != 2 or p[1] is None:
+            continue
+        try:
+            pts.append((float(p[0]), float(p[1])))
+        except (TypeError, ValueError):
+            continue
+
+    try:
+        sleep_start = float(sleep_start) if sleep_start is not None else None
+        sleep_end = float(sleep_end) if sleep_end is not None else None
+    except (TypeError, ValueError):
+        sleep_start, sleep_end = None, None
 
     overnight = None
     if sleep_start and sleep_end:
@@ -126,15 +141,23 @@ def _sleep_hr(series, sleep_start, sleep_end, day_min):
     if overnight is None:
         overnight = day_min  # fallback (may itself be None)
 
-    bedtime = None
+    pre_sleep = None
     if sleep_start and pts:
-        guard = 30 * 60 * 1000  # 30 minutes in ms
+        def median_before(minutes: int, min_samples: int = 3):
+            guard = minutes * 60 * 1000
+            values = [hr for ts, hr in pts if sleep_start - guard <= ts <= sleep_start]
+            if len(values) < min_samples:
+                return None
+            return float(statistics.median(values))
+
+        pre_sleep = median_before(10) or median_before(30)
+        guard = 30 * 60 * 1000
         before = [(ts, hr) for ts, hr in pts if sleep_start - guard <= ts <= sleep_start]
         near = before or [(ts, hr) for ts, hr in pts if abs(ts - sleep_start) <= guard]
-        if near:
-            bedtime = min(near, key=lambda p: abs(p[0] - sleep_start))[1]
+        if pre_sleep is None and near:
+            pre_sleep = min(near, key=lambda p: abs(p[0] - sleep_start))[1]
 
-    return overnight, bedtime
+    return overnight, pre_sleep
 
 
 def ingest_day(client, d: str):
@@ -230,9 +253,9 @@ def ingest_day(client, d: str):
         db.save_raw(d, "respiration", resp)
         rec["respiration_avg"] = dig(resp, "avgSleepRespirationValue", "avgWakingRespirationValue")
 
-    # Sleeping heart rate (Bryan-Johnson-style "resting HR before bed"). Garmin
-    # has no direct field, so derive it from the daily HR time-series + the sleep
-    # window stored above. See _sleep_hr().
+    # Sleeping heart rate and pre-sleep HR. Garmin has no direct pre-sleep HR
+    # field, so derive it from the daily HR time-series + the sleep window.
+    # See _sleep_hr().
     hrates = safe(client.get_heart_rates, d)
     if hrates:
         db.save_raw(d, "heart_rates", hrates)
@@ -240,10 +263,10 @@ def ingest_day(client, d: str):
                           "sleepStartTimestampGMT") if sleep else None
         sleep_end = dig(sleep, "dailySleepDTO.sleepEndTimestampGMT",
                         "sleepEndTimestampGMT") if sleep else None
-        low, bed = _sleep_hr(dig(hrates, "heartRateValues") or [],
-                             sleep_start, sleep_end, dig(hrates, "minHeartRate"))
+        low, pre_sleep = _sleep_hr(dig(hrates, "heartRateValues") or [],
+                                   sleep_start, sleep_end, dig(hrates, "minHeartRate"))
         rec["hr_overnight_low"] = low
-        rec["hr_bedtime"] = bed
+        rec["hr_bedtime"] = pre_sleep
 
     db.upsert_daily(rec)
     return rec

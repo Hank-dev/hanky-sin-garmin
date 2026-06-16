@@ -100,8 +100,13 @@ CSS = """
   background-image:var(--noise);background-size:180px 180px;
   mix-blend-mode:overlay;opacity:.04;
 }
-header[data-testid="stHeader"]{background:transparent;}
+header[data-testid="stHeader"]{background:transparent;pointer-events:none;}
 #MainMenu, footer, [data-testid="stToolbar"]{visibility:hidden;}
+/* …but keep the "open sidebar" button usable: on narrow screens the sidebar
+   auto-collapses and this button is the only way back to the nav. It's nested in
+   the hidden toolbar / pointer-events:none header, so re-enable both for it. */
+[data-testid="stExpandSidebarButton"], [data-testid="stExpandSidebarButton"] *{visibility:visible!important;}
+[data-testid="stExpandSidebarButton"]{pointer-events:auto!important;}
 .block-container{max-width:1240px; padding-top:1.2rem; padding-bottom:4rem;}
 html, body, [class*="css"]{font-family:var(--font-sans);}
 .tnum{font-variant-numeric:tabular-nums;}
@@ -450,13 +455,13 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── header utility controls → small dark pills (Sync + horizon popover) ───── */
 /* (popover body — the 7/30/60 toggle — is styled by the rules below) */
 .st-key-sync_btn button,
-[data-testid="stPopover"]>div>button,[data-testid="stPopover"]>button{
+[data-testid="stPopoverButton"],[data-testid="stPopover"]>div>button,[data-testid="stPopover"]>button{
   background:var(--surface)!important;border:1px solid var(--border)!important;color:var(--text-dim)!important;
   font-family:var(--font-mono)!important;font-weight:500!important;font-size:11.5px!important;letter-spacing:.02em!important;
   padding:5px 11px!important;min-height:0!important;height:auto!important;border-radius:var(--r-md)!important;
   white-space:nowrap!important;box-shadow:inset 0 1px 0 var(--inset-hi)!important;}
 .st-key-sync_btn button:hover,
-[data-testid="stPopover"]>div>button:hover,[data-testid="stPopover"]>button:hover{
+[data-testid="stPopoverButton"]:hover,[data-testid="stPopover"]>div>button:hover,[data-testid="stPopover"]>button:hover{
   border-color:var(--border-2)!important;color:var(--text)!important;background:var(--surface-2)!important;filter:none!important;}
 
 /* ── window range toggle → compact non-wrapping pill group (matches design) ── */
@@ -476,6 +481,22 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 [data-testid="stSegmentedControl"] button[kind*="Active"],
 [data-testid="stSegmentedControl"] button[data-testid*="Active"]{
   background:var(--accent)!important;color:var(--accent-ink)!important;font-weight:600!important;box-shadow:none!important;}
+
+/* ── multipage sidebar nav → branded marker-bar rail ───────────────────── */
+/* st.logo renders in BOTH the app header and the sidebar — keep only the sidebar mark. */
+[data-testid="stHeaderLogo"]{display:none!important;}
+[data-testid="stSidebarNavLink"]{
+  border-radius:var(--r-md)!important;border-left:2px solid transparent!important;
+  text-transform:uppercase;color:var(--text-dim)!important;
+  font-family:var(--font-mono)!important;font-size:11px!important;font-weight:500!important;letter-spacing:.13em!important;}
+/* material icons are ligatures — never uppercase them or the glyph breaks */
+[data-testid="stSidebarNavLink"] [data-testid="stIconMaterial"]{text-transform:none!important;color:var(--text-faint)!important;}
+[data-testid="stSidebarNavLink"]:hover{background:var(--surface-2)!important;color:var(--text)!important;}
+[data-testid="stSidebarNavLink"]:hover [data-testid="stIconMaterial"]{color:var(--text)!important;}
+[data-testid="stSidebarNavLink"][aria-current="page"]{
+  background:color-mix(in srgb,var(--accent) 10%,transparent)!important;
+  border-left-color:var(--accent)!important;color:var(--accent)!important;}
+[data-testid="stSidebarNavLink"][aria-current="page"] [data-testid="stIconMaterial"]{color:var(--accent)!important;}
 
 /* ── responsive ────────────────────────────────────────────────────── */
 @media (max-width:1080px){ .tiles{grid-template-columns:repeat(3,1fr);} }
@@ -1576,13 +1597,24 @@ def chart_sleeping_hr(view: pd.DataFrame) -> go.Figure:
 
 
 def chart_bedtime_hr(view: pd.DataFrame) -> go.Figure:
-    """Heart rate nearest sleep start, preferably from the 30 min before sleep."""
+    """Pre-sleep heart-rate median derived from samples before sleep start."""
     x = view["date"]
     fig = go.Figure()
     if "hr_bedtime_7d" in view:
         fig.add_trace(go.Scatter(x=x, y=view["hr_bedtime_7d"], name="7-day", mode="lines",
                                  line=dict(color=TEXT_DIM, width=1.5, dash="dot")))
-    _glow_line(fig, x, view["hr_bedtime"], AMBER, "Before sleep")
+    y = pd.to_numeric(view["hr_bedtime"], errors="coerce")
+    fig.add_trace(go.Scatter(
+        x=x, y=y, mode="lines", line=dict(color=AMBER, width=8, shape="linear"),
+        opacity=0.10, hoverinfo="skip", showlegend=False, connectgaps=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=y, name="10m median", mode="lines+markers",
+        line=dict(color=AMBER, width=2, shape="linear"),
+        marker=dict(color=AMBER, size=7, line=dict(color=BG, width=1)),
+        connectgaps=False,
+    ))
+    _clamp_x_to_data(fig, view, ["hr_bedtime"])
     return _dark(fig, 230)
 
 
@@ -1650,6 +1682,65 @@ def chart_stress_daily(day: pd.DataFrame) -> go.Figure:
     ))
     fig.update_yaxes(range=[0, 100], title_text="level")
     return _dark(fig, 240, legend=False)
+
+
+def chart_weekly_stress_overview(model: dict) -> go.Figure:
+    rows = pd.DataFrame((model or {}).get("rows") or [])
+    fig = go.Figure()
+    if rows.empty or "date" not in rows:
+        return _dark(fig, 260)
+
+    rows["date"] = pd.to_datetime(rows["date"], errors="coerce")
+    if "stress_avg" not in rows:
+        rows["stress_avg"] = np.nan
+    rows["stress_avg"] = pd.to_numeric(rows["stress_avg"], errors="coerce")
+    rows = rows.dropna(subset=["date"]).sort_values("date")
+    if rows.empty:
+        return _dark(fig, 260)
+
+    mean = model.get("mean")
+    std = model.get("std")
+    if mean is not None and std is not None and std > 0:
+        fig.add_hrect(
+            y0=model.get("band_2sd_low"), y1=model.get("band_2sd_high"),
+            fillcolor=SERIES2, opacity=0.045, line_width=0,
+        )
+        fig.add_hrect(
+            y0=model.get("band_1sd_low"), y1=model.get("band_1sd_high"),
+            fillcolor=SERIES2, opacity=0.12, line_width=0,
+        )
+        fig.add_hline(y=mean, line=dict(color=TEXT_DIM, width=1.2, dash="dot"), opacity=0.72)
+
+    x = rows["date"]
+    y = rows["stress_avg"]
+    colors = [
+        TEXT_FAINT if pd.isna(v) else GOOD if v < 25 else AMBER if v < 50 else RED
+        for v in y
+    ]
+    fig.add_trace(go.Bar(
+        x=x, y=y, name="Daily avg", marker_color=colors, marker_line_width=0,
+        opacity=0.72,
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=y, name="Daily avg line", mode="lines+markers",
+        line=dict(color=TEXT, width=1.8, shape="spline"),
+        marker=dict(size=7, color=TEXT, line=dict(color=BG, width=1)),
+        connectgaps=False,
+    ))
+    if mean is not None:
+        fig.add_trace(go.Scatter(
+            x=x, y=[mean] * len(rows), name="Week avg", mode="lines",
+            line=dict(color=TEXT_DIM, width=1.2, dash="dot"),
+            hoverinfo="skip",
+        ))
+
+    y_values = y.dropna()
+    ymax = float(y_values.max()) if not y_values.empty else 50.0
+    band_high = model.get("band_2sd_high") if model.get("band_2sd_high") is not None else ymax
+    upper = min(100, max(50, ymax + 10, float(band_high) + 5))
+    fig.update_yaxes(range=[0, upper], title_text="avg stress")
+    fig.update_xaxes(tickformat="%a")
+    return _dark(fig, 260)
 
 
 def chart_acwr(view: pd.DataFrame) -> go.Figure:

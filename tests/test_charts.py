@@ -26,6 +26,20 @@ class ChartRenderingTest(unittest.TestCase):
 
         self.assertIn("lines+markers", [trace.mode for trace in fig.data])
 
+    def test_bedtime_hr_chart_uses_unsmoothed_gap_aware_median_series(self):
+        view = pd.DataFrame({
+            "date": pd.date_range("2026-06-01", periods=5, freq="D"),
+            "hr_bedtime": [65, float("nan"), 68, float("nan"), 64],
+            "hr_bedtime_7d": [float("nan"), float("nan"), 66.5, 66.5, 65.7],
+        })
+
+        fig = cockpit.chart_bedtime_hr(view)
+        trace = next(t for t in fig.data if t.name == "10m median")
+
+        self.assertEqual(trace.mode, "lines+markers")
+        self.assertEqual(trace.line.shape, "linear")
+        self.assertFalse(trace.connectgaps)
+
     def test_rhr_chart_trims_leading_no_data_days(self):
         # Short/sparse history: the window spans days with no RHR yet, then
         # data starts. The x-axis should clamp to where RHR exists so the
@@ -110,6 +124,9 @@ class ChartRenderingTest(unittest.TestCase):
         self.assertFalse([ln for ln in out.splitlines() if ln.strip() == ""],
                          "blank line closes the st.markdown HTML block")
         self.assertIn('class="topbar"', out)
+
+    def test_streamlit_header_does_not_intercept_topbar_controls(self):
+        self.assertIn('header[data-testid="stHeader"]{background:transparent;pointer-events:none;}', cockpit.CSS)
 
     def test_body_battery_and_stress_tiles_are_number_only(self):
         html = cockpit.tiles(

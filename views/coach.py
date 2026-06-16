@@ -20,9 +20,6 @@ analysis = importlib.reload(analysis)
 ai = importlib.reload(ai)
 cockpit = importlib.reload(cockpit)
 
-st.set_page_config(page_title="Coach — Hankø", page_icon="🧠", layout="wide")
-st.markdown(cockpit.CSS, unsafe_allow_html=True)
-
 db.init_db()
 
 CATEGORIES = ["goal", "injury", "pattern", "coaching", "note"]

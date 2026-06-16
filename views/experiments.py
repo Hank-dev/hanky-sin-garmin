@@ -17,9 +17,6 @@ analysis = importlib.reload(analysis)
 ai = importlib.reload(ai)
 cockpit = importlib.reload(cockpit)
 
-st.set_page_config(page_title="Experiments — Hankø", page_icon="🧪", layout="wide")
-st.markdown(cockpit.CSS, unsafe_allow_html=True)
-
 db.init_db()
 
 _daily_raw = db.load_daily_df()

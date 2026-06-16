@@ -53,8 +53,8 @@ tokens with `interactive=False`.
   out of this module.
 - `ai.py`: Anthropic API boundary and prompts. Preserve the summary-only payload
   contract.
-- `app.py`: main Streamlit recovery dashboard.
-- `pages/01_Strength.py` and `pages/02_Coach.py`: Streamlit multipage views.
+- `app.py`: Streamlit entry/router — page config, shared CSS + sidebar brand, and `st.navigation` over the views.
+- `views/`: the page bodies — `cockpit.py` (recovery dashboard), `strength.py`, `coach.py`, `experiments.py`.
 - `strength_catalog.py`, `strength_standards.py`, and `cockpit.py`: domain and UI
   helpers used by the dashboard pages.
 - `tests/`: pytest coverage for analytics, ingest, UI helpers, sync planning,

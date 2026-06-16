@@ -24,9 +24,6 @@ analysis = importlib.reload(analysis)
 ai = importlib.reload(ai)
 cockpit = importlib.reload(cockpit)
 
-st.set_page_config(page_title="Hankø Fitness Hub", page_icon="🏃", layout="wide")
-st.markdown(cockpit.CSS, unsafe_allow_html=True)
-
 
 @st.cache_data(ttl=300)
 def load(local_timezone: str):
@@ -193,6 +190,7 @@ if _msg:
 view = daily.tail(win) if not daily.empty else daily
 base28 = daily.tail(28) if not daily.empty else daily
 capacity = analysis.compute_capacity_envelope(daily, acts, checkins)
+weekly_stress = analysis.compute_weekly_stress_overview(daily)
 valid_days = set(pd.to_datetime(daily["date"], errors="coerce").dt.strftime("%Y-%m-%d").dropna()) if not daily.empty else set()
 default_day = str(latest["date"])[:10] if latest is not None else None
 selected_day = query_day(default_day, valid_days)
@@ -358,7 +356,7 @@ with st.form("coach_quickadd", clear_on_submit=True):
     if qa_submit and qtext.strip():
         db.add_memory({"category": qcat, "text": qtext.strip(), "source": "user"})
         st.rerun()
-st.page_link("pages/02_Coach.py", label="Manage everything the coach knows →")
+st.page_link("views/coach.py", label="Manage everything the coach knows →")
 if "health_chat" not in st.session_state:
     st.session_state.health_chat = []
 
@@ -458,13 +456,19 @@ def render_prebed_discovery():
         (r for r in rels if r.get("x_col") == "hr_bedtime" and r.get("y_col") in ("sleep_score", "sleep_hours")),
         None,
     )
+    stress_sleep_rel = next(
+        (r for r in rels if r.get("x_col") == "stress_avg" and r.get("y_col") in ("next_day_sleep_score", "next_day_sleep_hours")),
+        None,
+    )
     chart_specs = [
-        ("Bedtime HR deviation vs sleep quality", "sleep score", "bedtime_hr_delta", "sleep_score"),
-        ("Bedtime HR deviation vs overnight HRV", "ms", "bedtime_hr_delta", "hrv_overnight_avg"),
-        ("Bedtime HR deviation vs resting HR", "bpm", "bedtime_hr_delta", "resting_hr"),
-        ("Pre-sleep HR vs sleep quality", sleep_rel.get("y_label", "") if sleep_rel else "", "hr_bedtime", sleep_rel.get("y_col") if sleep_rel else "sleep_score"),
-        ("Pre-sleep HR vs next-day stress", "avg stress", "hr_bedtime", "next_day_stress"),
+        ("Pre-sleep HR median vs sleep quality", sleep_rel.get("y_label", "") if sleep_rel else "", "hr_bedtime", sleep_rel.get("y_col") if sleep_rel else "sleep_score"),
+        ("Pre-sleep HR median vs next-day stress", "avg stress", "hr_bedtime", "next_day_stress"),
+        ("Pre-sleep HR median deviation vs sleep quality", "sleep score", "bedtime_hr_delta", "sleep_score"),
+        ("Pre-sleep HR median deviation vs overnight HRV", "ms", "bedtime_hr_delta", "hrv_overnight_avg"),
+        ("Pre-sleep HR median deviation vs resting HR", "bpm", "bedtime_hr_delta", "resting_hr"),
         ("Overnight HRV vs next-day stress", "avg stress", "hrv_overnight_avg", "next_day_stress"),
+        ("Daily avg stress vs next overnight HRV", "ms", "stress_avg", "next_day_hrv"),
+        ("Daily avg stress vs following-night sleep quality", stress_sleep_rel.get("y_label", "") if stress_sleep_rel else "", "stress_avg", stress_sleep_rel.get("y_col") if stress_sleep_rel else "next_day_sleep_score"),
         ("Sleep midpoint variability vs next-day stress", "avg stress", "sleep_midpoint_variability_7d", "next_day_stress"),
         ("Sleep midpoint variability vs overnight HRV", "ms", "sleep_midpoint_variability_7d", "hrv_overnight_avg"),
         ("Cardiovascular load vs next-day stress", "avg stress", "cardio_load", "next_day_stress"),
@@ -499,6 +503,18 @@ recovery_tab, health_tab, training_tab, discovery_tab, experimental_tab = st.tab
 )
 
 with recovery_tab:
+    if weekly_stress.get("status") == "ready":
+        stress_meta = _week_label(weekly_stress["week_start"], weekly_stress["week_end"])
+        if weekly_stress.get("mean") is not None:
+            stress_meta += f" · avg {weekly_stress['mean']:.0f}"
+        if weekly_stress.get("std") is not None:
+            stress_meta += f" · SD {weekly_stress['std']:.1f}"
+        chart_card("Weekly stress overview", stress_meta, cockpit.chart_weekly_stress_overview(weekly_stress))
+        if weekly_stress.get("days_with_data", 0) < 2:
+            st.caption("Standard deviation bands need at least two synced daily stress averages.")
+    elif not daily.empty:
+        st.caption("No daily stress averages are synced for the latest week yet.")
+
     if sparse:
         st.info("Sync more history (`python sync.py --days 90`) to plot your trends.")
     else:
@@ -560,12 +576,12 @@ with recovery_tab:
                 st.caption("No lowest-overnight heart-rate trend stored yet.")
         with bedtime_hr_col:
             if "hr_bedtime" in view and view["hr_bedtime"].notna().any():
-                chart_card("Pre-sleep heart rate", "bpm", cockpit.chart_bedtime_hr(view))
+                chart_card("Pre-sleep HR median", "10m before sleep", cockpit.chart_bedtime_hr(view))
                 bedtime_points = int(view["hr_bedtime"].notna().sum())
                 if bedtime_points < 2:
-                    st.caption("Only one pre-sleep HR value is synced in this window, so the chart shows it as a single point for now.")
+                    st.caption("Only one pre-sleep HR median is synced in this window, so the chart shows it as a single point for now.")
             else:
-                st.caption("No pre-sleep heart-rate values stored yet. Sync days that include sleep start plus all-day HR samples.")
+                st.caption("No pre-sleep heart-rate medians stored yet. Sync days that include sleep start plus all-day HR samples.")
 
 with health_tab:
     if daily.empty:
