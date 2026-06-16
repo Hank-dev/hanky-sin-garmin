@@ -246,6 +246,63 @@ class PrebedDiscoveryTest(unittest.TestCase):
         self.assertIn(("activity_bucket_code", "next_day_hrv"), by_pair)
         self.assertIn(("activity_bucket_code", "next_day_body_battery_recharge"), by_pair)
 
+    def test_early_for_recovery_relationships_are_added(self):
+        start = pd.Timestamp("2026-05-01")
+        daily_rows = []
+        timing_rows = []
+        battery_rows = []
+        for i in range(11):
+            date = start + pd.Timedelta(days=i)
+            high_early = i >= 5
+            prev_high_early = i > 0 and (i - 1) >= 5
+            stress_predicts_next = i >= 4
+            sleep_start = date + pd.Timedelta(hours=23)
+            sleep_end = sleep_start + pd.Timedelta(hours=6.5 if high_early else 8.0)
+            daily_rows.append({
+                "date": date,
+                "hr_bedtime": 72 if high_early else 58,
+                "stress_avg": 70 if stress_predicts_next else 24,
+                "hrv_overnight_avg": 38 if prev_high_early else 62,
+                "body_battery_start": 42 if prev_high_early else 78,
+                "body_battery_low": 30 if high_early else 20,
+                "sleep_score": 62 if high_early else 88,
+                "sleep_seconds": (6.5 if high_early else 8.0) * 3600,
+                "resting_hr": 55,
+                "hrv_baseline_low": None,
+                "hrv_baseline_high": None,
+            })
+            timing_rows.append({
+                "date": date,
+                "sleep_start": sleep_start,
+                "sleep_end": sleep_end,
+                "sleep_midpoint": sleep_start + (sleep_end - sleep_start) / 2,
+            })
+            battery_rows.append({
+                "date": str(date.date()),
+                "timestamp": sleep_start - pd.Timedelta(minutes=5),
+                "value": 20 if high_early else 70,
+            })
+        daily = analysis.enrich_daily(pd.DataFrame(daily_rows))
+        sleep_timing = pd.DataFrame(timing_rows)
+        body_battery = pd.DataFrame(battery_rows)
+
+        model = analysis.compute_prebed_discovery(
+            daily,
+            sleep_timing=sleep_timing,
+            body_battery=body_battery,
+            min_pairs=3,
+        )
+
+        by_pair = {(r["x_col"], r["y_col"]): r for r in model["relationships"]}
+        self.assertIn(("hr_bedtime", "early_for_recovery_min"), by_pair)
+        self.assertIn(("stress_avg", "next_day_early_for_recovery_min"), by_pair)
+        self.assertIn(("early_for_recovery_min", "next_day_hrv"), by_pair)
+        self.assertIn(("early_for_recovery_min", "next_day_body_battery_start"), by_pair)
+        self.assertIn(("body_battery_recharge", "early_for_recovery_min"), by_pair)
+        self.assertGreater(by_pair[("hr_bedtime", "early_for_recovery_min")]["correlation"], 0)
+        self.assertGreater(by_pair[("stress_avg", "next_day_early_for_recovery_min")]["correlation"], 0)
+        self.assertLess(by_pair[("early_for_recovery_min", "next_day_hrv")]["correlation"], 0)
+
     def test_discovery_chart_renders_marker_points(self):
         model = {
             "relationships": [{

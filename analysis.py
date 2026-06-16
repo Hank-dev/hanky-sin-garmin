@@ -433,6 +433,7 @@ def compute_prebed_discovery(
     daily: pd.DataFrame,
     activities: pd.DataFrame | None = None,
     sleep_timing: pd.DataFrame | None = None,
+    body_battery: pd.DataFrame | None = None,
     min_pairs: int = 5,
 ) -> dict:
     """Discover sleep-adjacent links to sleep quality and next-day stress.
@@ -457,10 +458,14 @@ def compute_prebed_discovery(
     df = _add_bedtime_hr_delta(df)
     df = _add_activity_buckets(df)
     df = _add_body_battery_recharge(df)
+    sleep_need = compute_personal_sleep_need(df).get("sleep_need_h") or config.SLEEP_NEED_HOURS
+    df = _add_early_for_recovery_features(df, sleep_timing, body_battery, sleep_need)
     for col in ("hr_bedtime", "hrv_overnight_avg", "resting_hr", "sleep_score", "sleep_hours",
                 "stress_avg", "cardio_load", "bedtime_hr_delta",
                 "sleep_midpoint_variability_7d", "activity_bucket_code",
-                "body_battery_recharge"):
+                "body_battery_recharge", "early_for_recovery_min",
+                "next_day_early_for_recovery_min", "sleep_debt_repay_h",
+                "body_battery_repay_h"):
         if col in df:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=["date"])
@@ -482,12 +487,16 @@ def compute_prebed_discovery(
     sleep_score_by_date = df.set_index("date")["sleep_score"] if "sleep_score" in df else pd.Series(dtype=float)
     sleep_hours_by_date = df.set_index("date")["sleep_hours"] if "sleep_hours" in df else pd.Series(dtype=float)
     recharge_by_date = df.set_index("date")["body_battery_recharge"] if "body_battery_recharge" in df else pd.Series(dtype=float)
+    early_recovery_by_date = df.set_index("date")["early_for_recovery_min"] if "early_for_recovery_min" in df else pd.Series(dtype=float)
+    bb_start_by_date = df.set_index("date")["body_battery_start"] if "body_battery_start" in df else pd.Series(dtype=float)
     df["next_date"] = df["date"] + pd.Timedelta(days=1)
     df["next_day_stress"] = df["next_date"].map(stress_by_date)
     df["next_day_hrv"] = df["next_date"].map(hrv_by_date)
     df["next_day_sleep_score"] = df["next_date"].map(sleep_score_by_date)
     df["next_day_sleep_hours"] = df["next_date"].map(sleep_hours_by_date)
     df["next_day_body_battery_recharge"] = df["next_date"].map(recharge_by_date)
+    df["next_day_early_for_recovery_min"] = df["next_date"].map(early_recovery_by_date)
+    df["next_day_body_battery_start"] = df["next_date"].map(bb_start_by_date)
 
     sleep_col = None
     sleep_label = None
@@ -551,6 +560,21 @@ def compute_prebed_discovery(
             relationships.append(sleep_rel)
 
     if has_prebed:
+        prebed_early_rel = _prebed_relationship(
+            df,
+            x_col="hr_bedtime",
+            x_label="Pre-sleep HR median",
+            x_unit="bpm",
+            y_col="early_for_recovery_min",
+            label="Pre-sleep HR median vs early-for-recovery",
+            y_label="Early for recovery",
+            y_unit="min",
+            desired_direction=1,
+            min_pairs=min_pairs,
+        )
+        if prebed_early_rel:
+            relationships.append(prebed_early_rel)
+
         stress_rel = _prebed_relationship(
             df,
             x_col="hr_bedtime",
@@ -567,6 +591,21 @@ def compute_prebed_discovery(
             relationships.append(stress_rel)
 
     if has_hrv:
+        early_hrv_rel = _prebed_relationship(
+            df,
+            x_col="early_for_recovery_min",
+            x_label="Early for recovery",
+            x_unit="min",
+            y_col="next_day_hrv",
+            label="Early-for-recovery vs next overnight HRV",
+            y_label="Next overnight HRV",
+            y_unit="ms",
+            desired_direction=-1,
+            min_pairs=min_pairs,
+        )
+        if early_hrv_rel:
+            relationships.append(early_hrv_rel)
+
         hrv_stress_rel = _prebed_relationship(
             df,
             x_col="hrv_overnight_avg",
@@ -583,6 +622,21 @@ def compute_prebed_discovery(
             relationships.append(hrv_stress_rel)
 
     if has_daily_stress:
+        stress_early_rel = _prebed_relationship(
+            df,
+            x_col="stress_avg",
+            x_label="Daily avg stress",
+            x_unit="",
+            y_col="next_day_early_for_recovery_min",
+            label="Daily avg stress vs next early-for-recovery",
+            y_label="Next early for recovery",
+            y_unit="min",
+            desired_direction=1,
+            min_pairs=min_pairs,
+        )
+        if stress_early_rel:
+            relationships.append(stress_early_rel)
+
         stress_hrv_rel = _prebed_relationship(
             df,
             x_col="stress_avg",
@@ -650,6 +704,38 @@ def compute_prebed_discovery(
             )
             if rel:
                 relationships.append(rel)
+
+    if "body_battery_recharge" in df and df["body_battery_recharge"].notna().any():
+        recharge_rel = _prebed_relationship(
+            df,
+            x_col="body_battery_recharge",
+            x_label="Body Battery recharge",
+            x_unit="",
+            y_col="early_for_recovery_min",
+            label="Body Battery recharge vs early-for-recovery",
+            y_label="Early for recovery",
+            y_unit="min",
+            desired_direction=-1,
+            min_pairs=min_pairs,
+        )
+        if recharge_rel:
+            relationships.append(recharge_rel)
+
+    if "body_battery_start" in df and df["body_battery_start"].notna().any():
+        early_bb_rel = _prebed_relationship(
+            df,
+            x_col="early_for_recovery_min",
+            x_label="Early for recovery",
+            x_unit="min",
+            y_col="next_day_body_battery_start",
+            label="Early-for-recovery vs next Body Battery",
+            y_label="Next-day Body Battery at wake",
+            y_unit="",
+            desired_direction=-1,
+            min_pairs=min_pairs,
+        )
+        if early_bb_rel:
+            relationships.append(early_bb_rel)
 
     if "activity_bucket_code" in df and df["activity_bucket_code"].notna().any():
         bucket_targets = [
@@ -1014,6 +1100,75 @@ def _add_body_battery_recharge(df: pd.DataFrame) -> pd.DataFrame:
         start = pd.to_numeric(out["body_battery_start"], errors="coerce")
         low = pd.to_numeric(out["body_battery_low"], errors="coerce")
         out["body_battery_recharge"] = (start - low).clip(lower=0)
+    return out
+
+
+def _add_early_for_recovery_features(
+    df: pd.DataFrame,
+    sleep_timing: pd.DataFrame | None,
+    body_battery: pd.DataFrame | None,
+    sleep_need_h: float,
+) -> pd.DataFrame:
+    out = df.copy()
+    for col in (
+        "early_for_recovery_min",
+        "expected_recovery_wake",
+        "sleep_debt_repay_h",
+        "body_battery_at_sleep_start",
+        "body_battery_repay_h",
+    ):
+        out[col] = np.nan
+    if "date" not in out:
+        return out
+    if "sleep_hours" not in out and "sleep_seconds" in out:
+        out["sleep_hours"] = pd.to_numeric(out["sleep_seconds"], errors="coerce") / 3600.0
+    if "sleep_hours" not in out:
+        return out
+    if sleep_timing is None or getattr(sleep_timing, "empty", True) or "date" not in sleep_timing:
+        return out
+
+    t = sleep_timing.copy()
+    t["date"] = pd.to_datetime(t["date"], errors="coerce").dt.normalize()
+    for col in ("sleep_start", "sleep_end"):
+        if col in t:
+            t[col] = pd.to_datetime(t[col], errors="coerce")
+    t = t.dropna(subset=["date", "sleep_start", "sleep_end"]).sort_values("date")
+    if t.empty:
+        return out
+
+    base = out.copy()
+    base["date"] = pd.to_datetime(base["date"], errors="coerce").dt.normalize()
+    base["sleep_hours"] = pd.to_numeric(base["sleep_hours"], errors="coerce")
+    base = base.merge(t[["date", "sleep_start", "sleep_end"]], on="date", how="left", suffixes=("", "_timing"))
+
+    bb_at_sleep = _body_battery_at_sleep_start(t[["date", "sleep_start"]], body_battery)
+    if not bb_at_sleep.empty:
+        base = base.merge(bb_at_sleep, on="date", how="left")
+        base["body_battery_at_sleep_start"] = base["body_battery_at_sleep_start_y"].combine_first(
+            base.get("body_battery_at_sleep_start_x")
+        )
+        base = base.drop(columns=[
+            c for c in ("body_battery_at_sleep_start_x", "body_battery_at_sleep_start_y")
+            if c in base
+        ])
+
+    debt = (float(sleep_need_h) - pd.to_numeric(base["sleep_hours"], errors="coerce")).clip(lower=0)
+    base["sleep_debt_repay_h"] = debt.shift(1).rolling(7, min_periods=1).sum().fillna(0).mul(0.25).clip(upper=1.25)
+    bb = pd.to_numeric(base["body_battery_at_sleep_start"], errors="coerce")
+    bb_repay = ((50.0 - bb).clip(lower=0) / 50.0 * 0.75).clip(lower=0, upper=0.75)
+    base["body_battery_repay_h"] = bb_repay.fillna(0)
+    recovery_need = (float(sleep_need_h) + base["sleep_debt_repay_h"] + base["body_battery_repay_h"]).clip(
+        upper=float(sleep_need_h) + 2.0
+    )
+    base["expected_recovery_wake"] = base["sleep_start"] + pd.to_timedelta(recovery_need, unit="h")
+    early = (base["expected_recovery_wake"] - base["sleep_end"]).dt.total_seconds() / 60.0
+    base["early_for_recovery_min"] = early.clip(lower=0)
+
+    keep = [
+        "date", "early_for_recovery_min", "expected_recovery_wake",
+        "sleep_debt_repay_h", "body_battery_at_sleep_start", "body_battery_repay_h",
+    ]
+    out = out.drop(columns=[c for c in keep[1:] if c in out]).merge(base[keep], on="date", how="left")
     return out
 
 

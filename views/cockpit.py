@@ -46,7 +46,9 @@ def load(local_timezone: str):
         daily, acts, activity_details, activity_zones
     )
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
-    prebed_discovery = analysis.compute_prebed_discovery(daily, acts, sleep_timing)
+    prebed_discovery = analysis.compute_prebed_discovery(
+        daily, acts, sleep_timing, body_battery=body_battery
+    )
     personal_sleep_need = analysis.compute_personal_sleep_need(daily, checkins)
     early_waking = analysis.compute_early_waking_model(
         daily,
@@ -496,11 +498,16 @@ def render_prebed_discovery():
     )
     chart_specs = [
         ("Pre-sleep HR median vs sleep quality", sleep_rel.get("y_label", "") if sleep_rel else "", "hr_bedtime", sleep_rel.get("y_col") if sleep_rel else "sleep_score"),
+        ("Pre-sleep HR median vs early-for-recovery", "min", "hr_bedtime", "early_for_recovery_min"),
         ("Pre-sleep HR median vs next-day stress", "avg stress", "hr_bedtime", "next_day_stress"),
         ("Pre-sleep HR median deviation vs sleep quality", "sleep score", "bedtime_hr_delta", "sleep_score"),
         ("Pre-sleep HR median deviation vs overnight HRV", "ms", "bedtime_hr_delta", "hrv_overnight_avg"),
         ("Pre-sleep HR median deviation vs resting HR", "bpm", "bedtime_hr_delta", "resting_hr"),
+        ("Early-for-recovery vs next overnight HRV", "ms", "early_for_recovery_min", "next_day_hrv"),
+        ("Early-for-recovery vs next Body Battery", "score", "early_for_recovery_min", "next_day_body_battery_start"),
+        ("Body Battery recharge vs early-for-recovery", "min", "body_battery_recharge", "early_for_recovery_min"),
         ("Overnight HRV vs next-day stress", "avg stress", "hrv_overnight_avg", "next_day_stress"),
+        ("Daily avg stress vs next early-for-recovery", "min", "stress_avg", "next_day_early_for_recovery_min"),
         ("Daily avg stress vs next overnight HRV", "ms", "stress_avg", "next_day_hrv"),
         ("Daily avg stress vs following-night sleep quality", stress_sleep_rel.get("y_label", "") if stress_sleep_rel else "", "stress_avg", stress_sleep_rel.get("y_col") if stress_sleep_rel else "next_day_sleep_score"),
         ("Sleep midpoint variability vs next-day stress", "avg stress", "sleep_midpoint_variability_7d", "next_day_stress"),
