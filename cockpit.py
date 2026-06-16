@@ -4,13 +4,17 @@ Pure rendering helpers — they take plain Python values (or a windowed
 DataFrame for charts) and return HTML strings / Plotly figures. No Streamlit
 imports, no DB, no network, so the visual language stays separable from app.py.
 
-Ported from the Claude Design handoff bundle, re-skinned to a deep-teal colour
-direction: dark teal surfaces with leather-grain + film-grain texture, a cool
-teal accent, champagne/brass edges, and an Instrument Serif display face for
-the big readiness numeral and headings (Hanken Grotesk body, IBM Plex Mono
+Ported from the Claude Design "Graphite Voltage" handoff
+(`Recovery Cockpit - Graphite Voltage.dc.html`), re-skinned to a high-contrast
+sport direction: gunmetal surfaces (#121316 base) with brushed-metal striations
++ machined bevels, an electric-lime accent (#C6F23B) for the readiness ring +
+brand + positive signals, ice-blue (#7FD3FF) as the cool secondary, gold
+(#F2C14E) for caution, red (#FF5A4D) for alarm, and a Spectral serif display
+face for the big readiness numeral and headings (Archivo body, JetBrains Mono
 micro-labels). The serif numeric hero + sparklines and the design tokens mirror
-`themes-v2.css` (dir-oxblood) over `styles.css`; the trend charts are
-re-implemented as dark Plotly per the bundle's "Streamlit port notes".
+the handoff's token panel; the trend charts are re-implemented as dark Plotly
+per the bundle's colorway (["#C6F23B","#7FD3FF","#F2C14E"], paper #121316, grid
+rgba(255,255,255,.06)).
 """
 from __future__ import annotations
 import html
@@ -23,23 +27,27 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ── design tokens (hex mirrors :root below; Plotly needs literals) ────────────
-#  Deep-teal direction — dark teal surfaces, cool teal accent, champagne/brass
-#  secondary kept as a warm complement. Teal reads as the brand/positive
-#  emphasis, gold = caution, orange = alarm (cool palette, warm-metal edges).
-BG        = "#0C1A1A"
-BG2       = "#081414"
-SURFACE   = "#112A2B"
-SURFACE2  = "#153334"
-SURFACE3  = "#1B3F41"
-TEXT      = "#E6F2F1"
-TEXT_DIM  = "#9CC0BD"
-TEXT_FAINT = "#5E8483"
-ACCENT    = "#3FB6A8"   # teal          (oklch .72 .09 185)
-ACCENT2   = "#2E8B86"   # deeper teal
-SERIES2   = "#E3BE85"   # champagne / brass (oklch .82 .085 78)
-AMBER     = "#E4AB66"   # warm gold     (oklch .78 .11 70)
-RED       = "#E0763C"   # alarm orange  (oklch .68 .15 52)
-GRID      = "rgba(200,240,238,0.06)"
+#  "Graphite Voltage" direction — gunmetal surfaces (#121316 base) with
+#  brushed-metal striations + machined bevels, an electric-lime accent
+#  (#C6F23B) for the readiness ring + brand + positive signals, ice-blue
+#  (#7FD3FF) as the cool secondary, gold (#F2C14E) caution, red (#FF5A4D)
+#  alarm. High-contrast sport/performance. Mirrors the Claude Design
+#  "Graphite Voltage" handoff tokens and Plotly colorway.
+BG        = "#121316"   # gunmetal base
+BG2       = "#0E1013"   # deepest recess (code blocks, token footer)
+SURFACE   = "#16181C"   # card surface
+SURFACE2  = "#1C1F24"   # elevated surface (tiles, chips, pills)
+SURFACE3  = "#23262C"   # highest surface (brushed panels, icons, badges)
+TEXT      = "#E8ECEF"
+TEXT_DIM  = "#AEB4BA"
+TEXT_FAINT = "#8E959C"
+ACCENT    = "#C6F23B"   # volt lime     (ring + brand + positive)
+ACCENT2   = "#A6CC2E"   # deeper lime
+GOOD      = "#C6F23B"   # volt lime     (positive = accent; GV does not split)
+SERIES2   = "#7FD3FF"   # ice blue      (secondary series)
+AMBER     = "#F2C14E"   # gold          (caution)
+RED       = "#FF5A4D"   # red           (alarm)
+GRID      = "rgba(255,255,255,0.06)"
 
 _ids = itertools.count(1)
 def _uid() -> str:
@@ -51,43 +59,46 @@ def _uid() -> str:
 # ════════════════════════════════════════════════════════════════════════════
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root{
-  --bg:#0C1A1A; --bg-2:#081414; --surface:#112A2B; --surface-2:#153334; --surface-3:#1B3F41;
-  --border:rgba(200,240,238,.11); --border-2:rgba(200,240,238,.20);
-  --hairline:rgba(200,240,238,.10); --inset-hi:rgba(215,245,243,.06);
-  --brass:rgba(214,176,120,.26);
-  --text:#E6F2F1; --text-dim:#9CC0BD; --text-faint:#5E8483;
-  --accent:#3FB6A8; --accent-2:#2E8B86; --accent-ink:#0C1A1A;
-  --series-2:#E3BE85; --amber:#E4AB66; --red:#E0763C;
-  --ring-track:rgba(200,240,238,.10);
-  --font-sans:"Hanken Grotesk",system-ui,sans-serif;
-  --font-display:"Hanken Grotesk",system-ui,sans-serif;
-  --font-serif:"Instrument Serif",Georgia,serif;
-  --font-mono:"IBM Plex Mono",ui-monospace,monospace;
-  --r-sm:4px; --r-md:7px; --r-lg:11px; --r-xl:14px;
+  --bg:#121316; --bg-2:#0E1013; --surface:#16181C; --surface-2:#1C1F24; --surface-3:#23262C;
+  --border:rgba(255,255,255,.08); --border-2:rgba(255,255,255,.16);
+  --hairline:rgba(255,255,255,.06); --inset-hi:rgba(255,255,255,.05);
+  --brass:rgba(255,255,255,.10);
+  --text:#E8ECEF; --text-dim:#AEB4BA; --text-faint:#8E959C;
+  --accent:#C6F23B; --accent-2:#A6CC2E; --accent-ink:#121316;
+  --good:#C6F23B; --series-2:#7FD3FF; --amber:#F2C14E; --red:#FF5A4D;
+  --ring-track:rgba(255,255,255,.08);
+  --font-sans:"Archivo",system-ui,sans-serif;
+  --font-display:"Archivo",system-ui,sans-serif;
+  --font-serif:"Spectral",Georgia,serif;
+  --font-mono:"JetBrains Mono",ui-monospace,monospace;
+  --r-sm:4px; --r-md:8px; --r-lg:14px; --r-xl:18px;
   --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
   --sh-card:inset 0 1px 0 var(--inset-hi),0 16px 40px -20px rgba(0,0,0,.8);
-  /* soft fractal film grain reused across leather panels */
-  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* brushed-metal striations (1px vertical hairlines) reused across panels */
+  --grain:repeating-linear-gradient(90deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px);
+  /* fine machine-noise veil for the whole stage (feTurbulence .85, overlay) */
+  --noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ── Streamlit chrome → cockpit canvas ─────────────────────────────── */
 .stApp{
   background-color:var(--bg);
   background-image:
-    radial-gradient(820px 480px at 18% -6%, rgba(42,140,130,.22), transparent 62%),
-    radial-gradient(680px 520px at 92% 104%, rgba(176,128,64,.11), transparent 60%),
-    radial-gradient(120% 80% at 50% 0%, #12292A 0%, #0C1A1A 46%, #060F0F 100%);
+    var(--grain),
+    radial-gradient(900px 480px at 16% -4%, rgba(198,242,59,.10), transparent 62%),
+    radial-gradient(120% 80% at 50% 0%, #16181C 0%, #121316 46%, #0E1013 100%);
+  background-size:3px 100%, 100% 100%, 100% 100%;
   color:var(--text);
   font-family:var(--font-sans);
 }
-/* faint film-grain veil over the whole stage (soft-light, very low opacity) */
+/* fine machine-noise veil over the whole stage (overlay, very low opacity) */
 .stApp::after{
   content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;
-  background-image:var(--grain);background-size:180px 180px;
-  mix-blend-mode:soft-light;opacity:.022;
+  background-image:var(--noise);background-size:180px 180px;
+  mix-blend-mode:overlay;opacity:.04;
 }
 header[data-testid="stHeader"]{background:transparent;}
 #MainMenu, footer, [data-testid="stToolbar"]{visibility:hidden;}
@@ -99,36 +110,34 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 [data-testid="stVerticalBlock"]{gap:.6rem;}
 
 /* ── top bar ───────────────────────────────────────────────────────── */
-.topbar{display:flex; align-items:center; gap:var(--s4); margin-bottom:var(--s4);}
+.topbar{display:flex; align-items:center; gap:var(--s4); margin-bottom:0;}
 .brand{display:flex; align-items:center; gap:var(--s3);}
-.brand .mark{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;
-  background:linear-gradient(180deg,var(--surface-2),var(--surface));
-  border:1px solid var(--border-2); border-top-color:var(--brass);
-  box-shadow:inset 0 1px 0 var(--inset-hi),0 2px 6px rgba(0,0,0,.4); color:var(--accent);}
-.brand .mark svg{width:19px;height:19px;}
-.brand .name{font-family:var(--font-serif);font-weight:400;font-size:21px;letter-spacing:.01em;line-height:1.05;}
-.brand .name b{color:var(--accent);font-weight:400;}
-.brand .sub{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);letter-spacing:.18em;text-transform:uppercase;}
+.brand .mark{width:26px;height:26px;flex:0 0 auto;transform:rotate(45deg);
+  border:2px solid var(--accent);border-radius:6px;
+  box-shadow:inset 0 0 0 3px var(--bg), 0 0 18px color-mix(in srgb,var(--accent) 45%,transparent);}
+.brand .name{font-family:var(--font-display);font-weight:700;font-size:18px;letter-spacing:.05em;
+  line-height:1.12;text-transform:uppercase;color:var(--text);}
+.brand .sub{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);letter-spacing:.24em;text-transform:uppercase;}
 .topbar .date{color:var(--text-dim);font-size:13.5px;font-variant-numeric:tabular-nums;}
 .topbar .spacer{flex:1;}
 .pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 10px;border-radius:999px;
   background:var(--surface);border:1px solid var(--border);
   color:var(--text-dim);font-size:12px;font-weight:500;}
-.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);position:relative;}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--good);position:relative;}
 .pill .dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;
-  border:1px solid var(--accent);opacity:.35;animation:ring-pulse 2.8s ease-out infinite;}
+  border:1px solid var(--good);opacity:.35;animation:ring-pulse 2.8s ease-out infinite;}
 @keyframes ring-pulse{0%{transform:scale(.6);opacity:.5;}80%,100%{transform:scale(1.5);opacity:0;}}
 
 /* ── card primitive + bordered Streamlit containers become cards ───── */
-/* leather-grained panels: warm gradient, brass top hairline, grain via soft-light */
+/* brushed-metal panels: gunmetal gradient, machined top bevel, vertical striations */
 .card{
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%; background-blend-mode:soft-light,normal;
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border);border-top-color:var(--brass);
   border-radius:var(--r-lg);box-shadow:var(--sh-card);}
 [data-testid="stVerticalBlockBorderWrapper"]{
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%; background-blend-mode:soft-light,normal;
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border)!important;border-top-color:var(--brass)!important;
   border-radius:var(--r-lg);box-shadow:var(--sh-card); padding:6px 18px 10px;}
 .section-label{display:flex;align-items:center;gap:var(--s3);font-family:var(--font-mono);
@@ -136,12 +145,12 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   color:var(--text-faint);margin:var(--s5) 0 var(--s3);}
 .section-label::after{content:"";flex:1;height:1px;background:var(--hairline);}
 
-/* ── hero (serif numeric — the teal signature) ─────────────────────── */
+/* ── hero (serif numeric — the volt signature) ─────────────────────── */
 .hero{padding:var(--s6);}
 .hero.hero-numeric{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
   gap:var(--s6);align-items:center;
-  background:var(--grain),linear-gradient(180deg,#143335,#102829 66%,#0B1E1F);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,#1A1D22,#16181C 66%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .num-block{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-faint);}
 .bignum{font-family:var(--font-serif);font-weight:400;line-height:.82;letter-spacing:-.02em;
@@ -164,8 +173,8 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   font-weight:500;background:var(--surface-2);border:1px solid var(--border);}
 .chip .k{color:var(--text-faint);font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;}
 .chip .v{font-weight:600;} .chip .ar{font-size:11px;line-height:1;}
-.chip.good{border-color:color-mix(in srgb,var(--accent) 35%,transparent);
-  background:color-mix(in srgb,var(--accent) 8%,var(--surface-2));} .chip.good .ar,.chip.good .v{color:var(--accent);}
+.chip.good{border-color:color-mix(in srgb,var(--good) 35%,transparent);
+  background:color-mix(in srgb,var(--good) 8%,var(--surface-2));} .chip.good .ar,.chip.good .v{color:var(--good);}
 .chip.warn{border-color:color-mix(in srgb,var(--amber) 38%,transparent);
   background:color-mix(in srgb,var(--amber) 8%,var(--surface-2));} .chip.warn .ar,.chip.warn .v{color:var(--amber);}
 .chip.bad{border-color:color-mix(in srgb,var(--red) 40%,transparent);
@@ -197,11 +206,11 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .tile .spark-empty{height:36px;border-bottom:1px dashed var(--border-2);opacity:.5;}
 .delta{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;
   font-variant-numeric:tabular-nums;} .delta .lbl{color:var(--text-faint);font-weight:500;}
-.delta.good{color:var(--accent);} .delta.bad{color:var(--red);} .delta.flat{color:var(--text-dim);}
+.delta.good{color:var(--good);} .delta.bad{color:var(--red);} .delta.flat{color:var(--text-dim);}
 
 /* ── horizontal day rail ───────────────────────────────────────────── */
 .day-rail{display:flex;gap:var(--s3);overflow-x:auto;padding:2px 0 9px;scrollbar-width:thin;
-  scrollbar-color:rgba(200,240,238,.2) transparent;}
+  scrollbar-color:rgba(255,255,255,.2) transparent;}
 .day-card{min-width:178px;max-width:178px;text-decoration:none;color:var(--text);
   padding:var(--s4) var(--s3);border-radius:var(--r-md);border:1px solid var(--border);border-top-color:var(--brass);
   background:linear-gradient(180deg,var(--surface-2),var(--surface));
@@ -216,8 +225,8 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .day-flag{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);
   font-size:8.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);}
 .day-tone{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--text-faint);flex:0 0 auto;}
-.day-card.good .day-flag{color:var(--accent);} .day-card.warn .day-flag{color:var(--amber);} .day-card.bad .day-flag{color:var(--red);}
-.day-card.good .day-tone{background:var(--accent);box-shadow:0 0 8px color-mix(in srgb,var(--accent) 45%,transparent);}
+.day-card.good .day-flag{color:var(--good);} .day-card.warn .day-flag{color:var(--amber);} .day-card.bad .day-flag{color:var(--red);}
+.day-card.good .day-tone{background:var(--good);box-shadow:0 0 8px color-mix(in srgb,var(--good) 45%,transparent);}
 .day-card.warn .day-tone{background:var(--amber);box-shadow:0 0 8px color-mix(in srgb,var(--amber) 40%,transparent);}
 .day-card.bad .day-tone{background:var(--red);box-shadow:0 0 8px color-mix(in srgb,var(--red) 40%,transparent);}
 .day-stats{display:grid;grid-template-columns:1fr 1fr;gap:7px 14px;}
@@ -227,7 +236,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .day-acts{display:flex;flex-wrap:wrap;gap:5px;min-height:20px;}
 .day-act{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border-radius:6px;
   font-size:10px;font-weight:600;color:var(--text-dim);border:1px solid var(--border);
-  background:rgba(200,240,238,.025);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  background:rgba(255,255,255,.025);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .day-act.bjj{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 28%,transparent);
   background:color-mix(in srgb,var(--amber) 10%,transparent);}
 .day-empty{color:var(--text-faint);font-size:11px;}
@@ -235,14 +244,14 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── AI coach readout ──────────────────────────────────────────────── */
 .coach{padding:var(--s6);position:relative;overflow:hidden;
   border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,#143335,#102829 66%,#0B1E1F);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,#1A1D22,#16181C 66%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .coach::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--series-2);opacity:.9;}
 .coach-head{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s4);}
 .coach-head .glyph{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
-  background:color-mix(in srgb,var(--accent) 12%,var(--surface));
-  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);color:var(--accent);}
+  background:color-mix(in srgb,var(--good) 12%,var(--surface));
+  border:1px solid color-mix(in srgb,var(--good) 30%,transparent);color:var(--good);}
 .coach-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0;}
 .coach-head .meta{font-size:12px;color:var(--text-faint);}
 .coach-body{display:grid;gap:var(--s4);}
@@ -252,7 +261,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .coach-sec ul{margin:0;padding:0;list-style:none;display:grid;gap:8px;}
 .coach-sec ul li{position:relative;padding-left:18px;color:var(--text);max-width:74ch;line-height:1.55;}
 .coach-sec.trends ul li::before{content:"";position:absolute;left:2px;top:9px;width:5px;height:5px;
-  border-radius:50%;background:var(--accent);}
+  border-radius:50%;background:var(--good);}
 .coach-sec.todo ol{margin:0;padding:0;list-style:none;counter-reset:t;display:grid;gap:10px;}
 .coach-sec.todo li{position:relative;padding-left:30px;counter-increment:t;line-height:1.55;max-width:74ch;}
 .coach-sec.todo li::before{content:counter(t);position:absolute;left:0;top:-1px;width:22px;height:22px;
@@ -269,58 +278,58 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .disclosure pre{margin:var(--s3) 0 0;padding:var(--s4);border-radius:var(--r-md);background:var(--bg-2);
   border:1px solid var(--border);overflow:auto;font-family:var(--font-mono);font-size:12px;
   line-height:1.65;color:var(--text-dim);}
-.disclosure pre .k{color:var(--series-2);} .disclosure pre .n{color:var(--accent);} .disclosure pre .s{color:#D8B27C;}
+.disclosure pre .k{color:var(--series-2);} .disclosure pre .n{color:var(--accent);} .disclosure pre .s{color:#AAB1B8;}
 
 /* ── capacity envelope ────────────────────────────────────────────── */
 .capacity{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 16%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .capacity-head{display:flex;align-items:flex-start;gap:var(--s4);justify-content:space-between;margin-bottom:var(--s4);}
 .capacity-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .capacity-head .meta{font-size:12px;color:var(--text-faint);}
 .cap-zone{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;border:1px solid var(--border);}
-.cap-zone.green{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 28%,transparent);background:color-mix(in srgb,var(--accent) 8%,transparent);}
+.cap-zone.green{color:var(--good);border-color:color-mix(in srgb,var(--good) 28%,transparent);background:color-mix(in srgb,var(--good) 8%,transparent);}
 .cap-zone.yellow{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 9%,transparent);}
 .cap-zone.red{color:var(--red);border-color:color-mix(in srgb,var(--red) 32%,transparent);background:color-mix(in srgb,var(--red) 10%,transparent);}
 .cap-zone.learning{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 30%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
 .cap-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .cap-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s3);}
-.cap-metric{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
+.cap-metric{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,255,255,.02);}
 .cap-metric .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .cap-metric .now{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .cap-metric .range{font-size:12px;color:var(--text-dim);margin-top:3px;}
-.cap-metric.good .now{color:var(--accent);} .cap-metric.warn .now{color:var(--amber);}
+.cap-metric.good .now{color:var(--good);} .cap-metric.warn .now{color:var(--amber);}
 .cap-metric.bad .now{color:var(--red);} .cap-metric.flat .now{color:var(--text-dim);}
 .cap-flags{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s4);}
 .cap-flag{font-size:12px;color:var(--text-dim);border:1px solid var(--border);border-radius:999px;
-  padding:5px 9px;background:rgba(200,240,238,.02);}
+  padding:5px 9px;background:rgba(255,255,255,.02);}
 .cap-flag.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 25%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 @media (max-width:900px){ .cap-grid{grid-template-columns:repeat(2,1fr);} }
 @media (max-width:420px){ .cap-grid{grid-template-columns:1fr;} .capacity-head{display:grid;} }
 
 /* ── stress leak map ───────────────────────────────────────────────── */
 .leak{padding:var(--s6);border-color:color-mix(in srgb,var(--red) 16%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .leak-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .leak-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .leak-head .meta{font-size:12px;color:var(--text-faint);}
 .leak-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
-  border:1px solid var(--border);background:rgba(200,240,238,.025);}
+  border:1px solid var(--border);background:rgba(255,255,255,.025);}
 .leak-pill.ready{color:var(--red);border-color:color-mix(in srgb,var(--red) 32%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
 .leak-pill.learning{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 30%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
 .leak-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .leak-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--s3);margin-bottom:var(--s4);}
-.leak-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
+.leak-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,255,255,.02);}
 .leak-stat .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .leak-stat .val{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .leak-stat .sub{font-size:12px;color:var(--text-dim);margin-top:3px;}
 .leak-reason{font-size:13px;color:var(--text-dim);line-height:1.5;margin-bottom:var(--s4);}
 .leak-flags{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4);}
 .leak-flag{font-size:12px;color:var(--text-dim);border:1px solid var(--border);border-radius:999px;
-  padding:5px 9px;background:rgba(200,240,238,.02);}
+  padding:5px 9px;background:rgba(255,255,255,.02);}
 .leak-table{width:100%;border-collapse:collapse;}
 .leak-table th,.leak-table td{font-size:12.5px;text-align:right;padding:9px var(--s3);border-top:1px solid var(--hairline);}
 .leak-table th{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
@@ -330,19 +339,19 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── discovery panel ──────────────────────────────────────────────── */
 .discovery{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .discovery-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .discovery-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .discovery-head .meta{font-size:12px;color:var(--text-faint);}
 .discovery-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
-  border:1px solid var(--border);background:rgba(200,240,238,.025);}
+  border:1px solid var(--border);background:rgba(255,255,255,.025);}
 .discovery-pill.ready{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 32%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
 .discovery-pill.learning{color:var(--text-dim);border-color:var(--border-2);}
 .discovery-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .discovery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s3);margin-bottom:var(--s4);}
-.discovery-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
+.discovery-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,255,255,.02);}
 .discovery-stat .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .discovery-stat .val{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .discovery-stat .sub{font-size:12px;color:var(--text-dim);margin-top:3px;}
@@ -354,20 +363,20 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── research health panels ───────────────────────────────────────── */
 .research{padding:var(--s6);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .research-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .research-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .research-head .meta{font-size:12px;color:var(--text-faint);}
 .research-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
   font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
-  border:1px solid var(--border);background:rgba(200,240,238,.025);}
-.research-pill.ready,.research-pill.green{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 30%,transparent);background:color-mix(in srgb,var(--accent) 8%,transparent);}
+  border:1px solid var(--border);background:rgba(255,255,255,.025);}
+.research-pill.ready,.research-pill.green{color:var(--good);border-color:color-mix(in srgb,var(--good) 30%,transparent);background:color-mix(in srgb,var(--good) 8%,transparent);}
 .research-pill.learning,.research-pill.yellow{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 .research-pill.no_data,.research-pill.red{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
 .research-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
 .research-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s4);margin-bottom:var(--s4);}
-.research-panel{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(200,240,238,.02);}
+.research-panel{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(255,255,255,.02);}
 .research-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s3);margin-bottom:var(--s3);}
 .research-panel h4{font-family:var(--font-serif);font-size:20px;font-weight:400;margin:0;}
 .research-panel p{color:var(--text-dim);font-size:13.5px;line-height:1.5;margin:0 0 var(--s3);}
@@ -383,8 +392,8 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── grappling mode ───────────────────────────────────────────────── */
 .grapple{padding:var(--s6);border-color:color-mix(in srgb,var(--amber) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0E2122);
-  background-size:180px 180px,100% 100%;background-blend-mode:soft-light,normal;}
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .grapple-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .grapple-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
 .grapple-head .meta{font-size:12px;color:var(--text-faint);}
@@ -394,7 +403,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .grapple-warning{padding:11px 13px;border-radius:var(--r-md);margin-bottom:var(--s4);
   color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 .grapple-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--s3);margin-bottom:var(--s4);}
-.grapple-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(200,240,238,.02);}
+.grapple-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,255,255,.02);}
 .grapple-stat .lab{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .grapple-stat .val{font-family:var(--font-serif);font-size:28px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:6px;}
 .grapple-stat .sub{font-size:12px;color:var(--text-dim);margin-top:3px;}
@@ -414,14 +423,14 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .acts thead th:first-child,.acts tbody td:first-child{text-align:left;}
 .acts tbody td{text-align:right;padding:11px var(--s4);font-size:13.5px;font-variant-numeric:tabular-nums;
   border-top:1px solid var(--hairline);color:var(--text);}
-.acts tbody tr:hover td{background:rgba(200,240,238,.02);}
+.acts tbody tr:hover td{background:rgba(255,255,255,.02);}
 .acts .act-type{display:inline-flex;align-items:center;gap:9px;font-weight:500;}
 .acts .act-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
   background:var(--surface-3);border:1px solid var(--border);color:var(--text-dim);}
 .acts .act-ico svg{width:14px;height:14px;} .acts .muted{color:var(--text-faint);}
 .te-badge{display:inline-block;min-width:34px;padding:2px 7px;border-radius:6px;font-size:12px;
   font-weight:600;background:var(--surface-3);}
-.te-badge.hi{background:color-mix(in srgb,var(--accent) 12%,var(--surface));color:var(--accent);}
+.te-badge.hi{background:color-mix(in srgb,var(--good) 12%,var(--surface));color:var(--good);}
 .te-badge.mid{background:color-mix(in srgb,var(--amber) 12%,var(--surface));color:var(--amber);}
 
 /* ── sparse / empty ────────────────────────────────────────────────── */
@@ -433,12 +442,40 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── Streamlit widgets → cockpit ───────────────────────────────────── */
 .stButton>button{background:var(--accent);color:var(--accent-ink);border:0;font-family:var(--font-sans);
-  font-weight:600;font-size:13.5px;border-radius:var(--r-md);padding:9px 16px;
+  font-weight:600;font-size:13.5px;border-radius:var(--r-md);padding:9px 16px;white-space:nowrap;min-height:0;
   box-shadow:0 1px 2px rgba(0,0,0,.3),0 0 18px color-mix(in srgb,var(--accent) 18%,transparent);}
 .stButton>button:hover{filter:brightness(1.07);color:var(--accent-ink);border:0;}
 .stButton>button:disabled{opacity:.55;}
+
+/* ── header utility controls → small dark pills (Sync + horizon popover) ───── */
+/* (popover body — the 7/30/60 toggle — is styled by the rules below) */
+.st-key-sync_btn button,
+[data-testid="stPopover"]>div>button,[data-testid="stPopover"]>button{
+  background:var(--surface)!important;border:1px solid var(--border)!important;color:var(--text-dim)!important;
+  font-family:var(--font-mono)!important;font-weight:500!important;font-size:11.5px!important;letter-spacing:.02em!important;
+  padding:5px 11px!important;min-height:0!important;height:auto!important;border-radius:var(--r-md)!important;
+  white-space:nowrap!important;box-shadow:inset 0 1px 0 var(--inset-hi)!important;}
+.st-key-sync_btn button:hover,
+[data-testid="stPopover"]>div>button:hover,[data-testid="stPopover"]>button:hover{
+  border-color:var(--border-2)!important;color:var(--text)!important;background:var(--surface-2)!important;filter:none!important;}
+
+/* ── window range toggle → compact non-wrapping pill group (matches design) ── */
+[data-testid="stSegmentedControl"]{width:auto;}
+[data-testid="stSegmentedControl"] [role="radiogroup"]{
+  display:inline-flex!important;flex-wrap:nowrap!important;gap:2px;padding:3px;width:auto!important;
+  border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border);
+  box-shadow:inset 0 1px 0 var(--inset-hi);}
+[data-testid="stSegmentedControl"] [role="radiogroup"]>*{flex:0 0 auto!important;}
+[data-testid="stSegmentedControl"] button{
+  border:0!important;background:transparent!important;color:var(--text-faint)!important;
+  font-family:var(--font-mono)!important;font-size:11px!important;font-weight:500!important;letter-spacing:.02em!important;
+  padding:6px 12px!important;border-radius:8px!important;min-height:0!important;min-width:0!important;white-space:nowrap!important;}
+[data-testid="stSegmentedControl"] button:hover{color:var(--text)!important;background:var(--surface-2)!important;}
 [data-testid="stSegmentedControl"] button[aria-checked="true"],
-[data-testid="stSegmentedControl"] button[data-selected="true"]{color:var(--accent)!important;}
+[data-testid="stSegmentedControl"] button[data-selected="true"],
+[data-testid="stSegmentedControl"] button[kind*="Active"],
+[data-testid="stSegmentedControl"] button[data-testid*="Active"]{
+  background:var(--accent)!important;color:var(--accent-ink)!important;font-weight:600!important;box-shadow:none!important;}
 
 /* ── responsive ────────────────────────────────────────────────────── */
 @media (max-width:1080px){ .tiles{grid-template-columns:repeat(3,1fr);} }
@@ -456,7 +493,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 """
 
 # brand mark + coach glyph (small inline SVG icons)
-_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#3FB6A8" stroke-width="2" '
+_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#C6F23B" stroke-width="2" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2.5-7 4 14 3-9 2 2H22"/></svg>')
 _SPARK = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6m0 0 4-3m-4 3L8 6M5 13a7 7 0 1 0 14 0"/></svg>')
@@ -492,8 +529,8 @@ def topbar(date_str: str, sparse: bool) -> str:
     return _collapse_html(f"""
     <div class="topbar">
       <div class="brand">
-        <span class="mark">{_PULSE}</span>
-        <span><span class="name">Hankø <b>fitness hub</b></span><br>
+        <span class="mark"></span>
+        <span><span class="name">Hankø</span><br>
         <span class="sub">Recovery cockpit</span></span>
       </div>
       <span class="date tnum">{html.escape(date_str)}</span>
@@ -677,7 +714,7 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
               _sparkline(sparks.get("rhr", []), SERIES2),
               _delta(rhr, base.get("rhr"), -1, r0)),
         _tile("Sleep", "—" if slp is None else f"{slp:.1f}", "h",
-              _sparkline(sparks.get("sleep_h", []), ACCENT),
+              _sparkline(sparks.get("sleep_h", []), SERIES2),
               _delta(slp, base.get("sleep_h"), 1, r1, "h")),
         _tile("ACWR", "—" if acwr is None else f"{acwr:.2f}", "",
               _sparkline(sparks.get("acwr", []), acwr_color), acwr_delta),
@@ -1448,10 +1485,10 @@ def activities_table(acts: pd.DataFrame, sparse=False) -> str:
 #  TREND CHARTS  (dark Plotly per the bundle's port notes)
 # ════════════════════════════════════════════════════════════════════════════
 def _dark(fig: go.Figure, height: int, legend=True) -> go.Figure:
-    mono = "IBM Plex Mono, monospace"
+    mono = "JetBrains Mono, monospace"
     fig.update_layout(
         height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Hanken Grotesk, sans-serif", color=TEXT_FAINT, size=11),
+        font=dict(family="Archivo, sans-serif", color=TEXT_FAINT, size=11),
         margin=dict(t=34, b=24, l=44, r=16), hovermode="x unified",
         showlegend=legend,
         legend=dict(orientation="h", y=1.18, x=0, font=dict(family=mono, color=TEXT_DIM, size=10.5),
@@ -1499,9 +1536,9 @@ def chart_hrv(view: pd.DataFrame, band) -> go.Figure:
     fig = go.Figure()
     lo, hi = band
     if lo is not None and hi is not None:
-        fig.add_hrect(y0=lo, y1=hi, fillcolor=ACCENT, opacity=0.10, line_width=0)
-        fig.add_hline(y=hi, line=dict(color=ACCENT, width=1, dash="dot"), opacity=0.4)
-        fig.add_hline(y=lo, line=dict(color=ACCENT, width=1, dash="dot"), opacity=0.4)
+        fig.add_hrect(y0=lo, y1=hi, fillcolor=GOOD, opacity=0.10, line_width=0)
+        fig.add_hline(y=hi, line=dict(color=GOOD, width=1, dash="dot"), opacity=0.4)
+        fig.add_hline(y=lo, line=dict(color=GOOD, width=1, dash="dot"), opacity=0.4)
     if "hrv_7d" in view:
         fig.add_trace(go.Scatter(x=x, y=view["hrv_7d"], name="7-day avg", mode="lines",
                                  line=dict(color=TEXT_DIM, width=1.5, dash="dot")))
@@ -1552,7 +1589,7 @@ def chart_bedtime_hr(view: pd.DataFrame) -> go.Figure:
 def chart_sleep(view: pd.DataFrame, target=8.0) -> go.Figure:
     x = view["date"]
     h = view["sleep_hours"]
-    colors = [ACCENT if (v is not None and pd.notna(v) and v >= 7) else AMBER for v in h]
+    colors = [ACCENT if (v is not None and pd.notna(v) and v >= 7) else SERIES2 for v in h]
     fig = go.Figure()
     fig.add_trace(go.Bar(x=x, y=h, name="Sleep", marker_color=colors, marker_line_width=0))
     fig.add_hline(y=target, line=dict(color=TEXT_DIM, width=1.5, dash="dash"),
@@ -1564,8 +1601,8 @@ def chart_sleep_comp(view: pd.DataFrame) -> go.Figure:
     s = view.tail(21)
     x = s["date"]
     fig = go.Figure()
-    layers = [("deep_seconds", "Deep", ACCENT, 0.9), ("rem_seconds", "REM", SERIES2, 0.85),
-              ("light_seconds", "Light", TEXT_FAINT, 0.6), ("awake_seconds", "Awake", TEXT_FAINT, 0.25)]
+    layers = [("deep_seconds", "Deep", "#5A8F1E", 0.95), ("rem_seconds", "REM", ACCENT, 0.92),
+              ("light_seconds", "Light", SERIES2, 0.85), ("awake_seconds", "Awake", "#3A3F47", 0.55)]
     for col, name, color, op in layers:
         if col in s:
             fig.add_trace(go.Bar(x=x, y=s[col] / 3600.0, name=name, marker_color=color,
@@ -1582,11 +1619,11 @@ def chart_body_battery_daily(day: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.add_hrect(y0=0, y1=25, fillcolor=RED, opacity=0.07, line_width=0)
     fig.add_hrect(y0=25, y1=50, fillcolor=AMBER, opacity=0.07, line_width=0)
-    fig.add_hrect(y0=50, y1=100, fillcolor=ACCENT, opacity=0.06, line_width=0)
+    fig.add_hrect(y0=50, y1=100, fillcolor=GOOD, opacity=0.06, line_width=0)
     fig.add_trace(go.Scatter(
         x=x, y=y, name="Body Battery", mode="lines",
         line=dict(color=ACCENT, width=2.5, shape="spline"),
-        fill="tozeroy", fillcolor="rgba(63,182,168,0.12)",
+        fill="tozeroy", fillcolor="rgba(198,242,59,0.12)",
     ))
     if not y.empty:
         fig.add_trace(go.Scatter(
@@ -1603,13 +1640,13 @@ def chart_stress_daily(day: pd.DataFrame) -> go.Figure:
     x = s["timestamp"]
     y = s["value"]
     fig = go.Figure()
-    fig.add_hrect(y0=0, y1=25, fillcolor=ACCENT, opacity=0.06, line_width=0)
+    fig.add_hrect(y0=0, y1=25, fillcolor=GOOD, opacity=0.06, line_width=0)
     fig.add_hrect(y0=25, y1=50, fillcolor=AMBER, opacity=0.06, line_width=0)
     fig.add_hrect(y0=50, y1=100, fillcolor=RED, opacity=0.07, line_width=0)
     fig.add_trace(go.Scatter(
         x=x, y=y, name="Stress", mode="lines",
         line=dict(color=AMBER, width=2, shape="spline"),
-        fill="tozeroy", fillcolor="rgba(228,171,102,0.12)",
+        fill="tozeroy", fillcolor="rgba(255,255,255,0.12)",
     ))
     fig.update_yaxes(range=[0, 100], title_text="level")
     return _dark(fig, 240, legend=False)
@@ -1621,12 +1658,12 @@ def chart_acwr(view: pd.DataFrame) -> go.Figure:
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     if "acute_load" in view:
         fig.add_trace(go.Bar(x=x, y=view["acute_load"], name="Acute load (7d)",
-                             marker_color="rgba(156,192,189,0.18)", marker_line_width=0),
+                             marker_color="rgba(255,255,255,0.18)", marker_line_width=0),
                       secondary_y=False)
     if "chronic_load" in view:
         fig.add_trace(go.Scatter(x=x, y=view["chronic_load"], name="Chronic (wkly)",
                                  line=dict(color=TEXT_DIM, width=1.5)), secondary_y=False)
-    fig.add_hrect(y0=0.8, y1=1.3, fillcolor=ACCENT, opacity=0.10, line_width=0, secondary_y=True)
+    fig.add_hrect(y0=0.8, y1=1.3, fillcolor=GOOD, opacity=0.10, line_width=0, secondary_y=True)
     fig.add_trace(go.Scatter(x=x, y=view["acwr"], name="ACWR", mode="lines",
                              line=dict(color=ACCENT, width=2.5)), secondary_y=True)
     fig.update_yaxes(title_text="Load", secondary_y=False, gridcolor=GRID,
@@ -1642,7 +1679,7 @@ def chart_vo2(view: pd.DataFrame) -> go.Figure:
     fig.add_trace(go.Scatter(x=x, y=view["vo2max"], name="VO₂max", mode="lines+markers",
                              line=dict(color=SERIES2, width=2),
                              marker=dict(size=4, color=SERIES2),
-                             fill="tozeroy", fillcolor="rgba(227,190,133,0.12)"))
+                             fill="tozeroy", fillcolor="rgba(255,255,255,0.12)"))
     ys = view["vo2max"].dropna()
     if not ys.empty:
         fig.update_yaxes(range=[ys.min() - 0.6, ys.max() + 0.6])
@@ -1742,7 +1779,7 @@ def chart_foot_pace(model: dict) -> go.Figure:
     if rows["avg_hr"].notna().any():
         fig.add_trace(go.Bar(
             x=rows["date"], y=rows["avg_hr"], name="Avg HR",
-            marker_color="rgba(227,190,133,0.18)", marker_line_width=0,
+            marker_color="rgba(255,255,255,0.18)", marker_line_width=0,
         ), secondary_y=True)
     fig.update_yaxes(title_text="min/km", autorange="reversed", secondary_y=False,
                      gridcolor=GRID, tickfont=dict(color=TEXT_FAINT, size=10.5))
@@ -1826,7 +1863,7 @@ def strength_readiness_badge(snapshot: dict) -> str:
     return (
         f"<div style='display:flex;gap:14px;align-items:center;"
         f"background:{SURFACE};border-radius:10px;padding:8px 14px;"
-        f"font-family:IBM Plex Mono,monospace;color:{TEXT_DIM};font-size:12px'>"
+        f"font-family:JetBrains Mono,monospace;color:{TEXT_DIM};font-size:12px'>"
         f"<span style='color:{ACCENT};font-size:18px;font-weight:600'>{score}</span>"
         f"<span>{level}</span><span>HRV {hrv}</span><span>BB {bb}</span></div>"
     )
@@ -1843,7 +1880,7 @@ def strength_session_card(session: dict, summary: dict) -> str:
     top = _fmt(summary.get("top_est_1rm_kg"), " kg")
     return (
         f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
-        f"color:{TEXT};font-family:Hanken Grotesk,sans-serif'>"
+        f"color:{TEXT};font-family:Archivo,sans-serif'>"
         f"<div style='font-size:18px;font-weight:600'>{name}"
         f"<span style='color:{TEXT_DIM};font-weight:400;font-size:13px'> · {day}</span></div>"
         f"<div style='color:{TEXT_DIM};font-size:13px;margin-top:6px'>"
@@ -1887,17 +1924,17 @@ def strength_standards_panel(standards: dict) -> str:
     status = standards.get("status")
     if status == "need_profile":
         miss = ", ".join(standards.get("missing", [])) or "profile data"
-        return (f"<div style='color:{TEXT_DIM};font-family:Hanken Grotesk,sans-serif;"
+        return (f"<div style='color:{TEXT_DIM};font-family:Archivo,sans-serif;"
                 f"font-size:14px'>Set your {html.escape(miss)} to grade your lifts "
                 f"against population standards.</div>")
     if status != "ok" or not standards.get("lifts"):
-        return (f"<div style='color:{TEXT_DIM};font-family:Hanken Grotesk,sans-serif;"
+        return (f"<div style='color:{TEXT_DIM};font-family:Archivo,sans-serif;"
                 f"font-size:14px'>Log the main lifts (squat, bench, deadlift, OHP, row) "
                 f"to see strength standards.</div>")
     ov = standards.get("overall") or {}
     rows = [
         f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
-        f"color:{TEXT};font-family:Hanken Grotesk,sans-serif;margin-bottom:10px'>"
+        f"color:{TEXT};font-family:Archivo,sans-serif;margin-bottom:10px'>"
         f"<span style='color:{TEXT_DIM};font-size:13px'>Overall</span> "
         f"<b style='color:{ACCENT};font-size:18px'>{_fmt(ov.get('level'))}</b> "
         f"<span style='color:{TEXT_DIM}'>(~{_fmt(ov.get('percentile'))} pct)</span>"
@@ -1907,7 +1944,7 @@ def strength_standards_panel(standards: dict) -> str:
     for l in standards["lifts"]:
         pct = l.get("percentile") or 0
         rows.append(
-            f"<div style='margin:6px 0;font-family:Hanken Grotesk,sans-serif;color:{TEXT}'>"
+            f"<div style='margin:6px 0;font-family:Archivo,sans-serif;color:{TEXT}'>"
             f"<div style='display:flex;justify-content:space-between;font-size:14px'>"
             f"<span>{html.escape(str(l['name']))}</span>"
             f"<span style='color:{SERIES2}'>{_fmt(l['level'])} · {_fmt(l.get('est_1rm_kg'),' kg')}</span></div>"
@@ -1923,7 +1960,7 @@ def strength_balance_panel(balance: dict) -> str:
     ratios = balance.get("ratios", [])
     lr = balance.get("left_right", [])
     if not ratios and not lr:
-        return (f"<div style='color:{TEXT_DIM};font-family:Hanken Grotesk,sans-serif;"
+        return (f"<div style='color:{TEXT_DIM};font-family:Archivo,sans-serif;"
                 f"font-size:14px'>Log more of the main lifts (and unilateral lifts per "
                 f"side) to see balance.</div>")
     chip = {"ok": SERIES2, "under": ACCENT, "over": AMBER}
@@ -1932,7 +1969,7 @@ def strength_balance_panel(balance: dict) -> str:
         color = chip.get(r["status"], TEXT_DIM)
         note = "" if r["status"] == "ok" else f" — weak: {html.escape(str(r.get('weak_side') or ''))}"
         out.append(
-            f"<div style='margin:6px 0;font-family:Hanken Grotesk,sans-serif;color:{TEXT};font-size:14px'>"
+            f"<div style='margin:6px 0;font-family:Archivo,sans-serif;color:{TEXT};font-size:14px'>"
             f"<span>{html.escape(r['label'])}</span> "
             f"<b style='color:{color}'>{_fmt(r['ratio'])}</b> "
             f"<span style='color:{TEXT_DIM};font-size:12px'>(target {r['low']}–{r['high']})</span>"
@@ -1942,7 +1979,7 @@ def strength_balance_panel(balance: dict) -> str:
         for e in lr:
             color = ACCENT if e.get("flagged") else SERIES2
             out.append(
-                f"<div style='margin:4px 0;font-family:Hanken Grotesk,sans-serif;color:{TEXT};font-size:14px'>"
+                f"<div style='margin:4px 0;font-family:Archivo,sans-serif;color:{TEXT};font-size:14px'>"
                 f"{html.escape(str(e['name']))}: L {_fmt(e.get('left_1rm_kg'))} / R {_fmt(e.get('right_1rm_kg'))} "
                 f"<b style='color:{color}'>Δ{_fmt(e.get('diff_pct'))}%</b>"
                 f"{' ⚠' if e.get('flagged') else ''}</div>")
@@ -1958,10 +1995,10 @@ def _exp_signed(v):
 
 
 _VERDICT_TONE = {
-    "likely helped": ("✅", "#7CE7A6"),
-    "likely hurt": ("⚠️", "#FF8B8B"),
-    "no clear effect": ("•", "#A9B3C1"),
-    "insufficient_data": ("…", "#A9B3C1"),
+    "likely helped": ("✅", "#C6F23B"),
+    "likely hurt": ("⚠️", "#FF5A4D"),
+    "no clear effect": ("•", "#8E959C"),
+    "insufficient_data": ("…", "#8E959C"),
 }
 
 
@@ -1982,7 +2019,7 @@ def experiment_result_card(result: dict) -> str:
     rows = []
     for key, m in metrics.items():
         verdict = str(m.get("verdict", ""))
-        icon, color = _VERDICT_TONE.get(verdict, ("•", "#A9B3C1"))
+        icon, color = _VERDICT_TONE.get(verdict, ("•", "#8E959C"))
         label = html.escape(str(m.get("label", key)))
         if verdict == "insufficient_data" or m.get("delta") is None:
             detail = (f'<span style="opacity:.7">not enough data '

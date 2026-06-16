@@ -144,25 +144,28 @@ suppressed = (not sparse) and val(latest, "hrv_flag") == "suppressed"
 rhr_elevated = (not sparse) and bool(val(latest, "rhr_elevated"))
 state_alert = (not sparse) and (suppressed or rhr_elevated)
 
-# ── top bar + sync + window control ──────────────────────────────────────────
-st.markdown(cockpit.topbar(date_str, sparse), unsafe_allow_html=True)
-
+# ── top bar + sync + window control (single row, vertically aligned) ─────────
 latest_sync_day = str(latest["date"])[:10] if latest is not None else None
 planned_sync_days = ingest.smart_sync_days(latest_sync_day)
 
-spacer, sync_col, win_col = st.columns([5, 1.5, 2])
-with sync_col:
-    sync_clicked = st.button("⟳ Sync", width="stretch",
+win = st.session_state.get("win", 30) or 30
+head_l, head_sync, head_win = st.columns([7, 1.4, 1.1], vertical_alignment="center")
+with head_l:
+    st.markdown(cockpit.topbar(date_str, sparse), unsafe_allow_html=True)
+with head_sync:
+    sync_clicked = st.button("⟳ Sync", key="sync_btn", width="stretch",
                              help=(
                                  "Smart sync: pulls a small overlap for late Garmin updates, "
                                  f"or catches up if the local DB is behind. Next pull: {planned_sync_days} day(s)."
                              ))
-win = 30
-with win_col:
+with head_win:
     if not daily.empty:
-        win = st.segmented_control(
-            "Window", [7, 30, 60], default=30, key="win",
-            format_func=lambda d: f"{d}d", label_visibility="collapsed") or 30
+        with st.popover(f"{win}d", icon=":material/calendar_month:",
+                        use_container_width=True,
+                        help="Time horizon for trends & baselines"):
+            win = st.segmented_control(
+                "Window", [7, 30, 60], default=30, key="win",
+                format_func=lambda d: f"{d}d", label_visibility="collapsed") or 30
 
 # A sync is the ONLY path that writes / touches the network. garminconnect is
 # imported lazily here so normal (read-only) dashboard loads stay light.
@@ -436,9 +439,9 @@ if pending_prompt:
 def chart_card(title, unit, fig):
     with st.container(border=True):
         st.markdown(
-            f'<div class="chart-title" style="font-family:\'Instrument Serif\',Georgia,serif;'
+            f'<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
             f'font-weight:400;font-size:21px;margin:2px 0 -4px">'
-            f'{title} <em style="font-style:normal;font-family:\'IBM Plex Mono\',monospace;'
+            f'{title} <em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
             f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">{unit}</em></div>',
             unsafe_allow_html=True)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
