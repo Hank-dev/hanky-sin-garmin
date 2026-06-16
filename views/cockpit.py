@@ -57,6 +57,8 @@ def load(local_timezone: str):
         sleep_need_h=personal_sleep_need.get("sleep_need_h"),
     )
     health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
+    recommended_bedtime = analysis.compute_recommended_bedtime(
+        daily, sleep_timing, sleep_need_h=personal_sleep_need.get("sleep_need_h"))
     strength_sessions = db.load_strength_sessions_df()
     strength_sets = db.load_strength_sets_df()
     exercises = db.load_exercises_df()
@@ -72,12 +74,12 @@ def load(local_timezone: str):
         formula=config.ONE_RM_FORMULA)
     return (daily, acts, checkins, body_battery, stress, grappling,
             stress_leaks, prebed_discovery, personal_sleep_need, early_waking,
-            health_research, strength_summary)
+            health_research, strength_summary, recommended_bedtime)
 
 
 (daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
  prebed_discovery, personal_sleep_need, early_waking, health_research,
- strength_summary) = load(config.LOCAL_TIMEZONE)
+ strength_summary, recommended_bedtime) = load(config.LOCAL_TIMEZONE)
 
 coach_memory_df = db.load_memory_df()                       # fresh: not cached
 coach_memory_digest = analysis.build_coach_memory_digest(coach_memory_df)
@@ -202,6 +204,7 @@ view = daily.tail(win) if not daily.empty else daily
 base28 = daily.tail(28) if not daily.empty else daily
 capacity = analysis.compute_capacity_envelope(daily, acts, checkins)
 weekly_stress = analysis.compute_weekly_stress_overview(daily)
+weekly_sleep = analysis.compute_weekly_sleep_overview(daily)
 valid_days = set(pd.to_datetime(daily["date"], errors="coerce").dt.strftime("%Y-%m-%d").dropna()) if not daily.empty else set()
 default_day = str(latest["date"])[:10] if latest is not None else None
 selected_day = query_day(default_day, valid_days)
@@ -577,6 +580,20 @@ with recovery_tab:
             chart_card("Sleep duration", sleep_unit, cockpit.chart_sleep(view, sleep_need))
             if personal_sleep_need.get("source") != "personal_recovery_nights":
                 st.caption(personal_sleep_need.get("message", "Learning personal sleep need."))
+        if recommended_bedtime.get("status") == "ready":
+            with st.container(border=True):
+                st.markdown(cockpit.bedtime_card(recommended_bedtime), unsafe_allow_html=True)
+        elif recommended_bedtime.get("status") == "learning":
+            st.caption("Recommended bedtime is warming up — sync a few more nights of sleep timing.")
+        if weekly_sleep.get("status") == "ready":
+            sleep_meta = _week_label(weekly_sleep["week_start"], weekly_sleep["week_end"])
+            if weekly_sleep.get("mean") is not None:
+                sleep_meta += f" · avg {weekly_sleep['mean']:.0f}"
+            if weekly_sleep.get("std") is not None:
+                sleep_meta += f" · SD {weekly_sleep['std']:.1f}"
+            chart_card("Weekly sleep score", sleep_meta, cockpit.chart_weekly_sleep_score(weekly_sleep))
+            if weekly_sleep.get("days_with_data", 0) < 2:
+                st.caption("Only one sleep score is synced for this week so far.")
         if (early_waking or {}).get("rows"):
             early_meta = f"need {early_waking.get('sleep_need_h', sleep_need):.1f}h · {early_waking.get('recent_meaningful_days', 0)}/7 >=45 min"
             if early_waking.get("recent_mean_early_minutes") is not None:

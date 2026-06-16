@@ -3202,6 +3202,177 @@ def compute_weekly_stress_overview(daily, days: int = 7, anchor_date=None) -> di
     return result
 
 
+def compute_weekly_sleep_overview(daily, days: int = 7, anchor_date=None) -> dict:
+    """Daily sleep score for the latest rolling week plus SD bands.
+
+    Uses only the daily aggregate `sleep_score` (0-100, higher is better),
+    mirroring `compute_weekly_stress_overview`. No I/O.
+    """
+    out = {"status": "no_data", "rows": [], "missing": ["daily sleep scores"]}
+    if daily is None or getattr(daily, "empty", True) or "date" not in daily or "sleep_score" not in daily:
+        return out
+
+    d = daily.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
+    d["sleep_score"] = pd.to_numeric(d["sleep_score"], errors="coerce")
+    d = d.dropna(subset=["date"]).sort_values("date")
+    if d.empty:
+        return out
+
+    days = max(1, int(days or 7))
+    anchor = pd.to_datetime(anchor_date, errors="coerce") if anchor_date is not None else d["date"].max()
+    if pd.isna(anchor):
+        return out
+    anchor = pd.Timestamp(anchor).normalize()
+    start = anchor - pd.Timedelta(days=days - 1)
+
+    daily_sleep = d.groupby("date", as_index=False)["sleep_score"].mean()
+    calendar = pd.DataFrame({"date": pd.date_range(start, anchor, freq="D")})
+    week = calendar.merge(daily_sleep, on="date", how="left")
+    observed = week["sleep_score"].dropna()
+    if observed.empty:
+        return {
+            **out,
+            "week_start": start.strftime("%Y-%m-%d"),
+            "week_end": anchor.strftime("%Y-%m-%d"),
+        }
+
+    mean = float(observed.mean())
+    std = float(observed.std(ddof=0)) if len(observed) >= 2 else None
+    rows = [
+        {
+            "date": row["date"].strftime("%Y-%m-%d"),
+            "sleep_score": _round_or_none(row.get("sleep_score"), 1),
+        }
+        for _, row in week.iterrows()
+    ]
+
+    result = {
+        "status": "ready",
+        "week_start": start.strftime("%Y-%m-%d"),
+        "week_end": anchor.strftime("%Y-%m-%d"),
+        "days": days,
+        "days_with_data": int(observed.size),
+        "mean": _round_or_none(mean, 1),
+        "std": _round_or_none(std, 1),
+        "rows": rows,
+        "missing": [],
+    }
+    if std is not None:
+        result.update({
+            "band_1sd_low": _round_or_none(max(0.0, mean - std), 1),
+            "band_1sd_high": _round_or_none(min(100.0, mean + std), 1),
+            "band_2sd_low": _round_or_none(max(0.0, mean - 2 * std), 1),
+            "band_2sd_high": _round_or_none(min(100.0, mean + 2 * std), 1),
+        })
+    return result
+
+
+def _fmt_clock(minute_of_day: float) -> str:
+    """Format a minute-of-day (wrapped to 24h) as a zero-padded HH:MM string."""
+    m = int(round(minute_of_day)) % 1440
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
+def compute_recommended_bedtime(
+    daily: pd.DataFrame,
+    sleep_timing: pd.DataFrame | None,
+    sleep_need_h: float | None = None,
+    lookback_days: int = 14,
+    onset_buffer_min: int = 15,
+    debt_fraction: float = 0.25,
+    debt_cap_min: int = 30,
+    min_nights: int = 3,
+    anchor_date=None,
+) -> dict:
+    """Recommend a bedtime window anchored on the user's habitual wake time.
+
+    Circadian logic: wake time is the anchor, bedtime is back-calculated as
+    ``wake - sleep_need - onset_buffer``. Recent sleep debt gently pulls the
+    window earlier (a fraction of the debt, capped). The window half-width
+    tracks the user's own bedtime regularity. Pure: no I/O.
+    """
+    sleep_need_h = float(config.SLEEP_NEED_HOURS if sleep_need_h is None else sleep_need_h)
+    out = {
+        "status": "no_data",
+        "sleep_need_h": _round_or_none(sleep_need_h, 2),
+        "reasons": [],
+        "missing": ["sleep start/end timing history"],
+    }
+    if sleep_timing is None or getattr(sleep_timing, "empty", True) or "sleep_end" not in sleep_timing:
+        return out
+
+    t = sleep_timing.copy()
+    t["date"] = pd.to_datetime(t.get("date"), errors="coerce").dt.normalize()
+    for col in ("sleep_start", "sleep_end"):
+        if col in t:
+            t[col] = pd.to_datetime(t[col], errors="coerce")
+    t = t.dropna(subset=["date", "sleep_start", "sleep_end"]).sort_values("date")
+    if t.empty:
+        return out
+
+    anchor = pd.to_datetime(anchor_date, errors="coerce") if anchor_date is not None else t["date"].max()
+    if pd.isna(anchor):
+        return out
+    anchor = pd.Timestamp(anchor).normalize()
+    start = anchor - pd.Timedelta(days=max(1, int(lookback_days)) - 1)
+    recent = t[(t["date"] >= start) & (t["date"] <= anchor)]
+    if recent.empty:
+        recent = t.tail(int(lookback_days))
+
+    wake_minutes = recent["sleep_end"].map(_wake_time_minute).dropna()
+    if int(wake_minutes.size) < min_nights:
+        return {
+            **out,
+            "status": "learning",
+            "nights_used": int(wake_minutes.size),
+            "missing": [f"{max(0, min_nights - int(wake_minutes.size))} more nights of sleep timing"],
+        }
+
+    target_wake = float(wake_minutes.median())
+
+    # Recent sleep debt (need - actual); only a deficit pulls bedtime earlier.
+    recent_debt_h = 0.0
+    if daily is not None and not getattr(daily, "empty", True) and "sleep_debt_h" in daily:
+        d = daily.copy()
+        d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
+        d = d[(d["date"] >= start) & (d["date"] <= anchor)]
+        debt = pd.to_numeric(d["sleep_debt_h"], errors="coerce").dropna()
+        if not debt.empty:
+            recent_debt_h = max(0.0, float(debt.mean()))
+    debt_pull_min = int(round(min(debt_cap_min, recent_debt_h * 60.0 * debt_fraction)))
+
+    total_offset = sleep_need_h * 60.0 + debt_pull_min + onset_buffer_min
+    center_min = (target_wake - total_offset) % 1440
+
+    # Window half-width tracks bedtime regularity (1 SD), clamped to a sane range.
+    bedtimes = recent["sleep_start"].map(_bedtime_minute).dropna()
+    bed_sd = float(bedtimes.std()) if int(bedtimes.size) >= min_nights else float("nan")
+    half_width = 20 if pd.isna(bed_sd) else int(round(min(40.0, max(15.0, bed_sd))))
+
+    reasons = [f"Anchored to your ~{_fmt_clock(target_wake)} median wake time over {int(wake_minutes.size)} nights."]
+    if debt_pull_min > 0:
+        reasons.append(f"Pulled {debt_pull_min} min earlier to repay {recent_debt_h:.1f}h of recent sleep debt.")
+    if pd.isna(bed_sd) or bed_sd <= 15:
+        reasons.append("Your bedtimes are already fairly regular, so the window is tight.")
+
+    return {
+        "status": "ready",
+        "bedtime_center": _fmt_clock(center_min),
+        "window_start": _fmt_clock(center_min - half_width),
+        "window_end": _fmt_clock(center_min + half_width),
+        "implied_wake": _fmt_clock(target_wake),
+        "sleep_need_h": _round_or_none(sleep_need_h, 2),
+        "half_width_min": half_width,
+        "debt_pull_min": debt_pull_min,
+        "recent_debt_h": _round_or_none(recent_debt_h, 2),
+        "onset_buffer_min": int(onset_buffer_min),
+        "nights_used": int(wake_minutes.size),
+        "reasons": reasons,
+        "missing": [],
+    }
+
+
 def compute_personal_sleep_need(
     daily: pd.DataFrame,
     checkins: pd.DataFrame | None = None,

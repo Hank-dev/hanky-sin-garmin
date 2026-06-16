@@ -961,6 +961,41 @@ def coach_card(date_str, result, summary, sparse=False) -> str:
     return f'<div class="card coach">{head}{body}{disc}</div>'
 
 
+def bedtime_card(model: dict) -> str:
+    """Styled card showing the recommended bedtime window and its reasoning."""
+    model = model or {}
+    need_h = model.get("sleep_need_h")
+    need_txt = ""
+    if need_h is not None:
+        h = int(need_h)
+        m = int(round((float(need_h) - h) * 60))
+        need_txt = f"{h}h{m:02d}m"
+
+    window = (f'{model.get("window_start", "—")} – {model.get("window_end", "—")}')
+    sub = []
+    if need_txt:
+        sub.append(f'≈ {need_txt} sleep')
+    if model.get("implied_wake"):
+        sub.append(f'wake ~{model["implied_wake"]}')
+    sub_txt = html.escape(" · ".join(sub))
+
+    reasons = "".join(
+        f'<div style="font-size:12px;color:{TEXT_DIM};margin-top:4px;line-height:1.4">'
+        f'<span style="color:{GOOD}">›</span> {html.escape(str(r))}</div>'
+        for r in (model.get("reasons") or [])
+    )
+
+    head = ('<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
+            f'font-weight:400;font-size:21px;margin:2px 0 6px">Recommended bedtime '
+            f'<em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
+            f'color:{TEXT_FAINT};font-size:10px;letter-spacing:.04em">tonight</em></div>')
+    big = (f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:34px;'
+           f'font-weight:600;letter-spacing:.01em;color:{GOOD};line-height:1.1">{window}</div>')
+    sub_html = (f'<div style="font-size:13px;color:{TEXT_DIM};margin-top:2px">{sub_txt}</div>'
+                if sub_txt else '')
+    return _collapse_html(f'<div>{head}{big}{sub_html}{reasons}</div>')
+
+
 def weekly_summary_card(summary_md, meta) -> str:
     head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
             f'<div><h3>Weekly summary</h3>'
@@ -1805,6 +1840,62 @@ def chart_weekly_stress_overview(model: dict) -> go.Figure:
     band_high = model.get("band_2sd_high") if model.get("band_2sd_high") is not None else ymax
     upper = min(100, max(50, ymax + 10, float(band_high) + 5))
     fig.update_yaxes(range=[0, upper], title_text="avg stress")
+    fig.update_xaxes(tickformat="%a")
+    return _dark(fig, 260)
+
+
+def chart_weekly_sleep_score(model: dict) -> go.Figure:
+    rows = pd.DataFrame((model or {}).get("rows") or [])
+    fig = go.Figure()
+    if rows.empty or "date" not in rows:
+        return _dark(fig, 260)
+
+    rows["date"] = pd.to_datetime(rows["date"], errors="coerce")
+    if "sleep_score" not in rows:
+        rows["sleep_score"] = np.nan
+    rows["sleep_score"] = pd.to_numeric(rows["sleep_score"], errors="coerce")
+    rows = rows.dropna(subset=["date"]).sort_values("date")
+    if rows.empty:
+        return _dark(fig, 260)
+
+    mean = model.get("mean")
+    std = model.get("std")
+    if mean is not None and std is not None and std > 0:
+        fig.add_hrect(
+            y0=model.get("band_2sd_low"), y1=model.get("band_2sd_high"),
+            fillcolor=SERIES2, opacity=0.045, line_width=0,
+        )
+        fig.add_hrect(
+            y0=model.get("band_1sd_low"), y1=model.get("band_1sd_high"),
+            fillcolor=SERIES2, opacity=0.12, line_width=0,
+        )
+        fig.add_hline(y=mean, line=dict(color=TEXT_DIM, width=1.2, dash="dot"), opacity=0.72)
+
+    x = rows["date"]
+    y = rows["sleep_score"]
+    # Sleep score polarity is inverse of stress: higher is better.
+    colors = [
+        TEXT_FAINT if pd.isna(v) else GOOD if v >= 80 else AMBER if v >= 60 else RED
+        for v in y
+    ]
+    fig.add_trace(go.Bar(
+        x=x, y=y, name="Daily score", marker_color=colors, marker_line_width=0,
+        opacity=0.72,
+    ))
+    fig.add_trace(go.Scatter(
+        x=x, y=y, name="Daily score line", mode="lines+markers",
+        line=dict(color=TEXT, width=1.8, shape="spline"),
+        marker=dict(size=7, color=TEXT, line=dict(color=BG, width=1)),
+        connectgaps=False,
+    ))
+    if mean is not None:
+        fig.add_trace(go.Scatter(
+            x=x, y=[mean] * len(rows), name="Week avg", mode="lines",
+            line=dict(color=TEXT_DIM, width=1.2, dash="dot"),
+            hoverinfo="skip",
+        ))
+
+    fig.update_yaxes(range=[0, 100], title_text="sleep score")
     fig.update_xaxes(tickformat="%a")
     return _dark(fig, 260)
 
