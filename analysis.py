@@ -3047,6 +3047,501 @@ def compute_weekly_stress_overview(daily, days: int = 7, anchor_date=None) -> di
     return result
 
 
+def compute_personal_sleep_need(
+    daily: pd.DataFrame,
+    checkins: pd.DataFrame | None = None,
+    lookback_days: int = 90,
+    default_sleep_need_h: float | None = None,
+    min_sleep_need_h: float | None = None,
+    min_ready_nights: int = 5,
+) -> dict:
+    """Estimate personal sleep need from nights followed by good recovery.
+
+    This is a longitudinal heuristic, not a clinical measurement. It uses the
+    configured sleep need as a prior until enough candidate nights exist.
+    """
+    default_sleep_need_h = float(
+        config.SLEEP_NEED_HOURS if default_sleep_need_h is None else default_sleep_need_h
+    )
+    min_sleep_need_h = float(
+        config.SLEEP_NEED_MIN_HOURS if min_sleep_need_h is None else min_sleep_need_h
+    )
+    min_sleep_need_h = min(min_sleep_need_h, default_sleep_need_h)
+    empty = {
+        "status": "no_data",
+        "sleep_need_h": _round_or_none(max(default_sleep_need_h, min_sleep_need_h), 2),
+        "default_sleep_need_h": _round_or_none(default_sleep_need_h, 2),
+        "min_sleep_need_h": _round_or_none(min_sleep_need_h, 2),
+        "source": "configured_default",
+        "message": "Using configured sleep need until enough sleep and recovery history is available.",
+        "nights_used": 0,
+        "candidate_nights": 0,
+        "lookback_days": int(lookback_days),
+        "missing": ["sleep duration history"],
+        "rows": [],
+    }
+    if daily is None or getattr(daily, "empty", True) or "date" not in daily:
+        return empty
+
+    df = daily.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    df = df.dropna(subset=["date"]).sort_values("date")
+    if df.empty:
+        return empty
+    if "sleep_hours" not in df and "sleep_seconds" in df:
+        df["sleep_hours"] = pd.to_numeric(df["sleep_seconds"], errors="coerce") / 3600.0
+    if "sleep_hours" not in df:
+        return empty
+
+    df["sleep_hours"] = pd.to_numeric(df["sleep_hours"], errors="coerce")
+    df = df[df["sleep_hours"].between(4.0, 11.5, inclusive="both")]
+    if df.empty:
+        return empty
+
+    anchor = df["date"].max()
+    start = anchor - pd.Timedelta(days=max(1, int(lookback_days)) - 1)
+    df = df[df["date"] >= start].copy()
+    if df.empty:
+        return empty
+
+    df = _attach_checkins(df, checkins)
+    df["next_sleep_hours"] = df["sleep_hours"].shift(-1)
+    normal_sleep = _first_number(df["sleep_hours"].median())
+    if normal_sleep is None:
+        return empty
+
+    recovery = _personal_sleep_recovery_scores(df)
+    df["sleep_need_recovery_score"] = recovery["score"]
+    df["sleep_need_evidence_count"] = recovery["positive"]
+    df["sleep_need_signal_count"] = recovery["possible"]
+    enough_signals = df["sleep_need_signal_count"] >= 2
+    no_rebound = (
+        df["next_sleep_hours"].isna()
+        | (pd.to_numeric(df["next_sleep_hours"], errors="coerce") <= normal_sleep + 0.75)
+    )
+    candidates = df[
+        df["sleep_hours"].notna()
+        & enough_signals
+        & (df["sleep_need_recovery_score"] >= 0.65)
+        & no_rebound
+    ].copy()
+
+    candidate_count = int(len(candidates))
+    if candidate_count >= min_ready_nights:
+        observed_need = float(candidates["sleep_hours"].quantile(0.40))
+        learned = float(np.clip(observed_need, min_sleep_need_h, 9.50))
+        status = "ready"
+        source = "personal_recovery_nights"
+        confidence = "high" if candidate_count >= 12 else "medium"
+    elif candidate_count >= 3:
+        observed_need = float(candidates["sleep_hours"].median())
+        learned = float(np.clip((observed_need + default_sleep_need_h) / 2.0, min_sleep_need_h, 9.50))
+        status = "learning"
+        source = "blended_personal_default"
+        confidence = "low"
+    else:
+        learned = max(default_sleep_need_h, min_sleep_need_h)
+        status = "learning" if len(df) >= 7 else "no_data"
+        source = "configured_default"
+        confidence = "low"
+
+    rows = [
+        {
+            "date": row["date"].strftime("%Y-%m-%d"),
+            "sleep_hours": _round_or_none(row.get("sleep_hours"), 2),
+            "recovery_score": _round_or_none(row.get("sleep_need_recovery_score"), 2),
+            "signals": _round_or_none(row.get("sleep_need_signal_count"), 0),
+            "candidate": bool(row.name in candidates.index),
+        }
+        for _, row in df.tail(90).iterrows()
+    ]
+    missing = []
+    if candidate_count < min_ready_nights:
+        missing.append(f"{max(0, min_ready_nights - candidate_count)} more good-recovery nights")
+    for col, label in (
+        ("hrv_overnight_avg", "overnight HRV"),
+        ("resting_hr", "resting HR"),
+        ("sleep_score", "sleep score"),
+        ("energy", "energy check-ins"),
+        ("fatigue", "fatigue check-ins"),
+    ):
+        if col not in df or pd.to_numeric(df.get(col), errors="coerce").notna().sum() < 3:
+            missing.append(label)
+
+    if status == "ready":
+        message = f"Personal sleep need is estimated from {candidate_count} good-recovery nights."
+    elif candidate_count >= 3:
+        message = f"Learning personal sleep need from {candidate_count} good-recovery nights; blended with the configured default."
+    else:
+        message = "Using configured sleep need while learning which nights reliably look recovered."
+
+    return {
+        "status": status,
+        "sleep_need_h": _round_or_none(learned, 2),
+        "default_sleep_need_h": _round_or_none(default_sleep_need_h, 2),
+        "min_sleep_need_h": _round_or_none(min_sleep_need_h, 2),
+        "source": source,
+        "confidence": confidence,
+        "message": message,
+        "nights_analyzed": int(len(df)),
+        "nights_used": candidate_count if candidate_count >= 3 else 0,
+        "candidate_nights": candidate_count,
+        "lookback_days": int(lookback_days),
+        "median_candidate_sleep_h": (
+            _round_or_none(candidates["sleep_hours"].median(), 2)
+            if not candidates.empty else None
+        ),
+        "missing": missing,
+        "rows": rows,
+    }
+
+
+def _personal_sleep_recovery_scores(df: pd.DataFrame) -> dict[str, pd.Series]:
+    idx = df.index
+    positive = pd.Series(0.0, index=idx)
+    possible = pd.Series(0.0, index=idx)
+
+    def add_signal(mask: pd.Series):
+        nonlocal positive, possible
+        mask = mask.reindex(idx)
+        valid = mask.notna()
+        possible = possible + valid.astype(float)
+        positive = positive + mask.fillna(False).astype(float)
+
+    if "hrv_flag" in df:
+        hrv_status = df["hrv_flag"].astype("string").str.lower()
+        add_signal(hrv_status.isin(["balanced", "elevated"]).where(hrv_status.notna()))
+    if "hrv_overnight_avg" in df:
+        hrv = pd.to_numeric(df["hrv_overnight_avg"], errors="coerce")
+        hrv_ref = hrv.rolling(28, min_periods=5).median().shift(1)
+        if hrv_ref.notna().sum() < 3:
+            hrv_ref = pd.Series(hrv.median(), index=idx)
+        add_signal((hrv >= hrv_ref * 0.98).where(hrv.notna() & hrv_ref.notna()))
+    if "resting_hr" in df:
+        rhr = pd.to_numeric(df["resting_hr"], errors="coerce")
+        rhr_ref = rhr.rolling(28, min_periods=5).median().shift(1)
+        if rhr_ref.notna().sum() < 3:
+            rhr_ref = pd.Series(rhr.median(), index=idx)
+        add_signal((rhr <= rhr_ref * 1.02).where(rhr.notna() & rhr_ref.notna()))
+    if "sleep_score" in df:
+        score = pd.to_numeric(df["sleep_score"], errors="coerce")
+        add_signal((score >= 75).where(score.notna()))
+    if "body_battery_start" in df:
+        bb = pd.to_numeric(df["body_battery_start"], errors="coerce")
+        add_signal((bb >= 60).where(bb.notna()))
+    if "energy" in df:
+        energy = pd.to_numeric(df["energy"], errors="coerce")
+        add_signal((energy >= 6).where(energy.notna()))
+    if "fatigue" in df:
+        fatigue = pd.to_numeric(df["fatigue"], errors="coerce")
+        add_signal((fatigue <= 4).where(fatigue.notna()))
+
+    score = positive / possible.replace(0, np.nan)
+    return {"score": score, "positive": positive, "possible": possible}
+
+
+def compute_early_waking_model(
+    daily: pd.DataFrame,
+    sleep_timing: pd.DataFrame | None,
+    body_battery: pd.DataFrame | None = None,
+    sleep_need_h: float | None = None,
+) -> dict:
+    """Estimate recovery-relevant early waking from sleep debt and bedtime BB.
+
+    The sleep date follows Garmin's sleep record date: a night that starts on
+    Monday evening and ends Tuesday morning belongs to Tuesday.
+    """
+    sleep_need_h = float(config.SLEEP_NEED_HOURS if sleep_need_h is None else sleep_need_h)
+    empty = {
+        "status": "no_data",
+        "message": "Sync sleep start/end data to estimate recovery early wakings.",
+        "sleep_need_h": _round_or_none(sleep_need_h, 1),
+        "rows": [],
+        "missing": ["sleep start/end raw JSON"],
+    }
+    if daily is None or getattr(daily, "empty", True) or "date" not in daily:
+        return {**empty, "missing": ["daily sleep metrics", "sleep start/end raw JSON"]}
+    if sleep_timing is None or getattr(sleep_timing, "empty", True) or "date" not in sleep_timing:
+        return empty
+
+    d = daily.copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce").dt.normalize()
+    d = d.dropna(subset=["date"]).sort_values("date")
+    if d.empty:
+        return empty
+    if "sleep_hours" not in d and "sleep_seconds" in d:
+        d["sleep_hours"] = pd.to_numeric(d["sleep_seconds"], errors="coerce") / 3600.0
+    if "sleep_hours" in d:
+        d["sleep_debt_h"] = sleep_need_h - pd.to_numeric(d["sleep_hours"], errors="coerce")
+    if "awake_minutes" not in d and "awake_seconds" in d:
+        d["awake_minutes"] = pd.to_numeric(d["awake_seconds"], errors="coerce") / 60.0
+    if "hr_bedtime" in d:
+        pre_sleep_hr = pd.to_numeric(d["hr_bedtime"], errors="coerce")
+        d["pre_sleep_hr_delta"] = pre_sleep_hr - pre_sleep_hr.rolling(14, min_periods=3).median().shift(1)
+    if "hrv_overnight_avg" in d:
+        hrv = pd.to_numeric(d["hrv_overnight_avg"], errors="coerce")
+        d["overnight_hrv_delta_pct"] = (hrv / hrv.rolling(14, min_periods=3).median().shift(1)) - 1.0
+
+    t = sleep_timing.copy()
+    t["date"] = pd.to_datetime(t["date"], errors="coerce").dt.normalize()
+    for col in ("sleep_start", "sleep_end"):
+        if col in t:
+            t[col] = pd.to_datetime(t[col], errors="coerce")
+    t = t.dropna(subset=["date", "sleep_start", "sleep_end"]).sort_values("date")
+    if t.empty:
+        return empty
+    t["actual_sleep_window_h"] = (t["sleep_end"] - t["sleep_start"]).dt.total_seconds() / 3600.0
+
+    keep = ["date", "sleep_start", "sleep_end", "actual_sleep_window_h"]
+    if "sleep_midpoint" in t:
+        keep.append("sleep_midpoint")
+    cols = ["date"]
+    for col in (
+        "sleep_hours", "sleep_debt_h", "sleep_score", "awake_minutes",
+        "stress_avg", "hr_bedtime", "pre_sleep_hr_delta",
+        "hrv_overnight_avg", "overnight_hrv_delta_pct",
+    ):
+        if col in d:
+            cols.append(col)
+    out = t[keep].merge(d[cols], on="date", how="left")
+    out = out.sort_values("date").reset_index(drop=True)
+
+    bb_at_sleep = _body_battery_at_sleep_start(t[["date", "sleep_start"]], body_battery)
+    if not bb_at_sleep.empty:
+        out = out.merge(bb_at_sleep, on="date", how="left")
+    else:
+        out["body_battery_at_sleep_start"] = np.nan
+        out["body_battery_sample_delta_min"] = np.nan
+
+    if "sleep_debt_h" in out:
+        debt = pd.to_numeric(out["sleep_debt_h"], errors="coerce").clip(lower=0)
+    else:
+        debt = pd.Series(np.nan, index=out.index, dtype=float)
+    out["prior_sleep_debt_h_7d"] = debt.shift(1).rolling(7, min_periods=1).sum().fillna(0)
+    out["sleep_debt_repay_h"] = (out["prior_sleep_debt_h_7d"] * 0.25).clip(lower=0, upper=1.25)
+
+    bb = pd.to_numeric(out["body_battery_at_sleep_start"], errors="coerce")
+    bb_repay = ((50.0 - bb).clip(lower=0) / 50.0 * 0.75).clip(lower=0, upper=0.75)
+    out["body_battery_repay_h"] = bb_repay.fillna(0)
+    out["recovery_need_h"] = (
+        sleep_need_h + out["sleep_debt_repay_h"] + out["body_battery_repay_h"]
+    ).clip(upper=sleep_need_h + 2.0)
+    out["expected_recovery_wake"] = out["sleep_start"] + pd.to_timedelta(out["recovery_need_h"], unit="h")
+    early = (out["expected_recovery_wake"] - out["sleep_end"]).dt.total_seconds() / 60.0
+    out["early_waking_minutes"] = early.clip(lower=0)
+    out["early_waking_severity"] = out["early_waking_minutes"].map(_early_waking_severity)
+    out["early_waking_confidence"] = out.apply(_early_waking_confidence, axis=1)
+    out["early_waking_pattern"] = out.apply(_early_waking_pattern, axis=1)
+    out["early_waking_evidence"] = out.apply(_early_waking_evidence, axis=1)
+
+    observed = out[pd.to_numeric(out["early_waking_minutes"], errors="coerce").notna()]
+    if observed.empty:
+        return empty
+
+    recent = observed.tail(14)
+    recent_7 = observed.tail(7)
+    meaningful = pd.to_numeric(recent_7["early_waking_minutes"], errors="coerce") >= 45
+    any_bb = pd.to_numeric(out["body_battery_at_sleep_start"], errors="coerce").notna().any()
+    status = "ready" if any_bb else "learning"
+    missing = [] if any_bb else ["intraday Body Battery samples near sleep start"]
+    latest = _early_waking_row(observed.iloc[-1])
+    meaningful_count = int(meaningful.sum())
+    avg_recent = _round_or_none(pd.to_numeric(recent_7["early_waking_minutes"], errors="coerce").mean(), 0)
+    if meaningful_count:
+        message = f"Early for recovery showed up on {meaningful_count} of the last 7 nights."
+    elif status == "ready":
+        message = "No meaningful early-for-recovery signal in the latest week."
+    else:
+        message = "Sleep timing is available; add intraday Body Battery samples to weight recovery demand."
+
+    return {
+        "status": status,
+        "message": message,
+        "sleep_need_h": _round_or_none(sleep_need_h, 1),
+        "days_analyzed": int(len(observed)),
+        "body_battery_coverage_days": int(pd.to_numeric(out["body_battery_at_sleep_start"], errors="coerce").notna().sum()),
+        "recent_mean_early_minutes": avg_recent,
+        "recent_meaningful_days": meaningful_count,
+        "recent_major_days": int((pd.to_numeric(recent["early_waking_minutes"], errors="coerce") >= 90).sum()),
+        "latest": latest,
+        "rows": [_early_waking_row(row) for _, row in observed.tail(90).iterrows()],
+        "missing": missing,
+    }
+
+
+def _body_battery_at_sleep_start(
+    sleep_timing: pd.DataFrame,
+    body_battery: pd.DataFrame | None,
+) -> pd.DataFrame:
+    if body_battery is None or getattr(body_battery, "empty", True):
+        return pd.DataFrame(columns=["date", "body_battery_at_sleep_start", "body_battery_sample_delta_min"])
+    if "timestamp" not in body_battery or "value" not in body_battery:
+        return pd.DataFrame(columns=["date", "body_battery_at_sleep_start", "body_battery_sample_delta_min"])
+
+    bb = body_battery.copy()
+    bb["timestamp"] = pd.to_datetime(bb["timestamp"], errors="coerce")
+    bb["value"] = pd.to_numeric(bb["value"], errors="coerce")
+    bb = bb.dropna(subset=["timestamp", "value"]).sort_values("timestamp")
+    if bb.empty:
+        return pd.DataFrame(columns=["date", "body_battery_at_sleep_start", "body_battery_sample_delta_min"])
+
+    rows = []
+    before_window = pd.Timedelta(minutes=90)
+    after_window = pd.Timedelta(minutes=15)
+    for _, row in sleep_timing.dropna(subset=["date", "sleep_start"]).iterrows():
+        start = pd.Timestamp(row["sleep_start"])
+        before = bb[(bb["timestamp"] <= start) & (bb["timestamp"] >= start - before_window)]
+        if not before.empty:
+            sample = before.iloc[-1]
+        else:
+            after = bb[(bb["timestamp"] > start) & (bb["timestamp"] <= start + after_window)]
+            sample = after.iloc[0] if not after.empty else None
+        if sample is None:
+            continue
+        delta_min = (pd.Timestamp(sample["timestamp"]) - start).total_seconds() / 60.0
+        rows.append({
+            "date": pd.Timestamp(row["date"]).normalize(),
+            "body_battery_at_sleep_start": float(sample["value"]),
+            "body_battery_sample_delta_min": float(delta_min),
+        })
+    return pd.DataFrame(rows)
+
+
+def _early_waking_severity(minutes) -> str | None:
+    minutes = _first_number(minutes)
+    if minutes is None:
+        return None
+    if minutes >= 90:
+        return "major"
+    if minutes >= 45:
+        return "meaningful"
+    if minutes >= 20:
+        return "mild"
+    return "none"
+
+
+def _early_waking_confidence(row: pd.Series) -> str:
+    minutes = _first_number(row.get("early_waking_minutes"))
+    if minutes is None or minutes < 20:
+        return "low"
+    support = 0
+    if _ge(row.get("sleep_debt_h"), 0.5):
+        support += 1
+    if _ge(row.get("prior_sleep_debt_h_7d"), 1.5):
+        support += 1
+    if _le(row.get("body_battery_at_sleep_start"), 35):
+        support += 1
+    if _le(row.get("sleep_score"), 65):
+        support += 1
+    if (minutes >= 90 and support >= 1) or support >= 2:
+        return "high"
+    if minutes >= 45 or support >= 1:
+        return "medium"
+    return "low"
+
+
+def _early_waking_pattern(row: pd.Series) -> str:
+    minutes = _first_number(row.get("early_waking_minutes"))
+    if minutes is None or minutes < 20:
+        return "recovery_window_met"
+    flags = _early_waking_flags(row)
+    if flags["stress_activation"]:
+        return "stress_activation_early"
+    if flags["low_body_battery"]:
+        return "low_body_battery_early"
+    if flags["recovery_debt"]:
+        return "recovery_debt_early"
+    if flags["poor_quality"]:
+        return "poor_quality_early"
+    return "unclear"
+
+
+def _early_waking_evidence(row: pd.Series) -> list[str]:
+    minutes = _first_number(row.get("early_waking_minutes"))
+    if minutes is None:
+        return []
+    if minutes < 20:
+        return ["recovery window appears covered"]
+
+    evidence = []
+    if _ge(row.get("sleep_debt_h"), 0.5):
+        evidence.append("night ended with sleep debt")
+    if _ge(row.get("prior_sleep_debt_h_7d"), 1.5):
+        evidence.append("sleep debt was already carrying in")
+    if _le(row.get("body_battery_at_sleep_start"), 35):
+        evidence.append("low Body Battery at sleep start")
+    elif _ge(row.get("body_battery_repay_h"), 0.25):
+        evidence.append("Body Battery added recovery demand")
+    if _le(row.get("sleep_score"), 65):
+        evidence.append("low sleep score")
+    if _ge(row.get("awake_minutes"), 45):
+        evidence.append("high awake time during sleep")
+    if _ge(row.get("stress_avg"), 50):
+        evidence.append("high daily stress")
+    if _ge(row.get("pre_sleep_hr_delta"), 5):
+        evidence.append("pre-sleep HR above baseline")
+    if _le(row.get("overnight_hrv_delta_pct"), -0.10):
+        evidence.append("overnight HRV below baseline")
+    if not evidence:
+        evidence.append("early against modeled recovery need")
+    return evidence
+
+
+def _early_waking_flags(row: pd.Series) -> dict[str, bool]:
+    return {
+        "recovery_debt": (
+            _ge(row.get("sleep_debt_h"), 0.5)
+            or _ge(row.get("prior_sleep_debt_h_7d"), 1.5)
+            or _ge(row.get("sleep_debt_repay_h"), 0.25)
+        ),
+        "low_body_battery": (
+            _le(row.get("body_battery_at_sleep_start"), 35)
+            or _ge(row.get("body_battery_repay_h"), 0.25)
+        ),
+        "poor_quality": (
+            _le(row.get("sleep_score"), 65)
+            or _ge(row.get("awake_minutes"), 45)
+        ),
+        "stress_activation": (
+            _ge(row.get("stress_avg"), 50)
+            or _ge(row.get("pre_sleep_hr_delta"), 5)
+            or _le(row.get("overnight_hrv_delta_pct"), -0.10)
+        ),
+    }
+
+
+def _early_waking_row(row: pd.Series) -> dict:
+    def iso(value):
+        if value is None or pd.isna(value):
+            return None
+        return pd.Timestamp(value).isoformat()
+
+    return {
+        "date": pd.Timestamp(row["date"]).strftime("%Y-%m-%d"),
+        "sleep_start": iso(row.get("sleep_start")),
+        "sleep_end": iso(row.get("sleep_end")),
+        "expected_recovery_wake": iso(row.get("expected_recovery_wake")),
+        "sleep_hours": _round_or_none(row.get("sleep_hours"), 1),
+        "sleep_score": _round_or_none(row.get("sleep_score"), 0),
+        "awake_minutes": _round_or_none(row.get("awake_minutes"), 0),
+        "sleep_debt_h": _round_or_none(row.get("sleep_debt_h"), 1),
+        "prior_sleep_debt_h_7d": _round_or_none(row.get("prior_sleep_debt_h_7d"), 1),
+        "sleep_debt_repay_h": _round_or_none(row.get("sleep_debt_repay_h"), 2),
+        "body_battery_at_sleep_start": _round_or_none(row.get("body_battery_at_sleep_start"), 0),
+        "body_battery_sample_delta_min": _round_or_none(row.get("body_battery_sample_delta_min"), 0),
+        "body_battery_repay_h": _round_or_none(row.get("body_battery_repay_h"), 2),
+        "stress_avg": _round_or_none(row.get("stress_avg"), 1),
+        "pre_sleep_hr_delta": _round_or_none(row.get("pre_sleep_hr_delta"), 1),
+        "overnight_hrv_delta_pct": _round_or_none(row.get("overnight_hrv_delta_pct"), 2),
+        "recovery_need_h": _round_or_none(row.get("recovery_need_h"), 2),
+        "early_waking_minutes": _round_or_none(row.get("early_waking_minutes"), 0),
+        "severity": row.get("early_waking_severity"),
+        "confidence": row.get("early_waking_confidence"),
+        "pattern": row.get("early_waking_pattern"),
+        "evidence": row.get("early_waking_evidence") or [],
+    }
+
+
 def build_coach_memory_digest(memory_df, per_category_cap: int = 8,
                               coaching_cap: int = 5) -> dict:
     """Shape active coach memories into a compact dict for the AI.

@@ -297,7 +297,8 @@ def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
 def _question_payload(question, summary, capacity, stress_leak_map,
                       grappling_sessions, prebed_discovery, chat_history,
                       strength=None, health_research=None, coach_memory=None,
-                      active_experiments=None):
+                      active_experiments=None, early_waking=None,
+                      personal_sleep_need=None):
     return {
         "question": question,
         "metrics_summary": summary,
@@ -305,6 +306,8 @@ def _question_payload(question, summary, capacity, stress_leak_map,
         "stress_leak_map": stress_leak_map or {},
         "grappling_sessions": grappling_sessions or [],
         "prebed_discovery": prebed_discovery or {},
+        "personal_sleep_need": personal_sleep_need or {},
+        "early_waking": early_waking or {},
         "health_research": health_research or {},
         "strength_profile": strength or {},
         "previous_chat": chat_history or [],
@@ -326,16 +329,24 @@ def answer_question(
     coach_memory: dict | None = None,
     active_experiments: list | None = None,
     model: str | None = None,
+    early_waking: dict | None = None,
+    personal_sleep_need: dict | None = None,
 ) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable AI questions._"
     question = (question or "").strip()
     if not question:
         return "_Ask a question first._"
-    payload = _question_payload(question, summary, capacity, stress_leak_map,
-                                grappling_sessions, prebed_discovery, chat_history,
-                                strength, health_research, coach_memory,
-                                active_experiments)
+    payload = _question_payload(
+        question, summary, capacity, stress_leak_map,
+        grappling_sessions, prebed_discovery, chat_history,
+        strength=strength,
+        health_research=health_research,
+        coach_memory=coach_memory,
+        active_experiments=active_experiments,
+        early_waking=early_waking,
+        personal_sleep_need=personal_sleep_need,
+    )
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,

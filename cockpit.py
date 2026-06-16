@@ -1625,8 +1625,74 @@ def chart_sleep(view: pd.DataFrame, target=8.0) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Bar(x=x, y=h, name="Sleep", marker_color=colors, marker_line_width=0))
     fig.add_hline(y=target, line=dict(color=TEXT_DIM, width=1.5, dash="dash"),
-                  annotation_text="8.0 h", annotation_font_color=TEXT_FAINT)
+                  annotation_text=f"{target:.1f} h", annotation_font_color=TEXT_FAINT)
     return _dark(fig, 230, legend=False)
+
+
+def chart_early_waking(model: dict) -> go.Figure:
+    from plotly.subplots import make_subplots
+
+    rows = pd.DataFrame((model or {}).get("rows") or [])
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    if rows.empty or "date" not in rows:
+        return _dark(fig, 260)
+
+    rows["date"] = pd.to_datetime(rows["date"], errors="coerce")
+    rows["early_waking_minutes"] = pd.to_numeric(rows.get("early_waking_minutes"), errors="coerce")
+    rows["body_battery_at_sleep_start"] = pd.to_numeric(
+        rows.get("body_battery_at_sleep_start"), errors="coerce"
+    )
+    if "pattern" not in rows:
+        rows["pattern"] = "unclear"
+    if "confidence" not in rows:
+        rows["confidence"] = ""
+    rows = rows.dropna(subset=["date"]).sort_values("date")
+    if rows.empty:
+        return _dark(fig, 260)
+
+    colors = []
+    for v in rows["early_waking_minutes"]:
+        if pd.isna(v) or v < 20:
+            colors.append(TEXT_FAINT)
+        elif v < 45:
+            colors.append(SERIES2)
+        elif v < 90:
+            colors.append(AMBER)
+        else:
+            colors.append(RED)
+
+    fig.add_hrect(y0=45, y1=90, fillcolor=AMBER, opacity=0.06, line_width=0, secondary_y=False)
+    fig.add_hrect(y0=90, y1=180, fillcolor=RED, opacity=0.05, line_width=0, secondary_y=False)
+    fig.add_hline(y=45, line=dict(color=TEXT_FAINT, width=1, dash="dot"), opacity=0.5, secondary_y=False)
+    custom = rows[["pattern", "confidence"]].fillna("").to_numpy()
+    fig.add_trace(go.Bar(
+        x=rows["date"], y=rows["early_waking_minutes"], name="Early for recovery",
+        marker_color=colors, marker_line_width=0, opacity=0.78,
+        customdata=custom,
+        hovertemplate=(
+            "%{x|%b %-d}<br>%{y:.0f} min early for recovery"
+            "<br>%{customdata[0]}<br>%{customdata[1]} confidence<extra></extra>"
+        ),
+    ), secondary_y=False)
+
+    if rows["body_battery_at_sleep_start"].notna().any():
+        fig.add_trace(go.Scatter(
+            x=rows["date"], y=rows["body_battery_at_sleep_start"],
+            name="BB at sleep start", mode="lines+markers",
+            line=dict(color=ACCENT, width=2, shape="spline"),
+            marker=dict(color=ACCENT, size=6, line=dict(color=BG, width=1)),
+            connectgaps=False,
+        ), secondary_y=True)
+        fig.update_yaxes(title_text="BB at sleep start", range=[0, 100], secondary_y=True)
+    else:
+        fig.update_yaxes(visible=False, secondary_y=True)
+
+    ymax = rows["early_waking_minutes"].dropna().max()
+    upper = 120 if pd.isna(ymax) else max(60, min(180, float(ymax) + 20))
+    fig.update_yaxes(title_text="min early for recovery", range=[0, upper], secondary_y=False)
+    fig.update_xaxes(tickformat="%b %-d")
+    _clamp_x_to_data(fig, rows, ["early_waking_minutes", "body_battery_at_sleep_start"])
+    return _dark(fig, 260)
 
 
 def chart_sleep_comp(view: pd.DataFrame) -> go.Figure:

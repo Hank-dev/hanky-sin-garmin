@@ -47,6 +47,13 @@ def load(local_timezone: str):
     )
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
     prebed_discovery = analysis.compute_prebed_discovery(daily, acts, sleep_timing)
+    personal_sleep_need = analysis.compute_personal_sleep_need(daily, checkins)
+    early_waking = analysis.compute_early_waking_model(
+        daily,
+        sleep_timing,
+        body_battery,
+        sleep_need_h=personal_sleep_need.get("sleep_need_h"),
+    )
     health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
     strength_sessions = db.load_strength_sessions_df()
     strength_sets = db.load_strength_sets_df()
@@ -62,11 +69,13 @@ def load(local_timezone: str):
         strength_sessions, strength_sets, exercises, profile, bodyweight,
         formula=config.ONE_RM_FORMULA)
     return (daily, acts, checkins, body_battery, stress, grappling,
-            stress_leaks, prebed_discovery, health_research, strength_summary)
+            stress_leaks, prebed_discovery, personal_sleep_need, early_waking,
+            health_research, strength_summary)
 
 
 (daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
- prebed_discovery, health_research, strength_summary) = load(config.LOCAL_TIMEZONE)
+ prebed_discovery, personal_sleep_need, early_waking, health_research,
+ strength_summary) = load(config.LOCAL_TIMEZONE)
 
 coach_memory_df = db.load_memory_df()                       # fresh: not cached
 coach_memory_digest = analysis.build_coach_memory_digest(coach_memory_df)
@@ -361,6 +370,27 @@ if "health_chat" not in st.session_state:
     st.session_state.health_chat = []
 
 question_summary = analysis.summarize(daily, acts, lookback=14) if not daily.empty else {"error": "no data"}
+
+
+def compact_early_waking(model: dict) -> dict:
+    latest = (model or {}).get("latest") or {}
+    keep_latest = {
+        key: latest.get(key)
+        for key in (
+            "date", "early_waking_minutes", "severity", "confidence",
+            "pattern", "evidence",
+            "sleep_debt_h", "prior_sleep_debt_h_7d",
+            "body_battery_at_sleep_start", "recovery_need_h",
+        )
+        if latest.get(key) is not None
+    }
+    return {
+        key: (keep_latest if key == "latest" else value)
+        for key, value in (model or {}).items()
+        if key not in ("rows", "latest")
+    } | ({"latest": keep_latest} if keep_latest else {})
+
+
 question_payload = {
     "metrics_summary": question_summary,
     "capacity_envelope": capacity,
@@ -371,6 +401,8 @@ question_payload = {
         "message": prebed_discovery.get("message"),
         "relationships": prebed_discovery.get("relationships", []),
     },
+    "personal_sleep_need": {k: v for k, v in personal_sleep_need.items() if k != "rows"},
+    "early_waking": compact_early_waking(early_waking),
     "health_research": {k: v for k, v in health_research.items() if k != "rows"},
     "strength_profile": strength_summary,
     "selected_day": selected_day,
@@ -423,6 +455,8 @@ if pending_prompt:
                 question_payload["prebed_discovery"],
                 history,
                 strength=strength_summary,
+                personal_sleep_need=question_payload["personal_sleep_need"],
+                early_waking=question_payload["early_waking"],
                 health_research=question_payload["health_research"],
                 coach_memory=coach_memory_digest,
                 active_experiments=active_experiments,
@@ -531,7 +565,28 @@ with recovery_tab:
         with c1:
             chart_card("Resting heart rate", "bpm", cockpit.chart_rhr(view))
         with c2:
-            chart_card("Sleep duration", "h", cockpit.chart_sleep(view, config.SLEEP_NEED_HOURS))
+            sleep_need = personal_sleep_need.get("sleep_need_h") or config.SLEEP_NEED_HOURS
+            sleep_unit = f"target {sleep_need:.1f}h"
+            chart_card("Sleep duration", sleep_unit, cockpit.chart_sleep(view, sleep_need))
+            if personal_sleep_need.get("source") != "personal_recovery_nights":
+                st.caption(personal_sleep_need.get("message", "Learning personal sleep need."))
+        if (early_waking or {}).get("rows"):
+            early_meta = f"need {early_waking.get('sleep_need_h', sleep_need):.1f}h · {early_waking.get('recent_meaningful_days', 0)}/7 >=45 min"
+            if early_waking.get("recent_mean_early_minutes") is not None:
+                early_meta += f" · avg {early_waking['recent_mean_early_minutes']:.0f} min"
+            chart_card("Early for recovery", early_meta, cockpit.chart_early_waking(early_waking))
+            latest_early = early_waking.get("latest") or {}
+            if latest_early.get("severity") in ("meaningful", "major"):
+                pattern = str(latest_early.get("pattern") or "unclear").replace("_", " ")
+                st.caption(
+                    "Latest: "
+                    f"{latest_early.get('early_waking_minutes')} min early for recovery, "
+                    f"{pattern}, "
+                    f"{latest_early.get('confidence')} confidence, "
+                    f"BB at sleep start {latest_early.get('body_battery_at_sleep_start')}"
+                )
+            elif early_waking.get("status") == "learning":
+                st.caption("Early-for-recovery is using sleep timing now; sync intraday Body Battery for sleep-start weighting.")
         intraday_days = set()
         if body_battery is not None and not body_battery.empty and "date" in body_battery:
             intraday_days.update(body_battery["date"].astype(str).unique())

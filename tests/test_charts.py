@@ -40,6 +40,42 @@ class ChartRenderingTest(unittest.TestCase):
         self.assertEqual(trace.line.shape, "linear")
         self.assertFalse(trace.connectgaps)
 
+    def test_sleep_chart_uses_dynamic_target_label(self):
+        view = pd.DataFrame({
+            "date": ["2026-06-01"],
+            "sleep_hours": [7.4],
+        })
+
+        fig = cockpit.chart_sleep(view, target=7.6)
+
+        annotations = list(fig.layout.annotations or [])
+        self.assertTrue(any(a.text == "7.6 h" for a in annotations))
+
+    def test_early_waking_chart_renders_body_battery_context(self):
+        model = {
+            "rows": [
+                {
+                    "date": "2026-06-01",
+                    "early_waking_minutes": 0,
+                    "body_battery_at_sleep_start": 55,
+                    "pattern": "recovery_window_met",
+                    "confidence": "low",
+                },
+                {
+                    "date": "2026-06-02",
+                    "early_waking_minutes": 87,
+                    "body_battery_at_sleep_start": 20,
+                    "pattern": "low_body_battery_early",
+                    "confidence": "high",
+                },
+            ]
+        }
+
+        fig = cockpit.chart_early_waking(model)
+
+        self.assertIn("Early for recovery", [trace.name for trace in fig.data])
+        self.assertIn("BB at sleep start", [trace.name for trace in fig.data])
+
     def test_rhr_chart_trims_leading_no_data_days(self):
         # Short/sparse history: the window spans days with no RHR yet, then
         # data starts. The x-axis should clamp to where RHR exists so the

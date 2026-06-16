@@ -25,6 +25,7 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # --- Personal baselines used by the analytics layer ---
 SLEEP_NEED_HOURS = float(os.getenv("SLEEP_NEED_HOURS", "8.0"))
+SLEEP_NEED_MIN_HOURS = float(os.getenv("SLEEP_NEED_MIN_HOURS", "7.25"))
 
 # --- Strength training ---
 ONE_RM_FORMULA = os.getenv("ONE_RM_FORMULA", "epley")   # "epley" | "brzycki"

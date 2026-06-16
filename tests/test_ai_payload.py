@@ -22,6 +22,24 @@ def test_question_payload_defaults_strength_to_empty():
     assert payload["strength_profile"] == {}
 
 
+def test_question_payload_includes_early_waking_summary():
+    payload = ai._question_payload(
+        "q", {}, None, None, None, None, None,
+        early_waking={"status": "ready", "recent_meaningful_days": 2},
+    )
+
+    assert payload["early_waking"] == {"status": "ready", "recent_meaningful_days": 2}
+
+
+def test_question_payload_includes_personal_sleep_need_summary():
+    payload = ai._question_payload(
+        "q", {}, None, None, None, None, None,
+        personal_sleep_need={"status": "ready", "sleep_need_h": 7.6},
+    )
+
+    assert payload["personal_sleep_need"] == {"status": "ready", "sleep_need_h": 7.6}
+
+
 def test_answer_question_accepts_strength_kwarg_without_key(monkeypatch):
     monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
     out = ai.answer_question("q", {"a": 1}, strength={"x": 1})
