@@ -746,7 +746,7 @@ def _delta(today, base, direction, fmt, unit=""):
 
 def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
     if sparse:
-        cfg = [("HRV", "ms"), ("Resting HR", "bpm"), ("Sleep", "h"), ("ACWR", ""), ("Body Battery", ""), ("Stress", "")]
+        cfg = [("HRV", "ms"), ("Resting HR", "bpm"), ("Sleep", "h"), ("ACWR", ""), ("Body Battery", ""), ("Sleep Score", "")]
         cells = [_tile(l, '<span class="dash">—</span>', u, '<div class="spark-empty"></div>',
                        '<span class="delta flat"><span class="lbl">—</span></span>') for l, u in cfg]
         return f'<div class="tiles">{"".join(cells)}</div>'
@@ -755,8 +755,8 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
         v = today.get(k)
         return None if v is None or pd.isna(v) else float(v)
 
-    hrv, rhr, slp, acwr, batt, stress = (
-        g("hrv"), g("rhr"), g("sleep_h"), g("acwr"), g("batt"), g("stress")
+    hrv, rhr, slp, acwr, batt, sleep_score = (
+        g("hrv"), g("rhr"), g("sleep_h"), g("acwr"), g("batt"), g("sleep_score")
     )
     r0 = lambda v: f"{v:.0f}"
     r1 = lambda v: f"{v:.1f}"
@@ -785,7 +785,7 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
         _tile("ACWR", "—" if acwr is None else f"{acwr:.2f}", "",
               _sparkline(sparks.get("acwr", []), acwr_color), acwr_delta),
         _simple_tile("Body Battery", "—" if batt is None else f"{batt:.0f}"),
-        _simple_tile("Stress", "—" if stress is None else f"{stress:.0f}"),
+        _simple_tile("Sleep Score", "—" if sleep_score is None else f"{sleep_score:.0f}"),
     ]
     return f'<div class="tiles">{"".join(cells)}</div>'
 
@@ -1747,12 +1747,14 @@ def _act_icon(type_str: str) -> str:
     return _ACT_ICONS[key]
 
 
-def activities_table(acts: pd.DataFrame, sparse=False) -> str:
+def activities_table(acts: pd.DataFrame, sparse=False, limit: int = 12) -> str:
     if sparse or acts is None or acts.empty:
         return ('<div class="card"><div class="empty-note" style="margin:0;justify-content:center">'
                 '<span class="ico">⚡</span> No activities synced yet.</div></div>')
     t = acts.copy()
-    t = t.sort_values("date", ascending=False).head(12)
+    t = t.sort_values("date", ascending=False)
+    if limit is not None and int(limit) > 0:
+        t = t.head(int(limit))
     rows = []
     for _, a in t.iterrows():
         typ = a.get("type") or "—"
@@ -2559,6 +2561,8 @@ def strength_suggestion_hint(suggestion: dict) -> str:
     state = suggestion.get("state")
     w = suggestion.get("suggested_weight_kg")
     reps = suggestion.get("target_reps")
+    if w is None or reps is None:
+        return ""
     reason = html.escape(str(suggestion.get("reason", "")))
     color = {"progress": "#2ecc71", "hold": "#ffb234", "deload": "#ff5a5a"}.get(state, "#8a8a8a")
     label = {"progress": "Suggested", "hold": "Hold", "deload": "Deload"}.get(state, "Suggested")

@@ -4308,7 +4308,8 @@ def compute_lift_recovery_sensitivity(sessions_df, sets_df, exercises_df,
             continue
         delta_pct = round((low.mean() - green.mean()) / green.mean() * 100, 1)
         flagged = bool(delta_pct <= -5.0)
-        note = (f"{abs(delta_pct):g}% lower on low-recovery days" if flagged
+        note = (f"{abs(delta_pct):g}% lower on low-recovery days" if delta_pct <= -5.0
+                else f"{abs(delta_pct):g}% higher on low-recovery days" if delta_pct >= 5.0
                 else "no meaningful recovery sensitivity")
         out.append({"exercise": name_map.get(ex_id, ex_id), "n": n,
                     "delta_pct": delta_pct, "flagged": flagged, "note": note})

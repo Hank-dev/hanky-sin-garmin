@@ -167,3 +167,27 @@ def test_summarize_strength_carries_verdict():
                "headline": "Hold / volume — recovery yellow", "reasons": ["sleep debt >1h"]}
     out = analysis.summarize_strength(sess, sets, ex, profile=None, bodyweight_kg=80, verdict=verdict)
     assert out["recovery_verdict"]["day_type"] == "Hold / volume"
+
+
+def test_progression_progresses_after_hit_following_misses():
+    # miss, miss, miss, hit at same weight -> last session hit -> progress, stalls reset
+    sets = pd.DataFrame([
+        _set("s0", 100, 3), _set("s1", 100, 3), _set("s2", 100, 3), _set("s3", 100, 5),
+    ])
+    sess = _sess("2026-06-01", "2026-06-03", "2026-06-05", "2026-06-07")
+    out = analysis.compute_progression_suggestion("back-squat", sess, sets, _ex_df())
+    assert out["state"] == "progress"
+    assert out["stalls"] == 0
+    assert out["suggested_weight_kg"] == 102.5
+
+
+def test_progression_stall_counts_only_same_top_weight():
+    # hit at 100, then a miss at 95, then a miss at 100 -> stall chain at 100 is length 1 -> hold
+    sets = pd.DataFrame([
+        _set("s0", 100, 5), _set("s1", 95, 3), _set("s2", 100, 3),
+    ])
+    sess = _sess("2026-06-01", "2026-06-03", "2026-06-05")
+    out = analysis.compute_progression_suggestion("back-squat", sess, sets, _ex_df())
+    assert out["state"] == "hold"
+    assert out["stalls"] == 1
+    assert out["suggested_weight_kg"] == 100

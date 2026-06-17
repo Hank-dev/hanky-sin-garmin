@@ -314,7 +314,7 @@ def todays_readiness_snapshot(day: str) -> dict:
     return analysis.readiness_snapshot_from_daily(row)
 
 
-def todays_recovery_verdict(day: str) -> dict:
+def todays_recovery_verdict(day: str) -> tuple[dict, dict]:
     daily = analysis.enrich_daily(db.load_daily_df())
     readiness = analysis.recovery_readiness(daily, as_of=day)
     return analysis.readiness_verdict(readiness), readiness
