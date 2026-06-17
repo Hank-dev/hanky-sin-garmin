@@ -1463,6 +1463,39 @@ def _recovery_risk(df: pd.DataFrame) -> dict:
             "elevated_rhr_days": elevated_rhr_days, "short_sleep_days": short_sleep_days}
 
 
+def recovery_readiness(daily, as_of=None):
+    """Reusable recovery signal from an enriched daily frame. Pure.
+
+    Returns zone (green/yellow/red), an inverted 0-100 readiness value
+    (higher = readier), and human-readable reasons. `as_of` (date or
+    'YYYY-MM-DD') limits the frame to rows on/before that date."""
+    if daily is None or getattr(daily, "empty", True):
+        return {"status": "no_data", "zone": "green", "value": 100, "reasons": []}
+    df = daily.copy()
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df = df.dropna(subset=["date"]).sort_values("date")
+        if as_of is not None:
+            df = df[df["date"] <= pd.to_datetime(as_of)]
+    if df.empty:
+        return {"status": "no_data", "zone": "green", "value": 100, "reasons": []}
+
+    r = _recovery_risk(df)
+    value = max(0, min(100, 100 - r["risk_score"]))
+    reasons = list(r["flags"])
+    if not reasons:
+        if r["suppressed_days"] >= 3:
+            reasons.append(f"HRV suppressed {r['suppressed_days']} of last 14 nights")
+        if r["elevated_rhr_days"] >= 3:
+            reasons.append(f"resting HR elevated {r['elevated_rhr_days']} of last 14 days")
+        if r["short_sleep_days"] >= 3:
+            reasons.append(f"short sleep {r['short_sleep_days']} of last 14 nights")
+    if not reasons and r["zone"] == "green":
+        reasons = ["recovery primitives inside baseline"]
+    return {"status": r["status"], "zone": r["zone"], "value": int(value),
+            "reasons": reasons[:3]}
+
+
 def _research_recovery_panel(df: pd.DataFrame) -> dict:
     r = _recovery_risk(df)
     zone, status = r["zone"], r["status"]
