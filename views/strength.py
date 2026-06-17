@@ -16,12 +16,14 @@ import db
 import analysis
 import cockpit
 import strength_catalog
+import ai
 
 config = importlib.reload(config)
 db = importlib.reload(db)
 analysis = importlib.reload(analysis)
 cockpit = importlib.reload(cockpit)
 strength_catalog = importlib.reload(strength_catalog)
+ai = importlib.reload(ai)
 
 st.markdown("""
 <style>
@@ -244,12 +246,15 @@ def rest_label(seconds: int) -> str:
 
 def finish_active_workout(active: dict):
     snap = todays_readiness_snapshot(active["date"])
+    _verdict, _readiness = todays_recovery_verdict(active["date"])
     db.upsert_strength_session({
         "session_id": active["session_id"], "date": active["date"],
         "started_at": active["started_at"],
         "ended_at": datetime.now().isoformat(timespec="seconds"),
         "name": active["name"], "bodyweight_kg": active.get("bodyweight_kg"),
         "routine_id": active.get("routine_id"),
+        "recovery_score": _readiness.get("value"),
+        "recovery_zone": _readiness.get("zone"),
         **snap,
     })
     for ex in active["exercises"]:
@@ -307,6 +312,22 @@ def todays_readiness_snapshot(day: str) -> dict:
     match = daily[daily["date"].dt.strftime("%Y-%m-%d") == day]
     row = match.iloc[-1] if not match.empty else None
     return analysis.readiness_snapshot_from_daily(row)
+
+
+def todays_recovery_verdict(day: str) -> dict:
+    daily = analysis.enrich_daily(db.load_daily_df())
+    readiness = analysis.recovery_readiness(daily, as_of=day)
+    return analysis.readiness_verdict(readiness), readiness
+
+
+@st.cache_data(ttl=30)
+def hist_sessions_for_note():
+    return db.load_strength_sessions_df()
+
+
+@st.cache_data(ttl=30)
+def hist_sets_for_note():
+    return db.load_strength_sets_df()
 
 
 def active_to_frames(active: dict):
@@ -496,6 +517,13 @@ with tab_insights:
             if corr.get("insight"):
                 st.caption(corr["insight"])
 
+        st.divider()
+        st.markdown("##### Recovery-sensitive lifts")
+        sens = analysis.compute_lift_recovery_sensitivity(
+            sessions, sets, catalog, formula=config.ONE_RM_FORMULA)
+        st.markdown(cockpit.strength_recovery_sensitivity_panel(sens),
+                    unsafe_allow_html=True)
+
 with tab_body:
     st.subheader("Bodyweight")
     day = today_str()
@@ -594,17 +622,51 @@ with tab_log:
             unsafe_allow_html=True,
         )
 
+        verdict, _readiness = todays_recovery_verdict(active["date"])
+        st.markdown(cockpit.strength_recovery_chip(verdict), unsafe_allow_html=True)
+
+        note_key = f"coach_note_{active['session_id']}"
+        cols = st.columns([6, 1])
+        if cols[1].button("↻", key="coach_note_refresh", help="Refresh coach note"):
+            st.session_state.pop(note_key, None)
+        if note_key not in st.session_state:
+            plan = []
+            for ex in active["exercises"]:
+                sug = analysis.compute_progression_suggestion(
+                    ex["exercise_id"], hist_sessions_for_note(), hist_sets_for_note(),
+                    catalog, config.ONE_RM_FORMULA)
+                if sug:
+                    plan.append({"exercise": ex["name"], **sug})
+            strength_summary = analysis.summarize_strength(
+                db.load_strength_sessions_df(), db.load_strength_sets_df(), catalog,
+                db.load_profile(), resolve_bodyweight(active["date"]),
+                formula=config.ONE_RM_FORMULA, verdict=verdict)
+            st.session_state[note_key] = ai.coach_session_note(strength_summary, verdict, plan)
+        if st.session_state.get(note_key):
+            cols[0].caption("🧠 " + st.session_state[note_key])
+
         names = catalog["name"].tolist() if not catalog.empty else []
         pick = st.selectbox("Add exercise", [""] + names)
         if st.button("➕ Add to workout") and pick:
             ex_row = catalog[catalog["name"] == pick].iloc[0]
+            sug = analysis.compute_progression_suggestion(
+                ex_row["exercise_id"], db.load_strength_sessions_df(),
+                db.load_strength_sets_df(), catalog, config.ONE_RM_FORMULA)
+            seed_sets = []
+            if sug:
+                seed_sets = [{
+                    "set_id": str(uuid.uuid4()), "set_index": 1,
+                    "side": "left" if int(ex_row["is_unilateral"]) else "both",
+                    "reps": int(sug["target_reps"]), "weight_kg": float(sug["suggested_weight_kg"]),
+                    "rpe": None, "is_warmup": 0, "completed": 0,
+                }]
             active["exercises"].append({
                 "position": len(active["exercises"]),
                 "exercise_id": ex_row["exercise_id"],
                 "name": ex_row["name"],
                 "is_unilateral": int(ex_row["is_unilateral"]),
                 "is_bodyweight": int(ex_row["is_bodyweight"]),
-                "sets": [],
+                "sets": seed_sets,
             })
             st.rerun()
 
@@ -650,6 +712,29 @@ with tab_log:
                 """,
                 unsafe_allow_html=True,
             )
+            suggestion = analysis.compute_progression_suggestion(
+                ex["exercise_id"], hist_sessions, hist_sets, catalog, config.ONE_RM_FORMULA)
+            if suggestion:
+                hcols = st.columns([6, 1])
+                hcols[0].markdown(cockpit.strength_suggestion_hint(suggestion),
+                                  unsafe_allow_html=True)
+                if hcols[1].button("Apply", key=f"apply_sug_{ei}"):
+                    w = float(suggestion["suggested_weight_kg"])
+                    r = int(suggestion["target_reps"])
+                    if not ex["sets"]:
+                        ex["sets"] = [{
+                            "set_id": str(uuid.uuid4()), "set_index": 1,
+                            "side": "left" if ex["is_unilateral"] else "both",
+                            "reps": r, "weight_kg": w, "rpe": None,
+                            "is_warmup": 0, "completed": 0,
+                        }]
+                    else:
+                        for stt in ex["sets"]:
+                            if not stt["is_warmup"]:
+                                stt["weight_kg"] = w
+                                stt["reps"] = r
+                    st.rerun()
+
             note_key = f"note_{active['session_id']}_{ex['exercise_id']}_{ei}"
             ex["note"] = st.text_input(
                 "Exercise note",
