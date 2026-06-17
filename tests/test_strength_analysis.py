@@ -204,7 +204,7 @@ def test_readiness_performance_uses_recovery_score():
         w = 105 if rec == 90 else 95
         rows.append({"session_id": sid, "date": f"2026-06-0{i+1}", "bodyweight_kg": 80,
                      "recovery_score": rec, "readiness_score": None,
-                     "hrv_overnight_avg": rec, "sleep_score": rec, "resting_hr": 50})
+                     "hrv_overnight_avg": rec, "sleep_score": rec, "resting_hr": 50 if i % 2 == 0 else 55})
         sets.append({"session_id": sid, "exercise_id": "back-squat", "weight_kg": w,
                      "reps": 5, "completed": 1, "is_warmup": 0})
     out = analysis.compute_readiness_performance(pd.DataFrame(rows), pd.DataFrame(sets), ex,
