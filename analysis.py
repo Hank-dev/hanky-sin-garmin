@@ -1432,18 +1432,24 @@ def _empty_research_panel(title: str) -> dict:
     }
 
 
-def _research_recovery_panel(df: pd.DataFrame) -> dict:
+def _recovery_risk(df: pd.DataFrame) -> dict:
+    """Primitive-signal recovery risk from an enriched daily frame. Pure.
+
+    Uses the last row as 'today' and the trailing 14 rows as the window.
+    Missing columns degrade gracefully (flag helpers guard None)."""
     latest = df.iloc[-1]
     recent = df.tail(14)
     flags = _research_recovery_flags(latest)
     flag_counts = recent.apply(_research_recovery_flag_count, axis=1)
     recovery_debt = flag_counts >= 2
     streak = _trailing_true_streak(recovery_debt)
-    suppressed_days = int((recent.get("hrv_flag", pd.Series(index=recent.index, dtype=object)) == "suppressed").sum())
+    suppressed_days = int(
+        (recent.get("hrv_flag", pd.Series(index=recent.index, dtype=object)) == "suppressed").sum())
     elevated_rhr_days = int(
-        recent.get("rhr_elevated", pd.Series(False, index=recent.index)).fillna(False).astype(bool).sum()
-    )
-    short_sleep_days = int((pd.to_numeric(recent.get("sleep_debt_h"), errors="coerce") >= 1.0).sum()) if "sleep_debt_h" in recent else 0
+        recent.get("rhr_elevated", pd.Series(False, index=recent.index)).fillna(False).astype(bool).sum())
+    short_sleep_days = (
+        int((pd.to_numeric(recent.get("sleep_debt_h"), errors="coerce") >= 1.0).sum())
+        if "sleep_debt_h" in recent else 0)
     risk_score = min(100, len(flags) * 22 + streak * 8 + max(0, suppressed_days - 2) * 3)
     if len(flags) >= 3 or streak >= 2:
         zone = "red"
@@ -1452,6 +1458,18 @@ def _research_recovery_panel(df: pd.DataFrame) -> dict:
     else:
         zone = "green"
     status = "ready" if _has_any(df, ("hrv_overnight_avg", "resting_hr", "sleep_hours")) else "no_data"
+    return {"status": status, "zone": zone, "risk_score": int(round(risk_score)),
+            "flags": flags, "streak": streak, "suppressed_days": suppressed_days,
+            "elevated_rhr_days": elevated_rhr_days, "short_sleep_days": short_sleep_days}
+
+
+def _research_recovery_panel(df: pd.DataFrame) -> dict:
+    r = _recovery_risk(df)
+    zone, status = r["zone"], r["status"]
+    flags = r["flags"]
+    risk_score = r["risk_score"]
+    streak, suppressed_days = r["streak"], r["suppressed_days"]
+    elevated_rhr_days, short_sleep_days = r["elevated_rhr_days"], r["short_sleep_days"]
 
     if status == "no_data":
         message = "No HRV, resting-heart-rate, or sleep-duration signals are available yet."

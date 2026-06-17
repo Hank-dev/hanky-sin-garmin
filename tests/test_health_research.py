@@ -107,3 +107,32 @@ def test_health_research_card_and_charts_render():
     assert isinstance(cockpit.chart_sleep_regularity(pd.DataFrame(model["rows"])), go.Figure)
     assert isinstance(cockpit.chart_respiratory_watchlist(pd.DataFrame(model["rows"])), go.Figure)
     assert isinstance(cockpit.chart_foot_pace(model), go.Figure)
+
+
+def _recovery_df():
+    # green-ish frame: enough signal columns present, no flags
+    return pd.DataFrame({
+        "date": pd.date_range("2026-05-20", periods=14, freq="D"),
+        "hrv_overnight_avg": [60] * 14,
+        "resting_hr": [50] * 14,
+        "sleep_hours": [8.0] * 14,
+        "hrv_flag": ["balanced"] * 14,
+        "rhr_elevated": [False] * 14,
+        "sleep_debt_h": [0.0] * 14,
+        "stress_avg": [30] * 14,
+        "body_battery_current": [70] * 14,
+    })
+
+def test_recovery_risk_returns_expected_shape():
+    r = analysis._recovery_risk(_recovery_df())
+    assert set(r) >= {"status", "zone", "risk_score", "flags", "streak",
+                      "suppressed_days", "elevated_rhr_days", "short_sleep_days"}
+    assert r["zone"] == "green"
+    assert r["status"] == "ready"
+
+def test_recovery_panel_unchanged_after_refactor():
+    panel = analysis._research_recovery_panel(_recovery_df())
+    assert panel["zone"] == "green"
+    assert panel["status"] == "ready"
+    assert panel["title"] == "Recovery and resilience"
+    assert isinstance(panel["risk_score"], int)
