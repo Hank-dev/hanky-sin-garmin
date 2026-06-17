@@ -2537,6 +2537,52 @@ def experiment_result_card(result: dict) -> str:
     return _collapse_html(f'<div class="card coach">{head}{body}</div>')
 
 
+def strength_recovery_chip(verdict: dict) -> str:
+    if not verdict:
+        return ""
+    zone = verdict.get("zone", "green")
+    color = {"green": "#2ecc71", "yellow": "#ffb234", "red": "#ff5a5a"}.get(zone, "#8a8a8a")
+    day_type = html.escape(str(verdict.get("day_type", "")))
+    reason = html.escape(str((verdict.get("reasons") or [""])[0]))
+    return (
+        f"<div class='strength-recovery-chip' data-zone='{zone}' style='display:inline-flex;"
+        f"align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:#151515;"
+        f"border:1px solid {color};color:#fff;font-size:13px;'>"
+        f"<span style='width:9px;height:9px;border-radius:50%;background:{color};'></span>"
+        f"<b>{day_type}</b><span style='color:#9a9a9a;'>{reason}</span></div>"
+    )
+
+
+def strength_suggestion_hint(suggestion: dict) -> str:
+    if not suggestion:
+        return ""
+    state = suggestion.get("state")
+    w = suggestion.get("suggested_weight_kg")
+    reps = suggestion.get("target_reps")
+    reason = html.escape(str(suggestion.get("reason", "")))
+    color = {"progress": "#2ecc71", "hold": "#ffb234", "deload": "#ff5a5a"}.get(state, "#8a8a8a")
+    label = {"progress": "Suggested", "hold": "Hold", "deload": "Deload"}.get(state, "Suggested")
+    return (
+        f"<div class='strength-suggestion-hint' style='margin:4px 0 8px;font-size:14px;"
+        f"color:{color};'><b>{label} {w:g} × {reps}</b>"
+        f"<span style='color:#8a8a8a;'> — {reason}</span></div>"
+    )
+
+
+def strength_recovery_sensitivity_panel(items: list) -> str:
+    if not items:
+        return "<div style='color:#8a8a8a;'>Not enough paired sessions yet.</div>"
+    rows = []
+    for it in items:
+        flag = "⚠️ " if it.get("flagged") else ""
+        rows.append(
+            f"<div style='display:flex;justify-content:space-between;padding:4px 0;'>"
+            f"<span>{flag}{html.escape(str(it.get('exercise')))}</span>"
+            f"<span style='color:#8a8a8a;'>{html.escape(str(it.get('note')))} "
+            f"(n={it.get('n')})</span></div>")
+    return "<div class='strength-recovery-sensitivity'>" + "".join(rows) + "</div>"
+
+
 def strength_correlation_panel(corr: dict):
     """Plotly bar (readiness bucket vs avg relative performance) when ok, else a
     string message."""

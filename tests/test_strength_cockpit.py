@@ -73,3 +73,30 @@ def test_correlation_panel_ok_and_insufficient():
     assert isinstance(fig, go.Figure)
     msg = cockpit.strength_correlation_panel({"status": "insufficient", "have": 3, "need": 8})
     assert isinstance(msg, str) and "8" in msg
+
+
+def test_recovery_chip_renders_day_type():
+    html = cockpit.strength_recovery_chip(
+        {"zone": "red", "day_type": "Back off", "value": 30,
+         "headline": "Back off — recovery red", "reasons": ["HRV below personal baseline"]})
+    assert "Back off" in html
+    assert "red" in html
+
+
+def test_suggestion_hint_progress():
+    html = cockpit.strength_suggestion_hint(
+        {"state": "progress", "suggested_weight_kg": 102.5, "target_reps": 5,
+         "last_weight_kg": 100.0, "stalls": 0, "reason": "all sets hit 5 reps at 100kg"})
+    assert "102.5" in html
+    assert "5" in html
+
+
+def test_suggestion_hint_none_is_empty():
+    assert cockpit.strength_suggestion_hint(None) == ""
+
+
+def test_sensitivity_panel_lists_flagged():
+    html = cockpit.strength_recovery_sensitivity_panel(
+        [{"exercise": "Back Squat", "n": 6, "delta_pct": -8.0, "flagged": True,
+          "note": "8% lower on low-recovery days"}])
+    assert "Back Squat" in html
