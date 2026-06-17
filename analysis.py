@@ -1496,6 +1496,19 @@ def recovery_readiness(daily, as_of=None):
             "reasons": reasons[:3]}
 
 
+def readiness_verdict(readiness):
+    """Map a recovery_readiness dict to the strength-facing verdict. Pure."""
+    if not readiness or readiness.get("status") == "no_data":
+        return {"zone": "green", "day_type": "Log normally", "value": 100,
+                "headline": "Recovery: learning", "reasons": []}
+    zone = readiness.get("zone", "green")
+    day_type = {"green": "Push", "yellow": "Hold / volume", "red": "Back off"}.get(zone, "Push")
+    reasons = list(readiness.get("reasons", []))
+    headline = f"{day_type} — recovery {zone}"
+    return {"zone": zone, "day_type": day_type, "value": int(readiness.get("value", 0)),
+            "headline": headline, "reasons": reasons[:3]}
+
+
 def _research_recovery_panel(df: pd.DataFrame) -> dict:
     r = _recovery_risk(df)
     zone, status = r["zone"], r["status"]

@@ -47,3 +47,19 @@ def test_recovery_readiness_as_of_slices():
     df.loc[df.index[-1], "hrv_flag"] = "suppressed"  # only the last day is bad
     early = analysis.recovery_readiness(df, as_of="2026-05-25")
     assert early["zone"] == "green"  # the bad last day is excluded
+
+
+def test_verdict_green_is_push():
+    v = analysis.readiness_verdict({"status": "ready", "zone": "green", "value": 95, "reasons": []})
+    assert v["day_type"] == "Push"
+    assert v["zone"] == "green"
+
+def test_verdict_red_is_back_off():
+    v = analysis.readiness_verdict({"status": "ready", "zone": "red", "value": 30,
+                                    "reasons": ["HRV below personal baseline"]})
+    assert v["day_type"] == "Back off"
+    assert "HRV below personal baseline" in v["reasons"]
+
+def test_verdict_no_data_is_neutral():
+    v = analysis.readiness_verdict({"status": "no_data", "zone": "green", "value": 100, "reasons": []})
+    assert v["day_type"] == "Log normally"
