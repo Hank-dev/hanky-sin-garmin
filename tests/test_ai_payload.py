@@ -44,3 +44,31 @@ def test_answer_question_accepts_strength_kwarg_without_key(monkeypatch):
     monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
     out = ai.answer_question("q", {"a": 1}, strength={"x": 1})
     assert "ANTHROPIC_API_KEY" in out
+
+
+def test_sleep_question_payload_is_sleep_scoped():
+    payload = ai._sleep_question_payload(
+        "why did I wake early?",
+        {"latest": {"sleep_hours": 7.1}},
+        [{"role": "user", "content": "hi"}],
+        coach_memory={"patterns": [{"text": "late caffeine hurts sleep"}]},
+    )
+
+    assert payload["question"] == "why did I wake early?"
+    assert payload["sleep_context"] == {"latest": {"sleep_hours": 7.1}}
+    assert payload["previous_chat"] == [{"role": "user", "content": "hi"}]
+    assert payload["coach_memory"] == {"patterns": [{"text": "late caffeine hurts sleep"}]}
+
+
+def test_answer_sleep_question_without_key(monkeypatch):
+    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    out = ai.answer_sleep_question("q", {"latest": {"sleep_hours": 7.1}})
+    assert "ANTHROPIC_API_KEY" in out
+
+
+def test_coach_session_note_no_key_returns_empty(monkeypatch):
+    import config, ai, importlib
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "")
+    importlib.reload(ai)
+    out = ai.coach_session_note({"status": "ok"}, {"day_type": "Push"}, [])
+    assert out == ""

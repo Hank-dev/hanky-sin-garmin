@@ -116,6 +116,31 @@ The athlete may also be running self-experiments (before/after tests of a habit
 or supplement). When experiments are provided, factor them in, but do not
 attribute changes to an intervention beyond what the data supports."""
 
+SLEEP_QUESTION_SYSTEM = """You answer one athlete's sleep questions using only a
+compact derived sleep context: daily aggregate sleep metrics, personal sleep
+need, recommended bedtime, early-for-recovery model, sleep timing regularity,
+overnight HR/HRV, and prior chat. You do not receive raw Garmin payloads or raw
+time-series data.
+
+Rules:
+- Ground every claim in the provided numbers. If the data does not answer the
+  question, say what is missing.
+- Do not present overlapping heuristic tags as proven causes. Use language like
+  "signal", "consistent with", and "most visible factor".
+- For early-for-recovery, explain that it estimates whether sleep ended before
+  the modeled recovery window was covered; it is not a literal wake-up detector.
+- Keep the answer practical and focused on tonight/tomorrow.
+- If symptoms suggest sleep apnea, severe insomnia, chest pain, fainting, or
+  rapidly worsening health, say this needs medical evaluation.
+
+Output markdown with these sections:
+## Answer
+Direct answer to the question.
+## What the sleep data says
+Bullets with the relevant numbers and caveats.
+## Tonight
+2-4 concrete actions."""
+
 
 SUGGEST_SYSTEM = """You help maintain a coach's long-term memory of one athlete.
 Given a compact metrics summary, the athlete's strength profile, and the memories
@@ -149,6 +174,40 @@ You are not a doctor; do not diagnose or prescribe.
 Output two short markdown sections:
 ## What this suggests
 ## Caveats"""
+
+
+COACH_NOTE_SYSTEM = (
+    "You are a concise strength coach. Given today's recovery verdict, the "
+    "linear-progression plan, and a compact strength summary, write ONE or TWO "
+    "sentences of practical guidance for today's session. Be specific about "
+    "which lifts to push, hold, or back off, and why (tie to recovery). No "
+    "lists, no preamble, no diagnosis. Plain text."
+)
+
+
+def coach_session_note(strength_summary: dict, verdict: dict,
+                       plan: list, model: str | None = None) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        return ""
+    try:
+        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model=model or config.ANTHROPIC_MODEL,
+            max_tokens=160,
+            system=COACH_NOTE_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": "Recovery verdict:\n\n" + json.dumps(verdict or {}, indent=2)
+                           + "\n\nToday's progression plan (per main lift):\n\n"
+                           + json.dumps(plan or [], indent=2)
+                           + "\n\nStrength summary:\n\n"
+                           + json.dumps(strength_summary or {}, indent=2)
+                           + "\n\nWrite the session note.",
+            }],
+        )
+        return "".join(b.text for b in msg.content if b.type == "text").strip()
+    except Exception:
+        return ""
 
 
 _MEMORY_CATEGORIES = ("goal", "injury", "pattern", "coaching", "note")
@@ -289,6 +348,51 @@ def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
                        + _memory_block(coach_memory)
                        + _experiment_block(active_experiments)
                        + "\n\nWrite the recap.",
+        }],
+    )
+    return "".join(b.text for b in msg.content if b.type == "text")
+
+
+def _sleep_question_payload(question, sleep_context, chat_history,
+                            coach_memory=None, active_experiments=None):
+    return {
+        "question": question,
+        "sleep_context": sleep_context or {},
+        "previous_chat": chat_history or [],
+        "coach_memory": coach_memory or {},
+        "active_experiments": active_experiments or [],
+    }
+
+
+def answer_sleep_question(
+    question: str,
+    sleep_context: dict,
+    chat_history: list[dict] | None = None,
+    coach_memory: dict | None = None,
+    active_experiments: list | None = None,
+    model: str | None = None,
+) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        return "_Set ANTHROPIC_API_KEY in .env to enable AI sleep questions._"
+    question = (question or "").strip()
+    if not question:
+        return "_Ask a sleep question first._"
+    payload = _sleep_question_payload(
+        question,
+        sleep_context,
+        chat_history,
+        coach_memory=coach_memory,
+        active_experiments=active_experiments,
+    )
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=model or config.ANTHROPIC_MODEL,
+        max_tokens=900,
+        system=SLEEP_QUESTION_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": "Answer my sleep question using this compact local context:\n\n"
+                       + json.dumps(payload, indent=2)
         }],
     )
     return "".join(b.text for b in msg.content if b.type == "text")
