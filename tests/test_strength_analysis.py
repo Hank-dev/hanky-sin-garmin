@@ -192,3 +192,22 @@ def test_last_session_sets_excludes_nan_weight_and_incomplete():
     ])
     out = analysis.last_session_sets("bench-press", sessions, sets)
     assert out == [{"weight_kg": 100.0, "reps": 5}]
+
+
+def test_readiness_performance_uses_recovery_score():
+    ex = pd.DataFrame([{"exercise_id": "back-squat", "name": "Back Squat",
+                        "is_bodyweight": 0}])
+    rows, sets = [], []
+    for i in range(8):
+        sid = f"s{i}"
+        rec = 90 if i % 2 == 0 else 40
+        w = 105 if rec == 90 else 95
+        rows.append({"session_id": sid, "date": f"2026-06-0{i+1}", "bodyweight_kg": 80,
+                     "recovery_score": rec, "readiness_score": None,
+                     "hrv_overnight_avg": rec, "sleep_score": rec, "resting_hr": 50})
+        sets.append({"session_id": sid, "exercise_id": "back-squat", "weight_kg": w,
+                     "reps": 5, "completed": 1, "is_warmup": 0})
+    out = analysis.compute_readiness_performance(pd.DataFrame(rows), pd.DataFrame(sets), ex,
+                                                 min_sessions=8)
+    assert out["status"] == "ok"
+    assert "signals" in out

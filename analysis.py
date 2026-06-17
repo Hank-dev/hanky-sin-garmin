@@ -2958,8 +2958,8 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
 
     ton = summarize_sessions(sessions_df, sets_df, exercises_df, formula)[
         ["session_id", "total_volume_kg"]]
-    rsc = sessions_df[["session_id", "readiness_score"]].copy()
-    rsc["readiness_score"] = pd.to_numeric(rsc["readiness_score"], errors="coerce")
+    rsc = sessions_df[["session_id", "recovery_score"]].copy()
+    rsc["readiness_score"] = pd.to_numeric(rsc["recovery_score"], errors="coerce")
     merged = (sess.merge(rsc, on="session_id", how="left")
                   .merge(ton, on="session_id", how="left")
                   .dropna(subset=["readiness_score", "rel_perf"]))
@@ -2989,8 +2989,17 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
         insight = "Your best lifts cluster on lower-readiness days — readiness isn't limiting your lifting."
     else:
         insight = "No strong link between readiness and lifting performance so far."
+    signals = {}
+    for col in ("hrv_overnight_avg", "sleep_score", "resting_hr"):
+        if col in sessions_df.columns:
+            sig = sessions_df[["session_id", col]].copy()
+            sig[col] = pd.to_numeric(sig[col], errors="coerce")
+            m = merged.merge(sig, on="session_id", how="left").dropna(subset=[col, "rel_perf"])
+            if len(m) >= min_sessions:
+                c = m[col].corr(m["rel_perf"])
+                signals[col] = None if pd.isna(c) else round(float(c), 2)
     return {"status": "ok", "n": have, "buckets": buckets,
-            "correlation": corr, "insight": insight}
+            "correlation": corr, "insight": insight, "signals": signals}
 
 
 def summarize_strength(sessions_df, sets_df, exercises_df, profile,
