@@ -2,7 +2,7 @@
 
 Thin router only: sets page config, injects the shared "Graphite Voltage" CSS and
 the sidebar brand mark, then hands off to the selected page via ``st.navigation``.
-Each page body lives in ``views/`` (cockpit, strength, coach, experiments). Because
+Each page body lives in ``views/`` (cockpit, sleep, strength, coach, experiments). Because
 ``nav.run()`` executes the chosen view inline within this same script run, the CSS
 injected here applies to whichever page renders.
 
@@ -36,6 +36,7 @@ st.logo(_BRAND, size="large")
 
 pages = [
     st.Page("views/cockpit.py", title="Cockpit", icon=":material/monitor_heart:", default=True),
+    st.Page("views/sleep.py", title="Sleep", icon=":material/bedtime:"),
     st.Page("views/strength.py", title="Strength", icon=":material/exercise:"),
     st.Page("views/coach.py", title="Coach", icon=":material/psychology:"),
     st.Page("views/experiments.py", title="Experiments", icon=":material/science:"),

@@ -76,6 +76,49 @@ class ChartRenderingTest(unittest.TestCase):
         self.assertIn("Early for recovery", [trace.name for trace in fig.data])
         self.assertIn("BB at sleep start", [trace.name for trace in fig.data])
 
+    def test_early_waking_classifier_card_shows_latest_pattern_and_evidence(self):
+        model = {
+            "status": "ready",
+            "days_analyzed": 2,
+            "latest": {
+                "date": "2026-06-02",
+                "early_waking_minutes": 87,
+                "severity": "meaningful",
+                "confidence": "high",
+                "pattern": "low_body_battery_early",
+                "evidence": ["low Body Battery at sleep start", "low sleep score"],
+                "sleep_debt_h": 1.0,
+                "prior_sleep_debt_h_7d": 0.0,
+                "body_battery_at_sleep_start": 20,
+                "recovery_need_h": 8.45,
+            },
+            "rows": [
+                {
+                    "date": "2026-06-01",
+                    "early_waking_minutes": 0,
+                    "severity": "none",
+                    "confidence": "low",
+                    "pattern": "recovery_window_met",
+                },
+                {
+                    "date": "2026-06-02",
+                    "early_waking_minutes": 87,
+                    "severity": "meaningful",
+                    "confidence": "high",
+                    "pattern": "low_body_battery_early",
+                },
+            ],
+        }
+
+        out = cockpit.early_waking_classifier_card(model)
+
+        self.assertIn('class="card early-classifier"', out)
+        self.assertIn("Early waking classifier", out)
+        self.assertIn("Low Body Battery", out)
+        self.assertIn("high confidence", out)
+        self.assertIn("low Body Battery at sleep start", out)
+        self.assertFalse([ln for ln in out.splitlines() if ln.strip() == ""])
+
     def test_rhr_chart_trims_leading_no_data_days(self):
         # Short/sparse history: the window spans days with no RHR yet, then
         # data starts. The x-axis should clamp to where RHR exists so the

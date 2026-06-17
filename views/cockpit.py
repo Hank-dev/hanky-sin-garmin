@@ -57,8 +57,6 @@ def load(local_timezone: str):
         sleep_need_h=personal_sleep_need.get("sleep_need_h"),
     )
     health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
-    recommended_bedtime = analysis.compute_recommended_bedtime(
-        daily, sleep_timing, sleep_need_h=personal_sleep_need.get("sleep_need_h"))
     strength_sessions = db.load_strength_sessions_df()
     strength_sets = db.load_strength_sets_df()
     exercises = db.load_exercises_df()
@@ -74,12 +72,12 @@ def load(local_timezone: str):
         formula=config.ONE_RM_FORMULA)
     return (daily, acts, checkins, body_battery, stress, grappling,
             stress_leaks, prebed_discovery, personal_sleep_need, early_waking,
-            health_research, strength_summary, recommended_bedtime)
+            health_research, strength_summary)
 
 
 (daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
  prebed_discovery, personal_sleep_need, early_waking, health_research,
- strength_summary, recommended_bedtime) = load(config.LOCAL_TIMEZONE)
+ strength_summary) = load(config.LOCAL_TIMEZONE)
 
 coach_memory_df = db.load_memory_df()                       # fresh: not cached
 coach_memory_digest = analysis.build_coach_memory_digest(coach_memory_df)
@@ -204,7 +202,6 @@ view = daily.tail(win) if not daily.empty else daily
 base28 = daily.tail(28) if not daily.empty else daily
 capacity = analysis.compute_capacity_envelope(daily, acts, checkins)
 weekly_stress = analysis.compute_weekly_stress_overview(daily)
-weekly_sleep = analysis.compute_weekly_sleep_overview(daily)
 valid_days = set(pd.to_datetime(daily["date"], errors="coerce").dt.strftime("%Y-%m-%d").dropna()) if not daily.empty else set()
 default_day = str(latest["date"])[:10] if latest is not None else None
 selected_day = query_day(default_day, valid_days)
@@ -243,27 +240,45 @@ else:
         unsafe_allow_html=True)
 
 
-# ── weekly summary (auto, cached once per completed ISO week) ─────────────────
-if not daily.empty:
+def render_weekly_summary():
+    """Render cached weekly summary below the signal tiles, compact by default."""
+    if daily.empty:
+        return
     week = analysis.summarize_week(daily, acts, checkins)
-    if week.get("status") == "ready":
-        ws = week["week_start"]
-        st.markdown(cockpit.section_label("Weekly summary"), unsafe_allow_html=True)
-        if not config.ANTHROPIC_API_KEY:
-            st.caption("Set `ANTHROPIC_API_KEY` in .env to enable the weekly summary.")
-        else:
-            regenerate = st.button("↻ Regenerate weekly summary", key="regen_week")
-            cached = None if regenerate else db.load_weekly_summary(ws)
-            if cached is None:
-                with st.spinner("Writing your weekly summary…"):
-                    md = ai.weekly_summary(week, coach_memory=coach_memory_digest,
-                                           active_experiments=active_experiments)
-                db.save_weekly_summary(ws, config.ANTHROPIC_MODEL, md)
-                cached = db.load_weekly_summary(ws)
-            meta_label = _week_label(week["week_start"], week["week_end"])
-            meta_label += f' · generated {cached["generated_at"][:10]}'
-            st.markdown(cockpit.weekly_summary_card(cached["summary_md"], meta_label),
-                        unsafe_allow_html=True)
+    if week.get("status") != "ready":
+        return
+    ws = week["week_start"]
+    st.markdown(cockpit.section_label("Weekly summary"), unsafe_allow_html=True)
+    if not config.ANTHROPIC_API_KEY:
+        st.caption("Set `ANTHROPIC_API_KEY` in .env to enable the weekly summary.")
+        return
+
+    full_key = f"weekly_summary_full_{ws}"
+    show_full = bool(st.session_state.get(full_key, False))
+    summary_actions = st.columns([1, 1.2, 4])
+    with summary_actions[0]:
+        if st.button("Hide full" if show_full else "Show full", key=f"toggle_week_{ws}", width="stretch"):
+            st.session_state[full_key] = not show_full
+            st.rerun()
+    with summary_actions[1]:
+        regenerate = st.button("Regenerate", key="regen_week", width="stretch")
+
+    cached = None if regenerate else db.load_weekly_summary(ws)
+    if cached is None:
+        with st.spinner("Writing your weekly summary..."):
+            md = ai.weekly_summary(
+                week,
+                coach_memory=coach_memory_digest,
+                active_experiments=active_experiments,
+            )
+        db.save_weekly_summary(ws, config.ANTHROPIC_MODEL, md)
+        cached = db.load_weekly_summary(ws)
+    meta_label = _week_label(week["week_start"], week["week_end"])
+    meta_label += f' - generated {cached["generated_at"][:10]}'
+    summary_md = cached["summary_md"] if show_full else (
+        "## Week in brief\n" + cockpit.weekly_summary_preview(cached["summary_md"])
+    )
+    st.markdown(cockpit.weekly_summary_card(summary_md, meta_label), unsafe_allow_html=True)
 
 
 # ── key-stat tiles ───────────────────────────────────────────────────────────
@@ -299,6 +314,8 @@ else:
     }
     base = {k: (None if v is None or pd.isna(v) else float(v)) for k, v in base.items()}
     st.markdown(cockpit.tiles(today, sparks, base, sparse=False), unsafe_allow_html=True)
+
+render_weekly_summary()
 
 # ── capacity envelope + subjective check-in ──────────────────────────────────
 checkin_date = str(latest["date"])[:10] if latest is not None else pd.Timestamp.today().strftime("%Y-%m-%d")
@@ -571,46 +588,7 @@ with recovery_tab:
         hrv_points = int(view["hrv_overnight_avg"].notna().sum()) if "hrv_overnight_avg" in view else 0
         if hrv_points < 2:
             st.caption("Only one overnight HRV value is synced in this window, so the chart shows it as a single point until more nights are available.")
-        c1, c2 = st.columns(2)
-        with c1:
-            chart_card("Resting heart rate", "bpm", cockpit.chart_rhr(view))
-        with c2:
-            sleep_need = personal_sleep_need.get("sleep_need_h") or config.SLEEP_NEED_HOURS
-            sleep_unit = f"target {sleep_need:.1f}h"
-            chart_card("Sleep duration", sleep_unit, cockpit.chart_sleep(view, sleep_need))
-            if personal_sleep_need.get("source") != "personal_recovery_nights":
-                st.caption(personal_sleep_need.get("message", "Learning personal sleep need."))
-        if recommended_bedtime.get("status") == "ready":
-            with st.container(border=True):
-                st.markdown(cockpit.bedtime_card(recommended_bedtime), unsafe_allow_html=True)
-        elif recommended_bedtime.get("status") == "learning":
-            st.caption("Recommended bedtime is warming up — sync a few more nights of sleep timing.")
-        if weekly_sleep.get("status") == "ready":
-            sleep_meta = _week_label(weekly_sleep["week_start"], weekly_sleep["week_end"])
-            if weekly_sleep.get("mean") is not None:
-                sleep_meta += f" · avg {weekly_sleep['mean']:.0f}"
-            if weekly_sleep.get("std") is not None:
-                sleep_meta += f" · SD {weekly_sleep['std']:.1f}"
-            chart_card("Weekly sleep score", sleep_meta, cockpit.chart_weekly_sleep_score(weekly_sleep))
-            if weekly_sleep.get("days_with_data", 0) < 2:
-                st.caption("Only one sleep score is synced for this week so far.")
-        if (early_waking or {}).get("rows"):
-            early_meta = f"need {early_waking.get('sleep_need_h', sleep_need):.1f}h · {early_waking.get('recent_meaningful_days', 0)}/7 >=45 min"
-            if early_waking.get("recent_mean_early_minutes") is not None:
-                early_meta += f" · avg {early_waking['recent_mean_early_minutes']:.0f} min"
-            chart_card("Early for recovery", early_meta, cockpit.chart_early_waking(early_waking))
-            latest_early = early_waking.get("latest") or {}
-            if latest_early.get("severity") in ("meaningful", "major"):
-                pattern = str(latest_early.get("pattern") or "unclear").replace("_", " ")
-                st.caption(
-                    "Latest: "
-                    f"{latest_early.get('early_waking_minutes')} min early for recovery, "
-                    f"{pattern}, "
-                    f"{latest_early.get('confidence')} confidence, "
-                    f"BB at sleep start {latest_early.get('body_battery_at_sleep_start')}"
-                )
-            elif early_waking.get("status") == "learning":
-                st.caption("Early-for-recovery is using sleep timing now; sync intraday Body Battery for sleep-start weighting.")
+        chart_card("Resting heart rate", "bpm", cockpit.chart_rhr(view))
         intraday_days = set()
         if body_battery is not None and not body_battery.empty and "date" in body_battery:
             intraday_days.update(body_battery["date"].astype(str).unique())
@@ -645,23 +623,6 @@ with recovery_tab:
                     st.caption(f"No stress-level graph stored for `{graph_day}`.")
             else:
                 st.caption("No stress-level graph stored yet. Click Sync once to pull Garmin's all-day stress curve.")
-        if "deep_seconds" in view and view["deep_seconds"].notna().any():
-            chart_card("Sleep composition", "", cockpit.chart_sleep_comp(view))
-        sleep_hr_col, bedtime_hr_col = st.columns(2)
-        with sleep_hr_col:
-            if "hr_overnight_low" in view and view["hr_overnight_low"].notna().any():
-                chart_card("Lowest overnight heart rate", "bpm", cockpit.chart_sleeping_hr(view))
-            else:
-                st.caption("No lowest-overnight heart-rate trend stored yet.")
-        with bedtime_hr_col:
-            if "hr_bedtime" in view and view["hr_bedtime"].notna().any():
-                chart_card("Pre-sleep HR median", "10m before sleep", cockpit.chart_bedtime_hr(view))
-                bedtime_points = int(view["hr_bedtime"].notna().sum())
-                if bedtime_points < 2:
-                    st.caption("Only one pre-sleep HR median is synced in this window, so the chart shows it as a single point for now.")
-            else:
-                st.caption("No pre-sleep heart-rate medians stored yet. Sync days that include sleep start plus all-day HR samples.")
-
 with health_tab:
     if daily.empty:
         st.info("Sync Garmin history to build the Health Lab panels.")
@@ -675,23 +636,13 @@ with health_tab:
             health_view = pd.DataFrame()
 
         chart_card("Primitive baseline deviations", "z-score", cockpit.chart_recovery_deviation(health_view))
-        c1, c2 = st.columns(2)
-        with c1:
-            if not health_view.empty and any(
-                col in health_view and health_view[col].notna().any()
-                for col in ("sleep_midpoint_variability_7d", "bedtime_variability_7d", "wake_time_variability_7d")
-            ):
-                chart_card("Sleep timing regularity", "rolling SD", cockpit.chart_sleep_regularity(health_view))
-            else:
-                st.caption("Sleep timing regularity needs raw sleep start/end data from synced sleep payloads.")
-        with c2:
-            if not health_view.empty and any(
-                col in health_view and health_view[col].notna().any()
-                for col in ("spo2_avg", "respiration_avg")
-            ):
-                chart_card("Respiratory watchlist", "SpO₂ / respiration", cockpit.chart_respiratory_watchlist(health_view))
-            else:
-                st.caption("Respiratory watchlist needs SpO₂ or respiration summaries.")
+        if not health_view.empty and any(
+            col in health_view and health_view[col].notna().any()
+            for col in ("spo2_avg", "respiration_avg")
+        ):
+            chart_card("Respiratory watchlist", "SpO₂ / respiration", cockpit.chart_respiratory_watchlist(health_view))
+        else:
+            st.caption("Respiratory watchlist needs SpO₂ or respiration summaries.")
 
         if ((health_research.get("fitness") or {}).get("activity") or {}).get("rows"):
             chart_card("Run/walk adaptation", "pace + HR", cockpit.chart_foot_pace(health_research))

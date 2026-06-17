@@ -366,6 +366,51 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 @media (max-width:980px){ .discovery-grid{grid-template-columns:repeat(2,1fr);} }
 @media (max-width:520px){ .discovery-grid{grid-template-columns:1fr;} .discovery-head{display:grid;} }
 
+/* ── early waking classifier ───────────────────────────────────────── */
+.early-classifier{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
+  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
+.early-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
+.early-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
+.early-head .meta{font-size:12px;color:var(--text-faint);}
+.early-pill{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;
+  font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  border:1px solid var(--border);background:rgba(255,255,255,.025);}
+.early-pill.ready,.early-pill.none{color:var(--good);border-color:color-mix(in srgb,var(--good) 30%,transparent);background:color-mix(in srgb,var(--good) 8%,transparent);}
+.early-pill.learning,.early-pill.mild{color:var(--series-2);border-color:color-mix(in srgb,var(--series-2) 30%,transparent);background:color-mix(in srgb,var(--series-2) 8%,transparent);}
+.early-pill.meaningful{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
+.early-pill.major,.early-pill.no_data{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
+.early-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:var(--s4);align-items:start;}
+.early-latest{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(255,255,255,.02);}
+.early-pattern{font-family:var(--font-serif);font-size:30px;font-weight:400;line-height:1.1;margin-bottom:var(--s2);}
+.early-sub{font-size:13px;color:var(--text-dim);line-height:1.5;}
+.early-score{display:flex;align-items:baseline;gap:8px;margin-top:var(--s4);}
+.early-score .val{font-family:var(--font-serif);font-size:54px;font-weight:400;line-height:.95;font-variant-numeric:tabular-nums;}
+.early-score.good .val{color:var(--good);} .early-score.mild .val{color:var(--series-2);}
+.early-score.meaningful .val{color:var(--amber);} .early-score.major .val{color:var(--red);}
+.early-score .unit{font-family:var(--font-mono);font-size:11px;color:var(--text-faint);letter-spacing:.08em;text-transform:uppercase;}
+.early-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s3);margin-bottom:var(--s4);}
+.early-stat{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s3);background:rgba(255,255,255,.02);min-width:0;}
+.early-stat .lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
+.early-stat .val{font-family:var(--font-serif);font-size:24px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.early-stat .sub{font-size:11.5px;color:var(--text-dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.early-evidence{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s4);}
+.early-flag{font-size:12px;color:var(--text-dim);border:1px solid var(--border);border-radius:999px;
+  padding:5px 9px;background:rgba(255,255,255,.02);}
+.early-flag.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 25%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
+.early-strip{display:grid;gap:7px;}
+.early-row{display:grid;grid-template-columns:74px minmax(0,1fr) 58px 70px;gap:var(--s2);align-items:center;
+  padding:7px 0;border-top:1px solid var(--hairline);font-size:12.5px;color:var(--text-dim);}
+.early-row .date{font-family:var(--font-mono);font-size:10px;color:var(--text-faint);}
+.early-row .pattern{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.early-row .mins,.early-row .conf{font-family:var(--font-mono);font-size:10px;text-align:right;color:var(--text-faint);text-transform:uppercase;}
+.early-row .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:7px;background:var(--text-faint);}
+.early-row.none .dot{background:var(--good);} .early-row.mild .dot{background:var(--series-2);}
+.early-row.meaningful .dot{background:var(--amber);} .early-row.major .dot{background:var(--red);}
+@media (max-width:980px){ .early-body{grid-template-columns:1fr;} .early-grid{grid-template-columns:repeat(3,1fr);} }
+@media (max-width:620px){ .early-grid{grid-template-columns:repeat(2,1fr);} .early-head{display:grid;} .early-row{grid-template-columns:62px minmax(0,1fr) 48px;} .early-row .conf{display:none;} }
+@media (max-width:420px){ .early-grid{grid-template-columns:1fr;} }
+
 /* ── research health panels ───────────────────────────────────────── */
 .research{padding:var(--s6);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
   background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
@@ -506,7 +551,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 }
 @media (max-width:680px){
   .tiles{grid-template-columns:repeat(2,1fr);}
-  .hero,.coach,.capacity,.leak,.grapple,.research{padding:var(--s5);}
+  .hero,.coach,.capacity,.leak,.grapple,.research,.early-classifier{padding:var(--s5);}
   .acts{overflow-x:auto;} .acts table{min-width:560px;}
 }
 @media (max-width:420px){ .tiles{grid-template-columns:1fr;} }
@@ -996,6 +1041,172 @@ def bedtime_card(model: dict) -> str:
     return _collapse_html(f'<div>{head}{big}{sub_html}{reasons}</div>')
 
 
+def _early_missing(value) -> bool:
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+        if isinstance(missing, (bool, np.bool_)):
+            return bool(missing)
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
+def _early_pattern_label(pattern) -> str:
+    labels = {
+        "recovery_window_met": "Recovery window met",
+        "stress_activation_early": "Stress activation",
+        "low_body_battery_early": "Low Body Battery",
+        "recovery_debt_early": "Recovery debt",
+        "poor_quality_early": "Poor sleep quality",
+        "unclear": "Unclear",
+    }
+    key = str(pattern or "unclear")
+    return labels.get(key, key.replace("_", " ").strip().title() or "Unclear")
+
+
+def _early_tone(row: dict) -> str:
+    severity = str((row or {}).get("severity") or "").lower()
+    if severity in {"none", "mild", "meaningful", "major"}:
+        return severity
+    minutes = (row or {}).get("early_waking_minutes")
+    if _early_missing(minutes):
+        return "none"
+    minutes = float(minutes)
+    if minutes >= 90:
+        return "major"
+    if minutes >= 45:
+        return "meaningful"
+    if minutes >= 20:
+        return "mild"
+    return "none"
+
+
+def _early_value(value, unit: str = "", digits: int = 0) -> str:
+    if _early_missing(value):
+        return '<span class="dash">-</span>'
+    if isinstance(value, str):
+        return html.escape(value)
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return html.escape(str(value))
+    if digits == 0:
+        text = f"{n:.0f}"
+    else:
+        text = f"{n:.{digits}f}"
+    return f"{html.escape(text)}{html.escape(unit)}"
+
+
+def _early_date(value, fmt: str = "%b %-d") -> str:
+    if _early_missing(value):
+        return "-"
+    try:
+        return pd.Timestamp(value).strftime(fmt)
+    except (TypeError, ValueError):
+        return str(value)[:10]
+
+
+def _early_stat(label: str, value: str, sub: str = "") -> str:
+    return (
+        f'<div class="early-stat"><div class="lab">{html.escape(label)}</div>'
+        f'<div class="val">{value}</div><div class="sub">{html.escape(sub)}</div></div>'
+    )
+
+
+def early_waking_classifier_card(model: dict) -> str:
+    """Visible classifier output for recovery-relevant early waking."""
+    model = model or {}
+    rows = list(model.get("rows") or [])
+    latest = dict(model.get("latest") or (rows[-1] if rows else {}))
+    status = str(model.get("status") or "no_data")
+    status_cls = re.sub(r"[^a-z0-9_-]", "_", status.lower())
+
+    if not latest:
+        message = html.escape(model.get(
+            "message",
+            "Sync sleep start/end data to estimate recovery early wakings.",
+        ))
+        missing = model.get("missing") or []
+        flags = "".join(
+            f'<span class="early-flag warn">{html.escape(str(item))}</span>'
+            for item in missing[:4]
+        )
+        return _collapse_html(
+            f'<div class="card early-classifier"><div class="empty-note" style="margin:0">'
+            f'<span class="ico">⚡</span> {message}</div>'
+            f'<div class="early-evidence" style="margin-top:12px;margin-bottom:0">{flags}</div></div>'
+        )
+
+    tone = _early_tone(latest)
+    score_tone = "good" if tone == "none" else tone
+    pattern = _early_pattern_label(latest.get("pattern"))
+    confidence = str(latest.get("confidence") or "low")
+    severity = str(latest.get("severity") or tone)
+    latest_date = _early_date(latest.get("date"), "%Y-%m-%d")
+    days = int(model.get("days_analyzed") or len(rows) or 0)
+    meta = f"{latest_date} &middot; {days} days analyzed"
+    minutes = latest.get("early_waking_minutes")
+
+    stats = [
+        _early_stat("Severity", html.escape(severity.replace("_", " ")), "latest night"),
+        _early_stat("Confidence", html.escape(confidence), "classifier support"),
+        _early_stat("Sleep debt", _early_value(latest.get("sleep_debt_h"), "h", 1), "night ended with"),
+        _early_stat("Prior debt", _early_value(latest.get("prior_sleep_debt_h_7d"), "h", 1), "trailing 7d"),
+        _early_stat("BB start", _early_value(latest.get("body_battery_at_sleep_start")), "at sleep start"),
+        _early_stat("Recovery need", _early_value(latest.get("recovery_need_h"), "h", 1), "modeled"),
+    ]
+    evidence = latest.get("evidence") or []
+    evidence_html = "".join(
+        f'<span class="early-flag">{html.escape(str(item))}</span>'
+        for item in evidence[:6]
+    )
+    missing = model.get("missing") or []
+    evidence_html += "".join(
+        f'<span class="early-flag warn">{html.escape(str(item))}</span>'
+        for item in missing[:3]
+    )
+
+    recent_rows = rows[-7:] if rows else [latest]
+    recent_html = []
+    for row in recent_rows:
+        row = row or {}
+        row_tone = _early_tone(row)
+        row_pattern = _early_pattern_label(row.get("pattern"))
+        recent_html.append(
+            f'<div class="early-row {row_tone}">'
+            f'<div class="date">{html.escape(_early_date(row.get("date")))}</div>'
+            f'<div class="pattern"><span class="dot"></span>{html.escape(row_pattern)}</div>'
+            f'<div class="mins">{_early_value(row.get("early_waking_minutes"), "m")}</div>'
+            f'<div class="conf">{html.escape(str(row.get("confidence") or ""))}</div>'
+            f'</div>'
+        )
+
+    return _collapse_html(f"""
+      <div class="card early-classifier">
+        <div class="early-head">
+          <div><h3>Early waking classifier</h3><div class="meta">{meta}</div></div>
+          <span class="early-pill {status_cls}">{html.escape(status)}</span>
+        </div>
+        <div class="early-body">
+          <div class="early-latest">
+            <div class="early-pattern">{html.escape(pattern)}</div>
+            <div class="early-sub">{html.escape(confidence)} confidence &middot; {html.escape(severity.replace("_", " "))} severity</div>
+            <div class="early-score {score_tone}">
+              <span class="val">{_early_value(minutes)}</span><span class="unit">min early</span>
+            </div>
+          </div>
+          <div>
+            <div class="early-grid">{"".join(stats)}</div>
+            <div class="early-evidence">{evidence_html}</div>
+            <div class="early-strip">{"".join(recent_html)}</div>
+          </div>
+        </div>
+      </div>
+    """)
+
+
 def weekly_summary_card(summary_md, meta) -> str:
     head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
             f'<div><h3>Weekly summary</h3>'
@@ -1006,6 +1217,42 @@ def weekly_summary_card(summary_md, meta) -> str:
         return _collapse_html(f'<div class="card coach">{head}{body}</div>')
     body = f'<div class="coach-body">{_md_sections(summary_md)}</div>'
     return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+
+
+def weekly_summary_preview(summary_md: str, sentence_count: int = 2) -> str:
+    """Return a plain-text two-sentence preview from cached weekly markdown."""
+    if not summary_md:
+        return ""
+    cleaned = []
+    for line in str(summary_md).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        line = re.sub(r"^[-*]\s+", "", line)
+        line = re.sub(r"^\d+\.\s+", "", line)
+        cleaned.append(line)
+    text = re.sub(r"\s+", " ", " ".join(cleaned)).strip()
+    if not text:
+        return ""
+    sentences = []
+    start = 0
+    for idx, char in enumerate(text):
+        if char not in ".!?":
+            continue
+        prev_char = text[idx - 1] if idx > 0 else ""
+        next_char = text[idx + 1] if idx + 1 < len(text) else ""
+        if char == "." and prev_char.isdigit() and next_char.isdigit():
+            continue
+        if next_char and not next_char.isspace():
+            continue
+        sentence = text[start:idx + 1].strip()
+        if sentence:
+            sentences.append(sentence)
+        start = idx + 1
+    tail = text[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return " ".join(sentences[:max(1, int(sentence_count or 2))])
 
 
 def coach_memory_peek(digest: dict) -> str:

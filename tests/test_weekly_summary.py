@@ -127,6 +127,23 @@ class WeeklySummaryCardTest(unittest.TestCase):
         self.assertIn("empty-note", out)
         self.assertNotIn("coach-body", out)
 
+    def test_preview_returns_first_two_sentences_without_headings(self):
+        md = (
+            "## Week in review\n"
+            "Sleep averaged 7.5h, up 0.4h from last week. HRV improved by 3ms. "
+            "Stress was flat.\n"
+            "## Focus next week\n"
+            "- Keep the bedtime window steady."
+        )
+
+        preview = cockpit.weekly_summary_preview(md)
+
+        self.assertEqual(
+            preview,
+            "Sleep averaged 7.5h, up 0.4h from last week. HRV improved by 3ms.",
+        )
+        self.assertNotIn("Week in review", preview)
+
 
 if __name__ == "__main__":
     unittest.main()
