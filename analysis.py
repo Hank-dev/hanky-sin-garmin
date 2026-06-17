@@ -4158,3 +4158,85 @@ def summarize_active_experiments(experiments_df, daily, cap: int = 6) -> list[di
             "start_date": start, "days_running": days_running,
         })
     return out
+
+
+def _round_to_increment(x, inc):
+    if not inc:
+        return round(float(x), 4)
+    return round(round(float(x) / inc) * inc, 4)
+
+
+def compute_progression_suggestion(exercise_id, sessions_df, sets_df,
+                                   exercises_df, formula="epley"):
+    """Linear-progression next-target suggestion for a main lift. Pure.
+
+    progress: last session's working sets at the top weight all reached
+    target_reps -> +increment. hold: a set fell short -> repeat weight.
+    deload: 3 consecutive miss-sessions at the same top weight -> ~10% down,
+    rounded to the increment. Returns None for non-main-lifts / no history."""
+    if exercises_df is None or getattr(exercises_df, "empty", True):
+        return None
+    ex = exercises_df[exercises_df["exercise_id"] == exercise_id]
+    if ex.empty:
+        return None
+    ex = ex.iloc[0]
+    if int(ex.get("is_main_lift") or 0) != 1:
+        return None
+    try:
+        inc = float(ex.get("increment_kg"))
+        tgt = int(ex.get("target_reps"))
+    except (TypeError, ValueError):
+        return None
+    if not (inc > 0 and tgt > 0):
+        return None
+    if (sessions_df is None or getattr(sessions_df, "empty", True)
+            or sets_df is None or getattr(sets_df, "empty", True)):
+        return None
+
+    s = sets_df[sets_df["exercise_id"] == exercise_id].copy()
+    if s.empty:
+        return None
+    warm = pd.to_numeric(s.get("is_warmup", 0), errors="coerce").fillna(0).astype(int)
+    done = pd.to_numeric(s.get("completed", 1), errors="coerce").fillna(1).astype(int)
+    s = s[(warm == 0) & (done == 1)]
+    if s.empty:
+        return None
+    sess = sessions_df[["session_id", "date"]].copy()
+    sess["date"] = pd.to_datetime(sess["date"], errors="coerce")
+    s = s.merge(sess, on="session_id", how="left").dropna(subset=["date"])
+    s["weight_kg"] = pd.to_numeric(s["weight_kg"], errors="coerce")
+    s["reps"] = pd.to_numeric(s["reps"], errors="coerce")
+    s = s.dropna(subset=["weight_kg", "reps"])
+    if s.empty:
+        return None
+
+    rows = []
+    for sid, grp in s.groupby("session_id"):
+        top = grp["weight_kg"].max()
+        at_top = grp[grp["weight_kg"] == top]
+        rows.append({"date": grp["date"].iloc[0], "top": float(top),
+                     "hit": bool((at_top["reps"] >= tgt).all())})
+    hist = pd.DataFrame(rows).sort_values("date").reset_index(drop=True)
+    last = hist.iloc[-1]
+    last_w = last["top"]
+
+    # consecutive most-recent miss-sessions at the same top weight
+    stalls = 0
+    for _, r in hist.iloc[::-1].iterrows():
+        if abs(r["top"] - last_w) < 1e-9 and not r["hit"]:
+            stalls += 1
+        else:
+            break
+
+    if last["hit"]:
+        return {"state": "progress",
+                "suggested_weight_kg": _round_to_increment(last_w + inc, inc),
+                "target_reps": tgt, "last_weight_kg": last_w, "stalls": 0,
+                "reason": f"all sets hit {tgt} reps at {last_w:g}kg"}
+    if stalls >= 3:
+        return {"state": "deload",
+                "suggested_weight_kg": _round_to_increment(last_w * 0.9, inc),
+                "target_reps": tgt, "last_weight_kg": last_w, "stalls": stalls,
+                "reason": f"stalled {stalls}× at {last_w:g}kg"}
+    return {"state": "hold", "suggested_weight_kg": last_w, "target_reps": tgt,
+            "last_weight_kg": last_w, "stalls": stalls, "reason": "missed reps last time"}

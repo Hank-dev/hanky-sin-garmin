@@ -63,3 +63,65 @@ def test_verdict_red_is_back_off():
 def test_verdict_no_data_is_neutral():
     v = analysis.readiness_verdict({"status": "no_data", "zone": "green", "value": 100, "reasons": []})
     assert v["day_type"] == "Log normally"
+
+
+def _ex_df():
+    return pd.DataFrame([
+        {"exercise_id": "back-squat", "is_main_lift": 1, "increment_kg": 2.5, "target_reps": 5},
+        {"exercise_id": "barbell-curl", "is_main_lift": 0, "increment_kg": None, "target_reps": None},
+    ])
+
+def _sess(*dates):
+    return pd.DataFrame([{"session_id": f"s{i}", "date": d} for i, d in enumerate(dates)])
+
+def _set(session_id, weight, reps, completed=1, warmup=0, exercise_id="back-squat"):
+    return {"session_id": session_id, "exercise_id": exercise_id, "weight_kg": weight,
+            "reps": reps, "completed": completed, "is_warmup": warmup}
+
+def test_progression_progresses_when_all_sets_hit():
+    sets = pd.DataFrame([_set("s0", 100, 5), _set("s0", 100, 5), _set("s0", 100, 5)])
+    out = analysis.compute_progression_suggestion("back-squat", _sess("2026-06-01"), sets, _ex_df())
+    assert out["state"] == "progress"
+    assert out["suggested_weight_kg"] == 102.5
+
+def test_progression_holds_when_a_set_short():
+    sets = pd.DataFrame([_set("s0", 100, 5), _set("s0", 100, 3)])
+    out = analysis.compute_progression_suggestion("back-squat", _sess("2026-06-01"), sets, _ex_df())
+    assert out["state"] == "hold"
+    assert out["suggested_weight_kg"] == 100
+
+def test_progression_deloads_after_three_stalls():
+    sets = pd.DataFrame([
+        _set("s0", 100, 3), _set("s1", 100, 3), _set("s2", 100, 3),
+    ])
+    sess = _sess("2026-06-01", "2026-06-03", "2026-06-05")
+    out = analysis.compute_progression_suggestion("back-squat", sess, sets, _ex_df())
+    assert out["state"] == "deload"
+    assert out["stalls"] == 3
+    assert out["suggested_weight_kg"] == 90.0  # round(100*0.9 / 2.5)*2.5
+
+def test_progression_no_deload_at_two_stalls():
+    sets = pd.DataFrame([_set("s0", 100, 3), _set("s1", 100, 3)])
+    sess = _sess("2026-06-01", "2026-06-03")
+    out = analysis.compute_progression_suggestion("back-squat", sess, sets, _ex_df())
+    assert out["state"] == "hold"
+
+def test_progression_none_for_accessory():
+    sets = pd.DataFrame([_set("s0", 30, 10, exercise_id="barbell-curl")])
+    out = analysis.compute_progression_suggestion("barbell-curl", _sess("2026-06-01"), sets, _ex_df())
+    assert out is None
+
+def test_progression_none_with_no_history():
+    out = analysis.compute_progression_suggestion(
+        "back-squat", pd.DataFrame(columns=["session_id", "date"]),
+        pd.DataFrame(columns=["session_id", "exercise_id", "weight_kg", "reps", "completed", "is_warmup"]),
+        _ex_df())
+    assert out is None
+
+def test_progression_ignores_warmups_and_incomplete():
+    sets = pd.DataFrame([
+        _set("s0", 60, 5, warmup=1), _set("s0", 100, 5), _set("s0", 100, 5, completed=0),
+    ])
+    out = analysis.compute_progression_suggestion("back-squat", _sess("2026-06-01"), sets, _ex_df())
+    # only the one completed working set at 100×5 counts → all hit → progress
+    assert out["state"] == "progress"
