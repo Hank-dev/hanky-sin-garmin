@@ -120,3 +120,23 @@ def test_garmin_profile_does_not_overwrite_manual():
     # manual still overwrites manual
     db.upsert_profile({"sex": "male", "birth_year": 1996, "source": "manual"})
     assert db.load_profile()["birth_year"] == 1996
+
+
+def test_init_db_adds_smart_session_columns(tmp_path, monkeypatch):
+    import config
+    dbfile = tmp_path / "t.db"
+    monkeypatch.setattr(config, "DB_PATH", str(dbfile))
+    import db
+    importlib.reload(db)
+    db.init_db()
+    import sqlite3
+    conn = sqlite3.connect(dbfile)
+    ex_cols = {r[1] for r in conn.execute("PRAGMA table_info(exercises)")}
+    se_cols = {r[1] for r in conn.execute("PRAGMA table_info(strength_sessions)")}
+    assert {"increment_kg", "target_reps"} <= ex_cols
+    assert {"recovery_score", "recovery_zone"} <= se_cols
+    row = conn.execute(
+        "SELECT increment_kg, target_reps FROM exercises WHERE exercise_id='back-squat'"
+    ).fetchone()
+    conn.close()
+    assert row == (2.5, 5)

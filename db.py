@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS exercises (
     is_bodyweight INTEGER DEFAULT 0,
     is_main_lift INTEGER DEFAULT 0,
     is_custom INTEGER DEFAULT 0,
+    increment_kg REAL,
+    target_reps INTEGER,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -126,6 +128,8 @@ CREATE TABLE IF NOT EXISTS strength_sessions (
     sleep_score REAL,
     resting_hr REAL,
     acwr REAL,
+    recovery_score REAL,
+    recovery_zone TEXT,
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -218,6 +222,7 @@ WEEKLY_SUMMARY_COLS = ["week_start", "generated_at", "model", "summary_md"]
 EXERCISE_COLS = [
     "exercise_id", "name", "category", "movement_pattern", "primary_muscle",
     "is_unilateral", "is_bodyweight", "is_main_lift", "is_custom",
+    "increment_kg", "target_reps",
 ]
 ROUTINE_COLS = ["routine_id", "name", "notes"]
 ROUTINE_EX_COLS = [
@@ -228,7 +233,7 @@ SESSION_COLS = [
     "session_id", "date", "started_at", "ended_at", "routine_id", "name",
     "bodyweight_kg", "notes", "readiness_score", "readiness_level",
     "hrv_status", "hrv_overnight_avg", "body_battery_start", "sleep_score",
-    "resting_hr", "acwr",
+    "resting_hr", "acwr", "recovery_score", "recovery_zone",
 ]
 SET_COLS = [
     "set_id", "session_id", "exercise_id", "position", "set_index", "side",
@@ -285,6 +290,14 @@ def init_db():
         for col in ("metadata_date", "metadata_time"):
             if col not in existing:
                 conn.execute(f"ALTER TABLE coach_memory ADD COLUMN {col} TEXT")
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(exercises)")}
+        for col, kind in (("increment_kg", "REAL"), ("target_reps", "INTEGER")):
+            if col not in existing:
+                conn.execute(f"ALTER TABLE exercises ADD COLUMN {col} {kind}")
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(strength_sessions)")}
+        for col, kind in (("recovery_score", "REAL"), ("recovery_zone", "TEXT")):
+            if col not in existing:
+                conn.execute(f"ALTER TABLE strength_sessions ADD COLUMN {col} {kind}")
     # Seed the strength library + apply any .env profile override. Done AFTER
     # the schema `with connect()` transaction has committed, so these nested
     # connections don't contend with an open write transaction (which on an
@@ -447,11 +460,20 @@ def seed_exercises():
             conn.execute(
                 "INSERT OR IGNORE INTO exercises "
                 "(exercise_id, name, category, movement_pattern, primary_muscle, "
-                " is_unilateral, is_bodyweight, is_main_lift, is_custom) "
-                "VALUES (?,?,?,?,?,?,?,?,0)",
+                "is_unilateral, is_bodyweight, is_main_lift, increment_kg, target_reps) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (e["exercise_id"], e["name"], e["category"], e["movement_pattern"],
                  e["primary_muscle"], e["is_unilateral"], e["is_bodyweight"],
-                 e["is_main_lift"]),
+                 e["is_main_lift"], e.get("increment_kg"), e.get("target_reps")),
+            )
+        # NULL-only backfill: seeded main lifts created before these columns existed.
+        for e in strength_catalog.EXERCISE_SEED:
+            if e.get("increment_kg") is None:
+                continue
+            conn.execute(
+                "UPDATE exercises SET increment_kg=?, target_reps=? "
+                "WHERE exercise_id=? AND increment_kg IS NULL",
+                (e["increment_kg"], e["target_reps"], e["exercise_id"]),
             )
 
 
