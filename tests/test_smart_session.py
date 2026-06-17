@@ -154,3 +154,16 @@ def test_lift_recovery_sensitivity_gated_by_sample():
     sets = pd.DataFrame([{"session_id": "g1", "exercise_id": "back-squat", "weight_kg": 100,
                           "reps": 5, "completed": 1, "is_warmup": 0}])
     assert analysis.compute_lift_recovery_sensitivity(sess, sets, ex, min_pairs=4) == []
+
+
+def test_summarize_strength_carries_verdict():
+    ex = pd.DataFrame([{"exercise_id": "back-squat", "name": "Back Squat",
+                        "is_bodyweight": 0, "is_main_lift": 1}])
+    sess = pd.DataFrame([{"session_id": "s0", "date": "2026-06-01", "bodyweight_kg": 80,
+                          "recovery_score": 80}])
+    sets = pd.DataFrame([{"session_id": "s0", "exercise_id": "back-squat", "weight_kg": 100,
+                          "reps": 5, "completed": 1, "is_warmup": 0}])
+    verdict = {"zone": "yellow", "day_type": "Hold / volume", "value": 60,
+               "headline": "Hold / volume — recovery yellow", "reasons": ["sleep debt >1h"]}
+    out = analysis.summarize_strength(sess, sets, ex, profile=None, bodyweight_kg=80, verdict=verdict)
+    assert out["recovery_verdict"]["day_type"] == "Hold / volume"

@@ -3003,7 +3003,7 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
 
 
 def summarize_strength(sessions_df, sets_df, exercises_df, profile,
-                       bodyweight_kg, lookback_days=28, formula="epley"):
+                       bodyweight_kg, lookback_days=28, formula="epley", verdict=None):
     """Compact, raw-data-free strength summary for the AI coach. Pure."""
     if sessions_df is None or sessions_df.empty:
         return {"status": "no_data"}
@@ -3068,6 +3068,7 @@ def summarize_strength(sessions_df, sets_df, exercises_df, profile,
         },
         "readiness_link": readiness_out,
         "recent_prs": recent_prs,
+        "recovery_verdict": verdict,
     }
 
 
