@@ -115,7 +115,7 @@ def _bench_only_exercises():
 def test_readiness_perf_insufficient_below_min():
     sessions = pd.DataFrame([
         {"session_id": f"s{i}", "date": f"2026-05-0{i+1}", "bodyweight_kg": 80.0,
-         "readiness_score": 70} for i in range(3)])
+         "recovery_score": 70} for i in range(3)])
     sets = pd.DataFrame([
         {"session_id": f"s{i}", "exercise_id": "bench-press", "reps": 5,
          "weight_kg": 100.0, "is_warmup": 0, "completed": 1} for i in range(3)])
@@ -130,7 +130,7 @@ def test_readiness_perf_positive_correlation_when_better_on_high_readiness():
         readiness = 40 + i * 6
         weight = 80 + i * 4
         rows_s.append({"session_id": f"s{i}", "date": f"2026-05-{i+1:02d}",
-                       "bodyweight_kg": 80.0, "readiness_score": readiness})
+                       "bodyweight_kg": 80.0, "recovery_score": readiness})
         rows_x.append({"session_id": f"s{i}", "exercise_id": "bench-press",
                        "reps": 1, "weight_kg": float(weight),
                        "is_warmup": 0, "completed": 1})
@@ -144,7 +144,7 @@ def test_readiness_perf_positive_correlation_when_better_on_high_readiness():
 
 def test_summarize_strength_shape_and_no_raw_sets():
     sessions = pd.DataFrame([{"session_id": "s1", "date": "2026-06-05",
-                              "bodyweight_kg": 100.0, "readiness_score": 70}])
+                              "bodyweight_kg": 100.0, "recovery_score": 70}])
     sets = pd.DataFrame([
         {"session_id": "s1", "exercise_id": "back-squat", "reps": 1,
          "weight_kg": 125.0, "is_warmup": 0, "completed": 1, "side": "both",
@@ -168,7 +168,7 @@ def test_summarize_strength_empty():
 
 def test_summarize_strength_respects_formula():
     sessions = pd.DataFrame([{"session_id": "s1", "date": "2026-06-05",
-                              "bodyweight_kg": 100.0, "readiness_score": 70}])
+                              "bodyweight_kg": 100.0, "recovery_score": 70}])
     sets = pd.DataFrame([{"session_id": "s1", "exercise_id": "back-squat",
                           "reps": 5, "weight_kg": 100.0, "is_warmup": 0,
                           "completed": 1, "side": "both"}])

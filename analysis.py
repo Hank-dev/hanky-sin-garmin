@@ -2958,8 +2958,18 @@ def compute_readiness_performance(sessions_df, sets_df, exercises_df, min_sessio
 
     ton = summarize_sessions(sessions_df, sets_df, exercises_df, formula)[
         ["session_id", "total_volume_kg"]]
-    rsc = sessions_df[["session_id", "recovery_score"]].copy()
-    rsc["readiness_score"] = pd.to_numeric(rsc["recovery_score"], errors="coerce")
+    if "recovery_score" not in sessions_df.columns and "readiness_score" not in sessions_df.columns:
+        return insufficient
+    rsc = sessions_df[["session_id"]].copy()
+    recovery = pd.to_numeric(
+        sessions_df.get("recovery_score", pd.Series(np.nan, index=sessions_df.index)),
+        errors="coerce",
+    )
+    legacy_readiness = pd.to_numeric(
+        sessions_df.get("readiness_score", pd.Series(np.nan, index=sessions_df.index)),
+        errors="coerce",
+    )
+    rsc["readiness_score"] = recovery.combine_first(legacy_readiness)
     merged = (sess.merge(rsc, on="session_id", how="left")
                   .merge(ton, on="session_id", how="left")
                   .dropna(subset=["readiness_score", "rel_perf"]))
