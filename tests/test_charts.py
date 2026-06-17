@@ -207,25 +207,25 @@ class ChartRenderingTest(unittest.TestCase):
     def test_streamlit_header_does_not_intercept_topbar_controls(self):
         self.assertIn('header[data-testid="stHeader"]{background:transparent;pointer-events:none;}', cockpit.CSS)
 
-    def test_body_battery_and_stress_tiles_are_number_only(self):
+    def test_body_battery_and_sleep_score_tiles_are_number_only(self):
         html = cockpit.tiles(
-            {"hrv": 43, "rhr": 59, "sleep_h": 7.1, "acwr": 1.0, "batt": 72, "stress": 31},
-            {"hrv": [40, 43], "rhr": [61, 59], "sleep_h": [6.8, 7.1], "acwr": [1.0, 1.0], "batt": [50, 72], "stress": [38, 31]},
-            {"hrv": 42, "rhr": 60, "sleep_h": 7.0, "batt": 60, "stress": 35},
+            {"hrv": 43, "rhr": 59, "sleep_h": 7.1, "acwr": 1.0, "batt": 72, "sleep_score": 86},
+            {"hrv": [40, 43], "rhr": [61, 59], "sleep_h": [6.8, 7.1], "acwr": [1.0, 1.0], "batt": [50, 72]},
+            {"hrv": 42, "rhr": 60, "sleep_h": 7.0, "batt": 60},
             sparse=False,
         )
 
         start = html.index("Body Battery")
-        end = html.index("Stress", start)
+        end = html.index("Sleep Score", start)
         battery_block = html[start:end]
         self.assertIn(">72<", battery_block)
         self.assertNotIn("spark", battery_block)
         self.assertNotIn("vs 28d", battery_block)
 
-        stress_block = html[html.index("Stress"):]
-        self.assertIn(">31<", stress_block)
-        self.assertNotIn("spark", stress_block)
-        self.assertNotIn("vs 28d", stress_block)
+        score_block = html[html.index("Sleep Score"):]
+        self.assertIn(">86<", score_block)
+        self.assertNotIn("spark", score_block)
+        self.assertNotIn("vs 28d", score_block)
 
 
 if __name__ == "__main__":

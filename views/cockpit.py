@@ -40,11 +40,6 @@ def load(local_timezone: str):
         else pd.DataFrame(columns=["date", "timestamp", "value"])
     )
     daily = analysis.compute_acwr(acts, daily) if not daily.empty else daily
-    activity_details = db.load_activity_raw_payloads("activity_details")
-    activity_zones = db.load_activity_raw_payloads("activity_hr_zones")
-    grappling = analysis.compute_grappling_sessions(
-        daily, acts, activity_details, activity_zones
-    )
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
     prebed_discovery = analysis.compute_prebed_discovery(
         daily, acts, sleep_timing, body_battery=body_battery
@@ -70,12 +65,12 @@ def load(local_timezone: str):
     strength_summary = analysis.summarize_strength(
         strength_sessions, strength_sets, exercises, profile, bodyweight,
         formula=config.ONE_RM_FORMULA)
-    return (daily, acts, checkins, body_battery, stress, grappling,
+    return (daily, acts, checkins, body_battery, stress,
             stress_leaks, prebed_discovery, personal_sleep_need, early_waking,
             health_research, strength_summary)
 
 
-(daily, acts, checkins, body_battery, stress, grappling, stress_leaks,
+(daily, acts, checkins, body_battery, stress, stress_leaks,
  prebed_discovery, personal_sleep_need, early_waking, health_research,
  strength_summary) = load(config.LOCAL_TIMEZONE)
 
@@ -295,7 +290,7 @@ else:
     today = {
         "hrv": val(latest, "hrv_overnight_avg"), "rhr": val(latest, "resting_hr"),
         "sleep_h": val(latest, "sleep_hours"), "acwr": val(latest, "acwr"),
-        "batt": val(latest, bb_col), "stress": val(latest, "stress_avg"),
+        "batt": val(latest, bb_col), "sleep_score": val(latest, "sleep_score"),
     }
     sparks = {
         "hrv": list(view.get("hrv_overnight_avg", [])),
@@ -303,14 +298,12 @@ else:
         "sleep_h": list(view.get("sleep_hours", [])),
         "acwr": list(view.get("acwr", [])),
         "batt": list(view.get(bb_col, [])),
-        "stress": list(view.get("stress_avg", [])),
     }
     base = {
         "hrv": base28["hrv_overnight_avg"].mean() if "hrv_overnight_avg" in base28 else None,
         "rhr": base28["resting_hr"].mean() if "resting_hr" in base28 else None,
         "sleep_h": base28["sleep_hours"].mean() if "sleep_hours" in base28 else None,
         "batt": base28[bb_col].mean() if bb_col in base28 else None,
-        "stress": base28["stress_avg"].mean() if "stress_avg" in base28 else None,
     }
     base = {k: (None if v is None or pd.isna(v) else float(v)) for k, v in base.items()}
     st.markdown(cockpit.tiles(today, sparks, base, sparse=False), unsafe_allow_html=True)
@@ -365,14 +358,8 @@ def render_capacity_experimental():
         st.success(_checkin_msg)
 
 
-# ── grappling recovery mode ──────────────────────────────────────────────────
-st.markdown(cockpit.section_label("Grappling"), unsafe_allow_html=True)
-st.markdown(cockpit.grappling_card(grappling), unsafe_allow_html=True)
-
-
 # ── AI coach readout ─────────────────────────────────────────────────────────
 st.markdown(cockpit.section_label("Coach"), unsafe_allow_html=True)
-st.markdown(cockpit.coach_memory_peek(coach_memory_digest), unsafe_allow_html=True)
 with st.form("coach_quickadd", clear_on_submit=True):
     qa_cols = st.columns([1, 3, 1])
     with qa_cols[0]:
@@ -417,7 +404,7 @@ question_payload = {
     "metrics_summary": question_summary,
     "capacity_envelope": capacity,
     "stress_leak_map": stress_leaks,
-    "grappling_sessions": grappling[:3],
+    "grappling_sessions": [],
     "prebed_discovery": {
         "status": prebed_discovery.get("status"),
         "message": prebed_discovery.get("message"),
@@ -473,7 +460,7 @@ if pending_prompt:
                 question_summary,
                 capacity,
                 stress_leaks,
-                grappling[:3],
+                [],
                 question_payload["prebed_discovery"],
                 history,
                 strength=strength_summary,
@@ -666,12 +653,6 @@ with discovery_tab:
 
 with experimental_tab:
     render_capacity_experimental()
-
-
-# ── recent activities ────────────────────────────────────────────────────────
-st.markdown(cockpit.section_label("Recent activities"), unsafe_allow_html=True)
-st.markdown(cockpit.activities_table(acts, sparse=acts is None or acts.empty),
-            unsafe_allow_html=True)
 
 
 # ── stress leak map ──────────────────────────────────────────────────────────

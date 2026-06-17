@@ -73,6 +73,10 @@ def _memory_meta(r) -> list[str]:
 st.markdown(cockpit.section_label("What the coach knows"), unsafe_allow_html=True)
 
 memory = db.load_memory_df()           # active only
+st.markdown(
+    cockpit.coach_memory_peek(analysis.build_coach_memory_digest(memory)),
+    unsafe_allow_html=True,
+)
 
 # ── add a memory ─────────────────────────────────────────────────────────────
 with st.expander("➕ Add a memory", expanded=memory.empty):
