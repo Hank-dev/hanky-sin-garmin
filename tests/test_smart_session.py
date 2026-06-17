@@ -125,3 +125,32 @@ def test_progression_ignores_warmups_and_incomplete():
     out = analysis.compute_progression_suggestion("back-squat", _sess("2026-06-01"), sets, _ex_df())
     # only the one completed working set at 100×5 counts → all hit → progress
     assert out["state"] == "progress"
+
+
+def test_lift_recovery_sensitivity_flags_drop():
+    ex = pd.DataFrame([{"exercise_id": "back-squat", "name": "Back Squat",
+                        "is_bodyweight": 0, "is_main_lift": 1}])
+    # green days lift heavier than low-recovery days
+    sess = pd.DataFrame([
+        {"session_id": "g1", "date": "2026-06-01", "bodyweight_kg": 80, "recovery_zone": "green"},
+        {"session_id": "g2", "date": "2026-06-03", "bodyweight_kg": 80, "recovery_zone": "green"},
+        {"session_id": "r1", "date": "2026-06-05", "bodyweight_kg": 80, "recovery_zone": "red"},
+        {"session_id": "r2", "date": "2026-06-07", "bodyweight_kg": 80, "recovery_zone": "yellow"},
+    ])
+    def row(sid, w):
+        return {"session_id": sid, "exercise_id": "back-squat", "weight_kg": w,
+                "reps": 5, "completed": 1, "is_warmup": 0}
+    sets = pd.DataFrame([row("g1", 100), row("g2", 100), row("r1", 90), row("r2", 90)])
+    out = analysis.compute_lift_recovery_sensitivity(sess, sets, ex, min_pairs=4)
+    squat = [o for o in out if o["exercise"] == "Back Squat"]
+    assert squat and squat[0]["flagged"] is True
+    assert squat[0]["delta_pct"] < 0
+
+def test_lift_recovery_sensitivity_gated_by_sample():
+    ex = pd.DataFrame([{"exercise_id": "back-squat", "name": "Back Squat",
+                        "is_bodyweight": 0, "is_main_lift": 1}])
+    sess = pd.DataFrame([{"session_id": "g1", "date": "2026-06-01", "bodyweight_kg": 80,
+                          "recovery_zone": "green"}])
+    sets = pd.DataFrame([{"session_id": "g1", "exercise_id": "back-squat", "weight_kg": 100,
+                          "reps": 5, "completed": 1, "is_warmup": 0}])
+    assert analysis.compute_lift_recovery_sensitivity(sess, sets, ex, min_pairs=4) == []

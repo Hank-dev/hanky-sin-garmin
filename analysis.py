@@ -4240,3 +4240,56 @@ def compute_progression_suggestion(exercise_id, sessions_df, sets_df,
                 "reason": f"stalled {stalls}× at {last_w:g}kg"}
     return {"state": "hold", "suggested_weight_kg": last_w, "target_reps": tgt,
             "last_weight_kg": last_w, "stalls": stalls, "reason": "missed reps last time"}
+
+
+def compute_lift_recovery_sensitivity(sessions_df, sets_df, exercises_df,
+                                      formula="epley", min_pairs=4):
+    """Flag main lifts whose normalized performance drops on low-recovery days.
+
+    Compares day-best est-1RM (relative to the lift's all-time best) on green
+    days vs low-recovery (yellow/red) days. Pure. Gated by min_pairs."""
+    if (sessions_df is None or getattr(sessions_df, "empty", True)
+            or sets_df is None or getattr(sets_df, "empty", True)
+            or "recovery_zone" not in sessions_df.columns):
+        return []
+    enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    if enr.empty or "est_1rm_kg" not in enr.columns:
+        return []
+    work = enr
+    if "is_warmup" in work.columns:
+        work = work[pd.to_numeric(work["is_warmup"], errors="coerce").fillna(0).astype(int) == 0]
+    if "completed" in work.columns:
+        work = work[pd.to_numeric(work["completed"], errors="coerce").fillna(1).astype(int) == 1]
+    work = work.dropna(subset=["est_1rm_kg"])
+    if work.empty:
+        return []
+
+    zone = sessions_df[["session_id", "recovery_zone"]]
+    day = (work.groupby(["session_id", "exercise_id"])["est_1rm_kg"].max().reset_index())
+    all_best = day.groupby("exercise_id")["est_1rm_kg"].max().to_dict()
+    day["rel"] = day.apply(
+        lambda r: r["est_1rm_kg"] / all_best[r["exercise_id"]] if all_best.get(r["exercise_id"]) else None,
+        axis=1)
+    day = day.merge(zone, on="session_id", how="left").dropna(subset=["rel", "recovery_zone"])
+
+    main_ids = set(exercises_df[exercises_df.get("is_main_lift", 0) == 1]["exercise_id"]) \
+        if "is_main_lift" in exercises_df.columns else set(day["exercise_id"])
+    name_map = dict(zip(exercises_df["exercise_id"], exercises_df["name"])) \
+        if "name" in exercises_df.columns else {}
+
+    out = []
+    for ex_id, grp in day.groupby("exercise_id"):
+        if ex_id not in main_ids:
+            continue
+        green = grp[grp["recovery_zone"] == "green"]["rel"]
+        low = grp[grp["recovery_zone"].isin(["yellow", "red"])]["rel"]
+        n = int(len(grp))
+        if len(green) < 2 or len(low) < 2 or n < min_pairs:
+            continue
+        delta_pct = round((low.mean() - green.mean()) / green.mean() * 100, 1)
+        flagged = bool(delta_pct <= -5.0)
+        note = (f"{abs(delta_pct):g}% lower on low-recovery days" if flagged
+                else "no meaningful recovery sensitivity")
+        out.append({"exercise": name_map.get(ex_id, ex_id), "n": n,
+                    "delta_pct": delta_pct, "flagged": flagged, "note": note})
+    return out
