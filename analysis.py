@@ -1463,12 +1463,103 @@ def _recovery_risk(df: pd.DataFrame) -> dict:
             "elevated_rhr_days": elevated_rhr_days, "short_sleep_days": short_sleep_days}
 
 
-def recovery_readiness(daily, as_of=None):
-    """Reusable recovery signal from an enriched daily frame. Pure.
+# ── stand-in readiness: three independent recovery pillars ───────────────────
+# Until Garmin's native Training Readiness is wired in, readiness is the mean of
+# the available recovery pillars — autonomic (HRV + resting HR), sleep, and
+# strain (stress + Body Battery) — each scored 0-100. Correlated signals share a
+# pillar, so one rough night is penalised once rather than three times, and the
+# green/yellow/red zone is read straight off the value so the number and the
+# colour can never disagree. Penalties are graded on z-scores when history
+# exists, falling back to categorical baseline flags otherwise.
+_READINESS_GREEN_MIN = 67
+_READINESS_YELLOW_MIN = 34
 
-    Returns zone (green/yellow/red), an inverted 0-100 readiness value
-    (higher = readier), and human-readable reasons. `as_of` (date or
-    'YYYY-MM-DD') limits the frame to rows on/before that date."""
+
+def _pen_from_z(row, key, per_sd, cap, worse_high):
+    """Graded 0..`cap` penalty from a z-score (`per_sd` points per SD in the bad
+    direction). `worse_high` True when a higher z is worse (RHR, stress), False
+    when lower is worse (HRV, Body Battery). None when the z-score is absent."""
+    z = _first_number(row.get(key))
+    if z is None:
+        return None
+    bad = z if worse_high else -z
+    return max(0.0, min(float(cap), max(0.0, bad) * per_sd))
+
+
+def _pillar_autonomic(row):
+    """HRV + resting-HR recovery, 0-100. Graded on z-scores when present, else
+    the categorical baseline flags. None when neither signal has data."""
+    hrv_pen = _pen_from_z(row, "hrv_z", 24, 42, worse_high=False)
+    if hrv_pen is None:
+        flag = row.get("hrv_flag")
+        hrv_pen = None if flag is None else (42.0 if flag == "suppressed" else 0.0)
+    rhr_pen = _pen_from_z(row, "rhr_z", 22, 38, worse_high=True)
+    if rhr_pen is None:
+        elev = row.get("rhr_elevated")
+        rhr_pen = (None if elev is None or not pd.notna(elev)
+                   else (38.0 if _truthy(elev) else 0.0))
+    if hrv_pen is None and rhr_pen is None:
+        return None
+    return int(round(max(0.0, 100.0 - (hrv_pen or 0.0) - (rhr_pen or 0.0))))
+
+
+def _pillar_sleep(row):
+    """Sleep sufficiency, 0-100, from debt vs personal need (~30 pts per hour of
+    debt; oversleep gives no bonus). None when last night's sleep is unknown."""
+    debt = _first_number(row.get("sleep_debt_h"))
+    if debt is None:
+        return None
+    return int(round(max(0.0, 100.0 - max(0.0, debt) * 30.0)))
+
+
+def _pillar_strain(row):
+    """Stress + Body Battery load, 0-100. Graded on z-scores when present, else
+    absolute Garmin thresholds. None when neither signal has data."""
+    stress_pen = _pen_from_z(row, "stress_z", 24, 42, worse_high=True)
+    if stress_pen is None:
+        s = _first_number(row.get("stress_avg"))
+        stress_pen = None if s is None else (42.0 if s >= 60 else (20.0 if s >= 45 else 0.0))
+    bb_pen = _pen_from_z(row, "body_battery_z", 22, 38, worse_high=False)
+    if bb_pen is None:
+        b = _first_number(row.get("body_battery_current"))
+        bb_pen = None if b is None else (38.0 if b < 35 else (18.0 if b < 50 else 0.0))
+    if stress_pen is None and bb_pen is None:
+        return None
+    return int(round(max(0.0, 100.0 - (stress_pen or 0.0) - (bb_pen or 0.0))))
+
+
+def _readiness_reasons(row, pillars):
+    """Short, specific reasons for each pillar that fell below green, autonomic
+    first (most physiologically salient)."""
+    reasons = []
+    if _lt(pillars.get("autonomic"), _READINESS_GREEN_MIN):
+        bits = []
+        if row.get("hrv_flag") == "suppressed" or _le(_first_number(row.get("hrv_z")), -1.0):
+            bits.append("HRV low")
+        if _truthy(row.get("rhr_elevated")) or _ge(_first_number(row.get("rhr_z")), 1.0):
+            bits.append("resting HR high")
+        reasons.append((" / ".join(bits) + " vs baseline") if bits else "autonomic strain")
+    if _lt(pillars.get("sleep"), _READINESS_GREEN_MIN):
+        debt = _first_number(row.get("sleep_debt_h")) or 0.0
+        reasons.append(f"sleep debt {max(0.0, debt):.1f}h")
+    if _lt(pillars.get("strain"), _READINESS_GREEN_MIN):
+        bits = []
+        if _ge(_first_number(row.get("stress_avg")), 45) or _ge(_first_number(row.get("stress_z")), 1.0):
+            bits.append("stress elevated")
+        if _lt(_first_number(row.get("body_battery_current")), 50) or _le(_first_number(row.get("body_battery_z")), -1.0):
+            bits.append("Body Battery low")
+        reasons.append(" / ".join(bits) if bits else "daily strain")
+    return reasons
+
+
+def recovery_readiness(daily, as_of=None):
+    """Stand-in recovery readiness from an enriched daily frame. Pure.
+
+    Returns a 0-100 `value` (higher = readier) that is the mean of the available
+    recovery pillars (autonomic, sleep, strain), the green/yellow/red `zone`
+    read directly off that value, and human-readable `reasons`. `as_of` (date or
+    'YYYY-MM-DD') limits the frame to rows on/before that date. A transparent
+    placeholder until Garmin's native Training Readiness lands."""
     if daily is None or getattr(daily, "empty", True):
         return {"status": "no_data", "zone": "green", "value": 100, "reasons": []}
     df = daily.copy()
@@ -1480,20 +1571,20 @@ def recovery_readiness(daily, as_of=None):
     if df.empty:
         return {"status": "no_data", "zone": "green", "value": 100, "reasons": []}
 
-    r = _recovery_risk(df)
-    value = max(0, min(100, 100 - r["risk_score"]))
-    reasons = list(r["flags"])
-    if not reasons:
-        if r["suppressed_days"] >= 3:
-            reasons.append(f"HRV suppressed {r['suppressed_days']} of last 14 nights")
-        if r["elevated_rhr_days"] >= 3:
-            reasons.append(f"resting HR elevated {r['elevated_rhr_days']} of last 14 days")
-        if r["short_sleep_days"] >= 3:
-            reasons.append(f"short sleep {r['short_sleep_days']} of last 14 nights")
-    if not reasons and r["zone"] == "green":
-        reasons = ["recovery primitives inside baseline"]
-    return {"status": r["status"], "zone": r["zone"], "value": int(value),
-            "reasons": reasons[:3]}
+    row = df.iloc[-1]
+    pillars = {"autonomic": _pillar_autonomic(row),
+               "sleep": _pillar_sleep(row),
+               "strain": _pillar_strain(row)}
+    have = [v for v in pillars.values() if v is not None]
+    if not have:
+        return {"status": "no_data", "zone": "green", "value": 100, "reasons": []}
+    value = int(round(sum(have) / len(have)))
+    zone = ("green" if value >= _READINESS_GREEN_MIN
+            else "yellow" if value >= _READINESS_YELLOW_MIN else "red")
+    reasons = _readiness_reasons(row, pillars)
+    if not reasons and zone == "green":
+        reasons = ["recovery signals within range"]
+    return {"status": "ready", "zone": zone, "value": value, "reasons": reasons[:3]}
 
 
 def readiness_verdict(readiness):

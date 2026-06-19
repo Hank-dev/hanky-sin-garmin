@@ -65,6 +65,71 @@ def test_verdict_no_data_is_neutral():
     assert v["day_type"] == "Log normally"
 
 
+# ── pillar-based readiness scoring ───────────────────────────────────────────
+def test_pillar_autonomic_good_is_full():
+    assert analysis._pillar_autonomic({"hrv_flag": "balanced", "rhr_elevated": False}) == 100
+
+
+def test_pillar_autonomic_both_bad_craters():
+    a = analysis._pillar_autonomic({"hrv_flag": "suppressed", "rhr_elevated": True})
+    assert a == 20  # 100 - 42 (HRV) - 38 (RHR)
+
+
+def test_pillar_autonomic_grades_on_zscore_when_present():
+    # HRV 1 SD below baseline, resting HR at baseline -> partial penalty only,
+    # not the full categorical hit. This is the "graded, not a cliff" property.
+    a = analysis._pillar_autonomic({"hrv_z": -1.0, "rhr_z": 0.0})
+    assert a == 76  # 100 - min(42, 1*24)
+
+
+def test_pillar_autonomic_none_without_data():
+    assert analysis._pillar_autonomic({}) is None
+
+
+def test_pillar_sleep_scales_with_debt():
+    assert analysis._pillar_sleep({"sleep_debt_h": 0.0}) == 100
+    assert analysis._pillar_sleep({"sleep_debt_h": 2.0}) == 40  # 100 - 2*30
+    assert analysis._pillar_sleep({"sleep_debt_h": -1.0}) == 100  # oversleep, no bonus
+    assert analysis._pillar_sleep({}) is None
+
+
+def test_pillar_strain_good_and_bad():
+    assert analysis._pillar_strain({"stress_avg": 30, "body_battery_current": 70}) == 100
+    assert analysis._pillar_strain({"stress_avg": 70, "body_battery_current": 20}) == 20
+    assert analysis._pillar_strain({}) is None
+
+
+def test_readiness_value_is_pillar_average():
+    # Only sleep is off (2h debt): mean(100, 40, 100) = 80, still green.
+    # A single soft signal must not drag the whole day into caution.
+    df = pd.DataFrame([{"date": "2026-06-01", "hrv_flag": "balanced",
+                        "rhr_elevated": False, "sleep_debt_h": 2.0,
+                        "stress_avg": 30, "body_battery_current": 70}])
+    r = analysis.recovery_readiness(df)
+    assert r["value"] == 80
+    assert r["zone"] == "green"
+
+
+def test_readiness_zone_follows_value_cutoffs():
+    # Sleep off (40) + strain off (20), autonomic fine (100) -> 53 -> yellow.
+    # The zone is derived from the value, so the number and colour always agree.
+    df = pd.DataFrame([{"date": "2026-06-01", "hrv_flag": "balanced",
+                        "rhr_elevated": False, "sleep_debt_h": 2.0,
+                        "stress_avg": 70, "body_battery_current": 20}])
+    r = analysis.recovery_readiness(df)
+    assert r["value"] == 53
+    assert r["zone"] == "yellow"
+
+
+def test_readiness_averages_only_available_pillars():
+    # Only sleep data present -> the value is the sleep pillar alone.
+    df = pd.DataFrame([{"date": "2026-06-01", "sleep_debt_h": 1.0}])
+    r = analysis.recovery_readiness(df)
+    assert r["status"] == "ready"
+    assert r["value"] == 70  # 100 - 1*30
+    assert r["zone"] == "green"
+
+
 def _ex_df():
     return pd.DataFrame([
         {"exercise_id": "back-squat", "is_main_lift": 1, "increment_kg": 2.5, "target_reps": 5},
