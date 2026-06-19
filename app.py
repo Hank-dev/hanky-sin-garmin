@@ -1,6 +1,6 @@
 """Streamlit entry point / router for the Hankø Fitness Hub.
 
-Thin router only: sets page config, injects the shared "Graphite Voltage" CSS and
+Thin router only: sets page config, injects the shared cockpit (Material Dark Teal) CSS and
 the sidebar brand mark, then hands off to the selected page via ``st.navigation``.
 Each page body lives in ``views/`` (cockpit, sleep, activities, strength, coach, experiments). Because
 ``nav.run()`` executes the chosen view inline within this same script run, the CSS
@@ -25,11 +25,11 @@ st.markdown(cockpit.CSS, unsafe_allow_html=True)
 _BRAND = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 40" fill="none">'
     '<rect x="11" y="11" width="18" height="18" rx="4.5" transform="rotate(45 20 20)" '
-    'stroke="#C6F23B" stroke-width="2.5"/>'
+    'stroke="#80CBC4" stroke-width="2.5"/>'
     '<text x="44" y="19" font-family="Archivo,\'Arial Narrow\',Helvetica,Arial,sans-serif" '
-    'font-size="16" font-weight="700" letter-spacing="0.6" fill="#E8ECEF">HANKØ</text>'
+    'font-size="16" font-weight="700" letter-spacing="0.6" fill="#E6E1E5">HANKØ</text>'
     '<text x="45" y="32" font-family="\'JetBrains Mono\',ui-monospace,monospace" '
-    'font-size="6.5" font-weight="500" letter-spacing="2.4" fill="#8E959C">FITNESS HUB</text>'
+    'font-size="6.5" font-weight="500" letter-spacing="2.4" fill="#938F99">FITNESS HUB</text>'
     '</svg>'
 )
 st.logo(_BRAND, size="large")

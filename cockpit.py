@@ -5,16 +5,16 @@ DataFrame for charts) and return HTML strings / Plotly figures. No Streamlit
 imports, no DB, no network, so the visual language stays separable from app.py.
 
 Ported from the Claude Design "Graphite Voltage" handoff
-(`Recovery Cockpit - Graphite Voltage.dc.html`), re-skinned to a high-contrast
-sport direction: gunmetal surfaces (#121316 base) with brushed-metal striations
-+ machined bevels, an electric-lime accent (#C6F23B) for the readiness ring +
-brand + positive signals, ice-blue (#7FD3FF) as the cool secondary, gold
-(#F2C14E) for caution, red (#FF5A4D) for alarm, and a Spectral serif display
-face for the big readiness numeral and headings (Archivo body, JetBrains Mono
-micro-labels). The serif numeric hero + sparklines and the design tokens mirror
-the handoff's token panel; the trend charts are re-implemented as dark Plotly
-per the bundle's colorway (["#C6F23B","#7FD3FF","#F2C14E"], paper #121316, grid
-rgba(255,255,255,.06)).
+(`Recovery Cockpit - Graphite Voltage.dc.html`), re-skinned to a Material
+Design 3 dark direction: M3 neutral surfaces (#141218 surface-dim base) with
+machined bevels, a teal accent (#80CBC4) for the
+readiness ring + brand + positive signals, cyan (#9ECAFF) as the cool
+secondary, amber (#E8C26A) for caution, red (#F28B82) for alarm, and a Spectral
+serif display face for the big readiness numeral and headings (Archivo body,
+JetBrains Mono micro-labels). The serif numeric hero + sparklines and the design
+tokens mirror the handoff's token panel; the trend charts are re-implemented as
+dark Plotly per the bundle's colorway (["#80CBC4","#9ECAFF","#E8C26A"], paper
+#141218, grid rgba(255,255,255,.08)).
 """
 from __future__ import annotations
 import html
@@ -27,27 +27,26 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ── design tokens (hex mirrors :root below; Plotly needs literals) ────────────
-#  "Graphite Voltage" direction — gunmetal surfaces (#121316 base) with
-#  brushed-metal striations + machined bevels, an electric-lime accent
-#  (#C6F23B) for the readiness ring + brand + positive signals, ice-blue
-#  (#7FD3FF) as the cool secondary, gold (#F2C14E) caution, red (#FF5A4D)
-#  alarm. High-contrast sport/performance. Mirrors the Claude Design
-#  "Graphite Voltage" handoff tokens and Plotly colorway.
-BG        = "#121316"   # gunmetal base
-BG2       = "#0E1013"   # deepest recess (code blocks, token footer)
-SURFACE   = "#16181C"   # card surface
-SURFACE2  = "#1C1F24"   # elevated surface (tiles, chips, pills)
-SURFACE3  = "#23262C"   # highest surface (brushed panels, icons, badges)
-TEXT      = "#E8ECEF"
-TEXT_DIM  = "#AEB4BA"
-TEXT_FAINT = "#8E959C"
-ACCENT    = "#C6F23B"   # volt lime     (ring + brand + positive)
-ACCENT2   = "#A6CC2E"   # deeper lime
-GOOD      = "#C6F23B"   # volt lime     (positive = accent; GV does not split)
-SERIES2   = "#7FD3FF"   # ice blue      (secondary series)
-AMBER     = "#F2C14E"   # gold          (caution)
-RED       = "#FF5A4D"   # red           (alarm)
-GRID      = "rgba(255,255,255,0.06)"
+#  "Material Dark Teal" direction — Material Design 3 dark surfaces
+#  (#141218 surface-dim base) with a teal accent (#80CBC4) for the readiness
+#  ring + brand + positive signals, cyan (#9ECAFF) as the cool secondary,
+#  amber (#E8C26A) caution, red (#F28B82) alarm. High-contrast
+#  sport/performance on the M3 dark neutral scale.
+BG        = "#141218"   # surface-dim base
+BG2       = "#0F0D11"   # deepest recess (code blocks, token footer)
+SURFACE   = "#1B1B1F"   # card surface (M3 surface)
+SURFACE2  = "#211F26"   # elevated surface (M3 surface container)
+SURFACE3  = "#2B2930"   # highest surface (M3 surface container high)
+TEXT      = "#E6E1E5"   # M3 on-surface
+TEXT_DIM  = "#CAC4D0"   # M3 on-surface variant
+TEXT_FAINT = "#938F99"  # M3 outline
+ACCENT    = "#80CBC4"   # teal           (ring + brand + positive)
+ACCENT2   = "#4DB6AC"   # deeper teal
+GOOD      = "#80CBC4"   # teal           (positive = accent)
+SERIES2   = "#9ECAFF"   # cyan           (secondary series)
+AMBER     = "#E8C26A"   # amber          (caution)
+RED       = "#F28B82"   # red            (alarm)
+GRID      = "rgba(255,255,255,0.08)"
 
 _ids = itertools.count(1)
 def _uid() -> str:
@@ -62,13 +61,13 @@ CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root{
-  --bg:#121316; --bg-2:#0E1013; --surface:#16181C; --surface-2:#1C1F24; --surface-3:#23262C;
+  --bg:#141218; --bg-2:#0F0D11; --surface:#1B1B1F; --surface-2:#211F26; --surface-3:#2B2930;
   --border:rgba(255,255,255,.08); --border-2:rgba(255,255,255,.16);
   --hairline:rgba(255,255,255,.06); --inset-hi:rgba(255,255,255,.05);
   --brass:rgba(255,255,255,.10);
-  --text:#E8ECEF; --text-dim:#AEB4BA; --text-faint:#8E959C;
-  --accent:#C6F23B; --accent-2:#A6CC2E; --accent-ink:#121316;
-  --good:#C6F23B; --series-2:#7FD3FF; --amber:#F2C14E; --red:#FF5A4D;
+  --text:#E6E1E5; --text-dim:#CAC4D0; --text-faint:#938F99;
+  --accent:#80CBC4; --accent-2:#4DB6AC; --accent-ink:#0F0D11;
+  --good:#80CBC4; --series-2:#9ECAFF; --amber:#E8C26A; --red:#F28B82;
   --ring-track:rgba(255,255,255,.08);
   --font-sans:"Archivo",system-ui,sans-serif;
   --font-display:"Archivo",system-ui,sans-serif;
@@ -77,8 +76,6 @@ CSS = """
   --r-sm:4px; --r-md:8px; --r-lg:14px; --r-xl:18px;
   --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
   --sh-card:inset 0 1px 0 var(--inset-hi),0 16px 40px -20px rgba(0,0,0,.8);
-  /* brushed-metal striations (1px vertical hairlines) reused across panels */
-  --grain:repeating-linear-gradient(90deg, rgba(255,255,255,0.016) 0px, rgba(255,255,255,0.016) 1px, transparent 1px, transparent 3px);
   /* fine machine-noise veil for the whole stage (feTurbulence .85, overlay) */
   --noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
@@ -87,10 +84,9 @@ CSS = """
 .stApp{
   background-color:var(--bg);
   background-image:
-    var(--grain),
-    radial-gradient(900px 480px at 16% -4%, rgba(198,242,59,.10), transparent 62%),
-    radial-gradient(120% 80% at 50% 0%, #16181C 0%, #121316 46%, #0E1013 100%);
-  background-size:3px 100%, 100% 100%, 100% 100%;
+    radial-gradient(900px 480px at 16% -4%, rgba(128,203,196,.10), transparent 62%),
+    radial-gradient(120% 80% at 50% 0%, #1B1B1F 0%, #141218 46%, #0F0D11 100%);
+  background-size:100% 100%, 100% 100%;
   color:var(--text);
   font-family:var(--font-sans);
 }
@@ -134,14 +130,14 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 @keyframes ring-pulse{0%{transform:scale(.6);opacity:.5;}80%,100%{transform:scale(1.5);opacity:0;}}
 
 /* ── card primitive + bordered Streamlit containers become cards ───── */
-/* brushed-metal panels: gunmetal gradient, machined top bevel, vertical striations */
+/* machined panels: surface gradient + machined top bevel */
 .card{
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border);border-top-color:var(--brass);
   border-radius:var(--r-lg);box-shadow:var(--sh-card);}
 [data-testid="stVerticalBlockBorderWrapper"]{
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border)!important;border-top-color:var(--brass)!important;
   border-radius:var(--r-lg);box-shadow:var(--sh-card); padding:6px 18px 10px;}
@@ -154,7 +150,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .hero{padding:var(--s6);}
 .hero.hero-numeric{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
   gap:var(--s6);align-items:center;
-  background:var(--grain),linear-gradient(180deg,#1A1D22,#16181C 66%,#101216);
+  background:linear-gradient(180deg,#211F26,#1B1B1F 66%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .num-block{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-faint);}
@@ -249,7 +245,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── AI coach readout ──────────────────────────────────────────────── */
 .coach{padding:var(--s6);position:relative;overflow:hidden;
   border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,#1A1D22,#16181C 66%,#101216);
+  background:linear-gradient(180deg,#211F26,#1B1B1F 66%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .coach::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--series-2);opacity:.9;}
@@ -283,11 +279,11 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .disclosure pre{margin:var(--s3) 0 0;padding:var(--s4);border-radius:var(--r-md);background:var(--bg-2);
   border:1px solid var(--border);overflow:auto;font-family:var(--font-mono);font-size:12px;
   line-height:1.65;color:var(--text-dim);}
-.disclosure pre .k{color:var(--series-2);} .disclosure pre .n{color:var(--accent);} .disclosure pre .s{color:#AAB1B8;}
+.disclosure pre .k{color:var(--series-2);} .disclosure pre .n{color:var(--accent);} .disclosure pre .s{color:var(--text-dim);}
 
 /* ── capacity envelope ────────────────────────────────────────────── */
 .capacity{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 16%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .capacity-head{display:flex;align-items:flex-start;gap:var(--s4);justify-content:space-between;margin-bottom:var(--s4);}
 .capacity-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -315,7 +311,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── stress leak map ───────────────────────────────────────────────── */
 .leak{padding:var(--s6);border-color:color-mix(in srgb,var(--red) 16%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .leak-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .leak-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -344,7 +340,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── discovery panel ──────────────────────────────────────────────── */
 .discovery{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .discovery-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .discovery-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -368,7 +364,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── early waking classifier ───────────────────────────────────────── */
 .early-classifier{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .early-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .early-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -413,7 +409,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── research health panels ───────────────────────────────────────── */
 .research{padding:var(--s6);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .research-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .research-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -442,7 +438,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── grappling mode ───────────────────────────────────────────────── */
 .grapple{padding:var(--s6);border-color:color-mix(in srgb,var(--amber) 18%,var(--border));
-  background:var(--grain),linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#101216);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .grapple-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .grapple-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -559,7 +555,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 """
 
 # brand mark + coach glyph (small inline SVG icons)
-_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#C6F23B" stroke-width="2" '
+_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#80CBC4" stroke-width="2" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2.5-7 4 14 3-9 2 2H22"/></svg>')
 _SPARK = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6m0 0 4-3m-4 3L8 6M5 13a7 7 0 1 0 14 0"/></svg>')
@@ -1983,7 +1979,7 @@ def chart_sleep_comp(view: pd.DataFrame) -> go.Figure:
     s = view.tail(21)
     x = s["date"]
     fig = go.Figure()
-    layers = [("deep_seconds", "Deep", "#5A8F1E", 0.95), ("rem_seconds", "REM", ACCENT, 0.92),
+    layers = [("deep_seconds", "Deep", ACCENT2, 0.95), ("rem_seconds", "REM", ACCENT, 0.92),
               ("light_seconds", "Light", SERIES2, 0.85), ("awake_seconds", "Awake", "#3A3F47", 0.55)]
     for col, name, color, op in layers:
         if col in s:
@@ -2005,7 +2001,7 @@ def chart_body_battery_daily(day: pd.DataFrame) -> go.Figure:
     fig.add_trace(go.Scatter(
         x=x, y=y, name="Body Battery", mode="lines",
         line=dict(color=ACCENT, width=2.5, shape="spline"),
-        fill="tozeroy", fillcolor="rgba(198,242,59,0.12)",
+        fill="tozeroy", fillcolor="rgba(128,203,196,0.12)",
     ))
     if not y.empty:
         fig.add_trace(go.Scatter(
@@ -2492,10 +2488,10 @@ def _exp_signed(v):
 
 
 _VERDICT_TONE = {
-    "likely helped": ("✅", "#C6F23B"),
-    "likely hurt": ("⚠️", "#FF5A4D"),
-    "no clear effect": ("•", "#8E959C"),
-    "insufficient_data": ("…", "#8E959C"),
+    "likely helped": ("✅", GOOD),
+    "likely hurt": ("⚠️", RED),
+    "no clear effect": ("•", TEXT_FAINT),
+    "insufficient_data": ("…", TEXT_FAINT),
 }
 
 
@@ -2516,7 +2512,7 @@ def experiment_result_card(result: dict) -> str:
     rows = []
     for key, m in metrics.items():
         verdict = str(m.get("verdict", ""))
-        icon, color = _VERDICT_TONE.get(verdict, ("•", "#8E959C"))
+        icon, color = _VERDICT_TONE.get(verdict, ("•", TEXT_FAINT))
         label = html.escape(str(m.get("label", key)))
         if verdict == "insufficient_data" or m.get("delta") is None:
             detail = (f'<span style="opacity:.7">not enough data '
