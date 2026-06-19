@@ -2821,6 +2821,12 @@ def compute_pr_timeline(sets_df, sessions_df, exercises_df, formula="epley"):
         return pd.DataFrame(columns=cols)
 
     enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    # Working sets only — match the warmup/completed filter used elsewhere so a
+    # voided or warmup set can't register as a PR.
+    if "is_warmup" in enr.columns:
+        enr = enr[pd.to_numeric(enr["is_warmup"], errors="coerce").fillna(0).astype(int) == 0]
+    if "completed" in enr.columns:
+        enr = enr[pd.to_numeric(enr["completed"], errors="coerce").fillna(1).astype(int) == 1]
     enr = enr.merge(sessions_df[["session_id", "date"]], on="session_id",
                     how="left", suffixes=("", "_sess"))
     enr = enr.dropna(subset=["est_1rm_kg"])
