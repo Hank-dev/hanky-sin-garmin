@@ -186,6 +186,41 @@ def duration_label(started_at: str) -> str:
     return f"{minutes}:{sec:02d}"
 
 
+def render_live_timer_js():
+    """Tick every `[data-stopwatch]` element in the main document once a second,
+    entirely client-side, so the workout clock stays live without server reruns.
+    Runs in a 0-height component iframe but updates the parent DOM (same origin)."""
+    st.components.v1.html(
+        """
+        <script>
+        (function(){
+          const doc = window.parent.document;
+          const pad = n => String(n).padStart(2, '0');
+          function fmt(s){
+            s = Math.max(0, Math.floor(s));
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = s % 60;
+            return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+          }
+          function tick(){
+            doc.querySelectorAll('[data-stopwatch]').forEach(el => {
+              const start = parseInt(el.getAttribute('data-start'), 10);
+              if (!start) return;
+              el.textContent = fmt((Date.now() - start) / 1000);
+            });
+          }
+          // Clear any interval from a prior rerun so they don't stack.
+          if (window.parent.__strongTimer) clearInterval(window.parent.__strongTimer);
+          window.parent.__strongTimer = setInterval(tick, 1000);
+          tick();
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
 def set_previous_label(prev: list[dict], index: int) -> str:
     if index >= len(prev):
         return "—"
@@ -572,6 +607,7 @@ with tab_log:
     # ── active workout ──
     ensure_active_shape(active)
     elapsed = duration_label(active["started_at"])
+    start_epoch_ms = int(parse_dt(active["started_at"]).timestamp() * 1000)
     rest = rest_state(active)
     finish_requested = False
 
@@ -593,8 +629,10 @@ with tab_log:
                     "target_s": 120,
                 }
                 st.rerun()
-            st.markdown(f"<div class='strong-top-cell timer'>{elapsed}</div>",
-                        unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='strong-top-cell timer'>"
+                f"<span data-stopwatch data-start='{start_epoch_ms}'>{elapsed}</span></div>",
+                unsafe_allow_html=True)
             if st.button("FINISH", key="finish_top", help="Finish and save workout"):
                 finish_requested = True
 
@@ -611,7 +649,7 @@ with tab_log:
             f"""
             <div class='strong-head'>
               <div class='strong-title'>{workout_name_html}</div>
-              <div class='strong-duration'>{elapsed}</div>
+              <div class='strong-duration'><span data-stopwatch data-start='{start_epoch_ms}'>{elapsed}</span></div>
             </div>
             <div class='strong-stats'>
               <div class='strong-stat'><div class='lab'>Volume</div><div class='val'>{volume_html}</div></div>
@@ -621,12 +659,13 @@ with tab_log:
             """,
             unsafe_allow_html=True,
         )
+        render_live_timer_js()
 
         verdict, _readiness = todays_recovery_verdict(active["date"])
         st.markdown(cockpit.strength_recovery_chip(verdict), unsafe_allow_html=True)
 
         note_key = f"coach_note_{active['session_id']}"
-        cols = st.columns([6, 1])
+        cols = st.columns([6, 1], vertical_alignment="center")
         if cols[1].button("↻", key="coach_note_refresh", help="Refresh coach note"):
             st.session_state.pop(note_key, None)
         if note_key not in st.session_state:

@@ -2543,11 +2543,13 @@ def strength_recovery_chip(verdict: dict) -> str:
     day_type = html.escape(str(verdict.get("day_type", "")))
     reason = html.escape(str((verdict.get("reasons") or [""])[0]))
     return (
+        f"<div style='margin:2px 0 12px;'>"
         f"<div class='strength-recovery-chip' data-zone='{html.escape(str(zone))}' style='display:inline-flex;"
         f"align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:#151515;"
-        f"border:1px solid {color};color:#fff;font-size:13px;'>"
-        f"<span style='width:9px;height:9px;border-radius:50%;background:{color};'></span>"
+        f"border:1px solid {color};color:#fff;font-size:13px;line-height:1;'>"
+        f"<span style='flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:{color};'></span>"
         f"<b>{day_type}</b><span style='color:#9a9a9a;'>{reason}</span></div>"
+        f"</div>"
     )
 
 
