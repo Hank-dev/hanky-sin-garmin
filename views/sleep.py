@@ -47,6 +47,8 @@ def load(local_timezone: str):
     health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
     return (
         daily,
+        sleep_timing,
+        acts,
         personal_sleep_need,
         early_waking,
         recommended_bedtime,
@@ -86,6 +88,59 @@ def metric_panel(label: str, value: str, sub: str = ""):
         )
 
 
+def sleep_prediction_panel(model: dict):
+    model = model or {}
+    pred = model.get("prediction")
+    status = model.get("status") or "no_data"
+    confidence = model.get("confidence") or "low"
+    target = model.get("target_date") or "tonight"
+    with st.container(border=True):
+        st.markdown(
+            f'<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
+            f'font-weight:400;font-size:21px;margin:2px 0 6px">Tonight sleep score '
+            f'<em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
+            f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">'
+            f'{status} / {confidence}</em></div>',
+            unsafe_allow_html=True,
+        )
+        if pred is None:
+            st.caption(model.get("message") or "More scored sleep history is needed.")
+            missing = model.get("missing") or []
+            if missing:
+                st.caption("Missing: " + ", ".join(str(m) for m in missing[:3]))
+            return
+
+        rng = ""
+        if model.get("range_low") is not None and model.get("range_high") is not None:
+            rng = f"{model['range_low']}-{model['range_high']}"
+        c1, c2, c3 = st.columns([1.15, 1.15, 2.7], vertical_alignment="top")
+        with c1:
+            metric_panel("Predicted", f"{pred:.0f}", f"sleep date {target}")
+        with c2:
+            metric_panel("Likely range", rng or "-", f"{model.get('training_days', 0)} nights")
+        with c3:
+            reasons = model.get("reasons") or [model.get("message") or ""]
+            for reason in reasons[:3]:
+                st.caption(reason)
+
+        features = model.get("features_used") or []
+        if features:
+            rows = []
+            for feature in features[:5]:
+                unit = feature.get("unit") or ""
+                unit_txt = f" {unit}" if unit else ""
+                value = feature.get("value")
+                baseline = feature.get("baseline")
+                impact = feature.get("impact_points")
+                rows.append({
+                    "signal": feature.get("label"),
+                    "now": f"{value}{unit_txt}" if value is not None else "-",
+                    "baseline": f"{baseline}{unit_txt}" if baseline is not None else "-",
+                    "impact": f"{impact:+.1f} pts" if impact is not None else "-",
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+
 def _value(value, digits: int | None = None):
     if value is None:
         return None
@@ -110,6 +165,49 @@ def _minutes_from_seconds(value):
         return round(float(value) / 60.0)
     except (TypeError, ValueError):
         return None
+
+
+def _float_or_none(value):
+    value = _value(value)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_cardio_load(activities: pd.DataFrame, date_value) -> float | None:
+    if activities is None or activities.empty or "date" not in activities:
+        return None
+    date = pd.to_datetime(date_value, errors="coerce")
+    if pd.isna(date):
+        return None
+    a = activities.copy()
+    a["date"] = pd.to_datetime(a["date"], errors="coerce").dt.normalize()
+    a = a[a["date"] == date.normalize()]
+    if a.empty:
+        return None
+    if "training_load" in a and pd.to_numeric(a["training_load"], errors="coerce").notna().any():
+        return _float_or_none(pd.to_numeric(a["training_load"], errors="coerce").sum())
+    if {"duration_s", "avg_hr"}.issubset(a.columns):
+        load = pd.to_numeric(a["duration_s"], errors="coerce").div(60.0) * pd.to_numeric(
+            a["avg_hr"], errors="coerce"
+        ).div(100.0)
+        return _float_or_none(load.sum())
+    return None
+
+
+def _next_sleep_date(latest_row) -> str | None:
+    if latest_row is None:
+        return None
+    date = pd.to_datetime(latest_row.get("date"), errors="coerce")
+    if pd.isna(date):
+        return None
+    score = latest_row.get("sleep_score")
+    if score is None or pd.isna(score):
+        return date.normalize().strftime("%Y-%m-%d")
+    return (date.normalize() + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def compact_early_waking(model: dict) -> dict:
@@ -274,6 +372,8 @@ def daily_sleep_message(context: dict) -> str:
 
 (
     daily,
+    sleep_timing,
+    acts,
     personal_sleep_need,
     early_waking,
     recommended_bedtime,
@@ -416,6 +516,70 @@ with overview_tab:
             else "-"
         )
         metric_panel("Weekly sleep score", weekly_label, "latest rolling week")
+
+    target_sleep_date = _next_sleep_date(latest)
+    latest_load = _latest_cardio_load(acts, latest["date"])
+    battery_default = _float_or_none(latest.get("body_battery_current"))
+    if battery_default is None:
+        battery_default = _float_or_none(latest.get("body_battery_low"))
+    default_bedtime = (
+        str(recommended_bedtime.get("bedtime_center"))
+        if recommended_bedtime.get("status") == "ready" and recommended_bedtime.get("bedtime_center")
+        else ""
+    )
+    with st.expander("Pre-bed inputs", expanded=False):
+        i1, i2, i3, i4, i5 = st.columns(5)
+        with i1:
+            prebed_hr_input = st.number_input(
+                "Pre-bed HR",
+                min_value=30.0,
+                max_value=130.0,
+                value=_float_or_none(latest.get("hr_bedtime")),
+                step=1.0,
+                format="%.0f",
+            )
+        with i2:
+            stress_input = st.number_input(
+                "Avg stress",
+                min_value=0.0,
+                max_value=100.0,
+                value=_float_or_none(latest.get("stress_avg")),
+                step=1.0,
+                format="%.0f",
+            )
+        with i3:
+            load_input = st.number_input(
+                "Training load",
+                min_value=0.0,
+                value=latest_load,
+                step=5.0,
+                format="%.0f",
+            )
+        with i4:
+            battery_input = st.number_input(
+                "Body Battery",
+                min_value=0.0,
+                max_value=100.0,
+                value=battery_default,
+                step=1.0,
+                format="%.0f",
+            )
+        with i5:
+            bedtime_input = st.text_input("Planned bedtime", value=default_bedtime, placeholder="23:00")
+
+    prebed_prediction = analysis.compute_prebed_sleep_score_prediction(
+        daily,
+        acts,
+        sleep_timing,
+        target_date=target_sleep_date,
+        sleep_need_h=sleep_need,
+        prebed_hr=prebed_hr_input,
+        stress_avg=stress_input,
+        cardio_load=load_input,
+        body_battery_current=battery_input,
+        planned_bedtime=bedtime_input,
+    )
+    sleep_prediction_panel(prebed_prediction)
 
     c1, c2 = st.columns(2)
     with c1:

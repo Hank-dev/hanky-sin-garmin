@@ -223,6 +223,18 @@ def test_suggest_memories_without_key_returns_empty(monkeypatch):
     assert ai.suggest_memories({"a": 1}) == []
 
 
+def test_suggest_memories_payload_includes_strength_and_existing_memory():
+    payload = ai._suggest_memories_payload(
+        {"recovery": "ok"},
+        strength={"best_set_leaders": [{"name": "Deadlift"}]},
+        existing_memories={"goals": [{"text": "deadlift 200kg"}]},
+    )
+
+    assert payload["metrics_summary"] == {"recovery": "ok"}
+    assert payload["strength_profile"] == {"best_set_leaders": [{"name": "Deadlift"}]}
+    assert payload["existing_memories"] == {"goals": [{"text": "deadlift 200kg"}]}
+
+
 def test_parse_candidates_prose_with_bracket_before_array():
     text = 'Based on [the data]: [{"category":"note","text":"stable weight"}]'
     out = ai._parse_memory_candidates(text)

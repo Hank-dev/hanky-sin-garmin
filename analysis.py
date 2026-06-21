@@ -2813,6 +2813,778 @@ def summarize_sessions(sessions_df, sets_df, exercises_df, formula="epley"):
     return pd.DataFrame(rows, columns=cols)
 
 
+def compute_strength_recent_overview(
+    sessions_df,
+    sets_df,
+    exercises_df,
+    formula="epley",
+    trend_sessions: int = 8,
+) -> dict:
+    """Recent-session cockpit for the strength page.
+
+    Returns derived session stats, exercise rollups, PR markers, and short trend
+    deltas. It intentionally omits set ids and raw per-set rows so the same
+    shape can be passed to AI feedback without exposing raw logs.
+    """
+    if sessions_df is None or sessions_df.empty:
+        return {
+            "status": "no_data",
+            "latest_session": None,
+            "latest_summary": {},
+            "exercise_rows": [],
+            "trend_rows": [],
+            "trend": {},
+            "recent_prs": [],
+        }
+
+    sessions = sessions_df.copy()
+    sessions["date_dt"] = pd.to_datetime(sessions.get("date"), errors="coerce")
+    if "started_at" in sessions:
+        sessions["started_at_dt"] = pd.to_datetime(sessions["started_at"], errors="coerce")
+    else:
+        sessions["started_at_dt"] = pd.NaT
+    sessions = sessions.sort_values(["date_dt", "started_at_dt", "session_id"], na_position="first")
+    latest = sessions.iloc[-1]
+    latest_sid = latest.get("session_id")
+
+    summaries = summarize_sessions(sessions_df, sets_df, exercises_df, formula)
+    latest_summary = {}
+    if not summaries.empty:
+        match = summaries[summaries["session_id"] == latest_sid]
+        if not match.empty:
+            latest_summary = _clean_strength_numbers(match.iloc[-1].to_dict())
+
+    started = pd.to_datetime(latest.get("started_at"), errors="coerce")
+    ended = pd.to_datetime(latest.get("ended_at"), errors="coerce")
+    duration_min = None
+    if pd.notna(started) and pd.notna(ended):
+        duration_min = max(0.0, float((ended - started).total_seconds() / 60.0))
+
+    latest_session = {
+        "session_id": str(latest_sid),
+        "date": str(latest.get("date"))[:10] if pd.notna(latest.get("date")) else None,
+        "name": str(latest.get("name") or "Workout"),
+        "duration_min": _round_or_none(duration_min, 0),
+        "recovery_score": _round_or_none(latest.get("recovery_score"), 0),
+        "recovery_zone": _clean_strength_scalar(latest.get("recovery_zone")),
+        "readiness_score": _round_or_none(latest.get("readiness_score"), 0),
+        "readiness_level": _clean_strength_scalar(latest.get("readiness_level")),
+        "sleep_score": _round_or_none(latest.get("sleep_score"), 0),
+        "hrv_overnight_avg": _round_or_none(latest.get("hrv_overnight_avg"), 0),
+        "resting_hr": _round_or_none(latest.get("resting_hr"), 0),
+    }
+
+    pr = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
+    latest_pr_ids = set()
+    if not pr.empty:
+        latest_prs_df = pr[(pr["session_id"] == latest_sid) & (pr["is_pr"] == True)]  # noqa: E712
+        latest_pr_ids = set(latest_prs_df["exercise_id"])
+    else:
+        latest_prs_df = pd.DataFrame()
+
+    exercise_rows = []
+    if sets_df is not None and not sets_df.empty:
+        enr = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+        if not enr.empty:
+            for col, default in (("is_warmup", 0), ("completed", 1)):
+                if col not in enr:
+                    enr[col] = default
+            warm = pd.to_numeric(enr["is_warmup"], errors="coerce").fillna(0).astype(int)
+            done = pd.to_numeric(enr["completed"], errors="coerce").fillna(1).astype(int)
+            work = enr[(enr["session_id"] == latest_sid) & (warm == 0) & (done == 1)].copy()
+            if not work.empty:
+                name_map = (
+                    dict(zip(exercises_df["exercise_id"], exercises_df["name"]))
+                    if exercises_df is not None and not exercises_df.empty and "name" in exercises_df
+                    else {}
+                )
+                work["reps_num"] = pd.to_numeric(work["reps"], errors="coerce").fillna(0)
+                work["load_num"] = pd.to_numeric(work["effective_load_kg"], errors="coerce").fillna(0)
+                work["volume"] = work["reps_num"] * work["load_num"]
+                for ex_id, grp in work.groupby("exercise_id", sort=False):
+                    best = grp.sort_values("est_1rm_kg", ascending=False, na_position="last").iloc[0]
+                    exercise_rows.append({
+                        "exercise_id": str(ex_id),
+                        "name": str(name_map.get(ex_id, ex_id)),
+                        "working_sets": int(len(grp)),
+                        "volume_kg": _round_or_none(grp["volume"].sum(), 0),
+                        "best_set": _strength_set_label(best),
+                        "best_est_1rm_kg": _round_or_none(best.get("est_1rm_kg"), 1),
+                        "is_pr": bool(ex_id in latest_pr_ids),
+                    })
+    exercise_rows = sorted(exercise_rows, key=lambda r: r.get("volume_kg") or 0, reverse=True)
+
+    trend_rows = []
+    trend = {}
+    if not summaries.empty:
+        s = summaries.merge(
+            sessions[["session_id", "date_dt", "name"]], on="session_id", how="left"
+        ).sort_values(["date_dt", "session_id"])
+        s = s.tail(max(1, int(trend_sessions or 8))).copy()
+        for _, row in s.iterrows():
+            trend_rows.append({
+                "session_id": str(row.get("session_id")),
+                "date": row["date_dt"].strftime("%Y-%m-%d") if pd.notna(row.get("date_dt")) else str(row.get("date"))[:10],
+                "name": str(row.get("name") or "Workout"),
+                "total_volume_kg": _round_or_none(row.get("total_volume_kg"), 0),
+                "working_sets": _round_or_none(row.get("working_sets"), 0),
+                "top_est_1rm_kg": _round_or_none(row.get("top_est_1rm_kg"), 1),
+            })
+        latest_row = s[s["session_id"] == latest_sid]
+        prior = s[s["session_id"] != latest_sid].tail(3)
+        if not latest_row.empty and not prior.empty:
+            lr = latest_row.iloc[-1]
+            prior_volume = _first_number(pd.to_numeric(prior["total_volume_kg"], errors="coerce").mean())
+            prior_sets = _first_number(pd.to_numeric(prior["working_sets"], errors="coerce").mean())
+            prior_top = _first_number(pd.to_numeric(prior["top_est_1rm_kg"], errors="coerce").mean())
+            latest_volume = _first_number(lr.get("total_volume_kg"))
+            latest_sets = _first_number(lr.get("working_sets"))
+            latest_top = _first_number(lr.get("top_est_1rm_kg"))
+            trend = {
+                "basis": f"latest vs prior {int(len(prior))} sessions",
+                "volume_delta_pct": (
+                    _round_or_none((latest_volume - prior_volume) / prior_volume * 100.0, 1)
+                    if latest_volume is not None and prior_volume not in (None, 0) else None
+                ),
+                "working_sets_delta": (
+                    _round_or_none(latest_sets - prior_sets, 1)
+                    if latest_sets is not None and prior_sets is not None else None
+                ),
+                "top_est_1rm_delta_kg": (
+                    _round_or_none(latest_top - prior_top, 1)
+                    if latest_top is not None and prior_top is not None else None
+                ),
+            }
+
+    name_map = (
+        dict(zip(exercises_df["exercise_id"], exercises_df["name"]))
+        if exercises_df is not None and not exercises_df.empty and "name" in exercises_df
+        else {}
+    )
+    recent_prs = []
+    if not pr.empty:
+        p = pr[pr["is_pr"] == True].copy()  # noqa: E712
+        p["date"] = pd.to_datetime(p["date"], errors="coerce")
+        for _, row in p.sort_values("date").tail(8).iterrows():
+            recent_prs.append({
+                "date": row["date"].strftime("%Y-%m-%d") if pd.notna(row.get("date")) else None,
+                "exercise": str(name_map.get(row.get("exercise_id"), row.get("exercise_id"))),
+                "est_1rm_kg": _round_or_none(row.get("best_est_1rm_kg"), 1),
+                "latest_session": bool(row.get("session_id") == latest_sid),
+            })
+
+    return {
+        "status": "ok",
+        "latest_session": latest_session,
+        "latest_summary": latest_summary,
+        "exercise_rows": exercise_rows,
+        "trend_rows": trend_rows,
+        "trend": trend,
+        "recent_prs": recent_prs,
+    }
+
+
+def _strength_set_label(row) -> str | None:
+    weight = _first_number(row.get("effective_load_kg"), row.get("weight_kg"))
+    reps = _first_number(row.get("reps"))
+    if weight is None or reps is None:
+        return None
+    return f"{weight:g} kg x {int(reps)}"
+
+
+def _clean_strength_scalar(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(value)
+
+
+def _clean_strength_numbers(row: dict) -> dict:
+    out = {}
+    for key, value in (row or {}).items():
+        if key in ("session_id", "date"):
+            out[key] = str(value)[:10] if key == "date" else str(value)
+        elif key == "working_sets":
+            out[key] = _round_or_none(value, 0)
+        else:
+            out[key] = _round_or_none(value, 1)
+    return out
+
+
+def summarize_session_exercises(
+    sessions_df,
+    sets_df,
+    exercises_df,
+    formula="epley",
+    session_id=None,
+):
+    """Per-session exercise rollups for History.
+
+    Returns one derived row per exercise per session: working sets, volume, best
+    set, best estimated 1RM, and whether that exercise hit a PR in that session.
+    """
+    cols = [
+        "session_id", "exercise_id", "position", "name", "working_sets",
+        "volume_kg", "best_set", "best_est_1rm_kg", "is_pr",
+    ]
+    if (
+        sessions_df is None or getattr(sessions_df, "empty", True)
+        or sets_df is None or getattr(sets_df, "empty", True)
+    ):
+        return pd.DataFrame(columns=cols)
+
+    work = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+    for col, default in (("is_warmup", 0), ("completed", 1)):
+        if col not in work:
+            work[col] = default
+    warm = pd.to_numeric(work["is_warmup"], errors="coerce").fillna(0).astype(int)
+    done = pd.to_numeric(work["completed"], errors="coerce").fillna(1).astype(int)
+    work = work[(warm == 0) & (done == 1)].copy()
+    if session_id is not None:
+        work = work[work["session_id"] == session_id]
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    name_map = (
+        dict(zip(exercises_df["exercise_id"], exercises_df["name"]))
+        if exercises_df is not None and not getattr(exercises_df, "empty", True)
+        and "exercise_id" in exercises_df and "name" in exercises_df
+        else {}
+    )
+    prs = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
+    pr_pairs = set()
+    if not prs.empty:
+        p = prs[prs["is_pr"] == True]  # noqa: E712
+        pr_pairs = set(zip(p["session_id"], p["exercise_id"]))
+
+    work["reps_num"] = pd.to_numeric(work["reps"], errors="coerce").fillna(0)
+    work["load_num"] = pd.to_numeric(work["effective_load_kg"], errors="coerce").fillna(0)
+    work["volume"] = work["reps_num"] * work["load_num"]
+
+    rows = []
+    for (sid, ex_id), grp in work.groupby(["session_id", "exercise_id"], sort=False):
+        best = grp.sort_values("est_1rm_kg", ascending=False, na_position="last").iloc[0]
+        if "position" in grp:
+            position = _first_number(pd.to_numeric(grp["position"], errors="coerce").min())
+        else:
+            position = None
+        rows.append({
+            "session_id": str(sid),
+            "exercise_id": str(ex_id),
+            "position": _round_or_none(position, 0),
+            "name": str(name_map.get(ex_id, ex_id)),
+            "working_sets": int(len(grp)),
+            "volume_kg": _round_or_none(grp["volume"].sum(), 0),
+            "best_set": _strength_set_label(best),
+            "best_est_1rm_kg": _round_or_none(best.get("est_1rm_kg"), 1),
+            "is_pr": bool((sid, ex_id) in pr_pairs),
+        })
+    out = pd.DataFrame(rows, columns=cols)
+    if not out.empty:
+        out = out.sort_values(["session_id", "position", "name"], na_position="last")
+    return out.reset_index(drop=True)
+
+
+def compute_strength_best_set_leaderboard(
+    sessions_df,
+    sets_df,
+    exercises_df,
+    formula="epley",
+    recent_days: int = 90,
+):
+    """Best-set leaderboard by exercise.
+
+    Uses completed non-warmup sets only. The returned rows are derived metrics
+    suitable for UI display or compact AI summaries; raw set ids are omitted.
+    """
+    cols = [
+        "exercise_id", "name", "movement_pattern", "sessions", "working_sets",
+        "last_trained", "best_est_1rm_kg", "best_est_1rm_set",
+        "best_est_1rm_date", "heaviest_load_kg", "heaviest_set",
+        "heaviest_date", "best_volume_kg", "best_volume_set",
+        "best_volume_date", "max_reps", "max_reps_set", "max_reps_date",
+        "recent_best_est_1rm_kg", "recent_best_est_1rm_set",
+        "recent_best_est_1rm_date", "last_pr_date",
+    ]
+    if (
+        sessions_df is None or getattr(sessions_df, "empty", True)
+        or sets_df is None or getattr(sets_df, "empty", True)
+    ):
+        return pd.DataFrame(columns=cols)
+
+    work = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+    for col, default in (("is_warmup", 0), ("completed", 1)):
+        if col not in work:
+            work[col] = default
+    warm = pd.to_numeric(work["is_warmup"], errors="coerce").fillna(0).astype(int)
+    done = pd.to_numeric(work["completed"], errors="coerce").fillna(1).astype(int)
+    work = work[(warm == 0) & (done == 1)].copy()
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    sessions = sessions_df[["session_id", "date"]].copy()
+    sessions["date_dt"] = pd.to_datetime(sessions["date"], errors="coerce")
+    work = work.merge(sessions, on="session_id", how="left", suffixes=("", "_session"))
+    work = work.dropna(subset=["date_dt"])
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    meta = pd.DataFrame(columns=["exercise_id", "name", "movement_pattern"])
+    if exercises_df is not None and not getattr(exercises_df, "empty", True):
+        meta_cols = [
+            col for col in ("exercise_id", "name", "movement_pattern")
+            if col in exercises_df.columns
+        ]
+        if "exercise_id" in meta_cols:
+            meta = exercises_df[meta_cols].copy()
+    if not meta.empty:
+        work = work.merge(meta, on="exercise_id", how="left", suffixes=("", "_catalog"))
+    if "name" not in work:
+        work["name"] = work["exercise_id"]
+    work["name"] = work["name"].fillna(work["exercise_id"])
+    if "movement_pattern" not in work:
+        work["movement_pattern"] = None
+
+    work["reps_num"] = pd.to_numeric(work["reps"], errors="coerce")
+    work["load_num"] = pd.to_numeric(work["effective_load_kg"], errors="coerce")
+    work["est_1rm_num"] = pd.to_numeric(work["est_1rm_kg"], errors="coerce")
+    work = work.dropna(subset=["reps_num", "load_num"])
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+    work["volume_kg"] = work["reps_num"] * work["load_num"]
+
+    prs = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
+    pr_dates = {}
+    if not prs.empty:
+        p = prs[prs["is_pr"] == True].copy()  # noqa: E712
+        p["date"] = pd.to_datetime(p["date"], errors="coerce")
+        p = p.dropna(subset=["date"])
+        if not p.empty:
+            pr_dates = (
+                p.sort_values("date")
+                .groupby("exercise_id")["date"]
+                .max()
+                .dt.strftime("%Y-%m-%d")
+                .to_dict()
+            )
+
+    anchor = work["date_dt"].max().normalize()
+    cutoff = anchor - pd.Timedelta(days=max(1, int(recent_days or 90)))
+    rows = []
+    for ex_id, grp in work.groupby("exercise_id", sort=False):
+        grp = grp.sort_values(["date_dt", "session_id"]).reset_index(drop=True)
+        one_rm = grp.dropna(subset=["est_1rm_num"])
+        best_1rm = _best_strength_set_row(one_rm, "est_1rm_num")
+        heaviest = _best_strength_set_row(grp, "load_num")
+        volume = _best_strength_set_row(grp, "volume_kg")
+        reps = _best_strength_set_row(grp, "reps_num")
+        recent = grp[grp["date_dt"] >= cutoff]
+        recent_best = _best_strength_set_row(recent.dropna(subset=["est_1rm_num"]), "est_1rm_num")
+        last_trained = pd.Timestamp(grp["date_dt"].max()).strftime("%Y-%m-%d")
+        name = str(grp.iloc[-1].get("name") or ex_id)
+        pattern = _clean_strength_scalar(grp.iloc[-1].get("movement_pattern"))
+        rows.append({
+            "exercise_id": str(ex_id),
+            "name": name,
+            "movement_pattern": pattern,
+            "sessions": int(grp["session_id"].nunique()),
+            "working_sets": int(len(grp)),
+            "last_trained": last_trained,
+            "best_est_1rm_kg": _round_or_none(best_1rm.get("est_1rm_num") if best_1rm is not None else None, 1),
+            "best_est_1rm_set": _strength_set_label(best_1rm) if best_1rm is not None else None,
+            "best_est_1rm_date": _strength_row_date(best_1rm),
+            "heaviest_load_kg": _round_or_none(heaviest.get("load_num") if heaviest is not None else None, 1),
+            "heaviest_set": _strength_set_label(heaviest) if heaviest is not None else None,
+            "heaviest_date": _strength_row_date(heaviest),
+            "best_volume_kg": _round_or_none(volume.get("volume_kg") if volume is not None else None, 0),
+            "best_volume_set": _strength_set_label(volume) if volume is not None else None,
+            "best_volume_date": _strength_row_date(volume),
+            "max_reps": _round_or_none(reps.get("reps_num") if reps is not None else None, 0),
+            "max_reps_set": _strength_set_label(reps) if reps is not None else None,
+            "max_reps_date": _strength_row_date(reps),
+            "recent_best_est_1rm_kg": _round_or_none(
+                recent_best.get("est_1rm_num") if recent_best is not None else None, 1),
+            "recent_best_est_1rm_set": _strength_set_label(recent_best) if recent_best is not None else None,
+            "recent_best_est_1rm_date": _strength_row_date(recent_best),
+            "last_pr_date": pr_dates.get(ex_id),
+        })
+    out = pd.DataFrame(rows, columns=cols)
+    if not out.empty:
+        out = out.sort_values(["best_est_1rm_kg", "heaviest_load_kg"], ascending=False, na_position="last")
+    return out.reset_index(drop=True)
+
+
+def _best_strength_set_row(df: pd.DataFrame, metric: str):
+    if df is None or getattr(df, "empty", True) or metric not in df:
+        return None
+    data = df.copy()
+    data[metric] = pd.to_numeric(data[metric], errors="coerce")
+    data = data.dropna(subset=[metric])
+    if data.empty:
+        return None
+    sort_cols = [metric]
+    ascending = [False]
+    if "date_dt" in data:
+        sort_cols.append("date_dt")
+        ascending.append(False)
+    if "reps_num" in data and metric != "reps_num":
+        sort_cols.append("reps_num")
+        ascending.append(False)
+    return data.sort_values(sort_cols, ascending=ascending).iloc[0]
+
+
+def _strength_row_date(row) -> str | None:
+    if row is None:
+        return None
+    date_value = row.get("date_dt")
+    if pd.isna(date_value):
+        return None
+    return pd.Timestamp(date_value).strftime("%Y-%m-%d")
+
+
+def compute_weekly_strength_load(
+    sessions_df,
+    sets_df,
+    exercises_df,
+    formula="epley",
+    weeks: int = 12,
+    group_by: str = "pattern",
+):
+    """Weekly strength load grouped by movement pattern or primary muscle.
+
+    Load is derived from completed non-warmup working sets using effective load,
+    so bodyweight exercise volume includes the session bodyweight snapshot.
+    """
+    cols = ["week_start", "group", "total_volume_kg", "working_sets", "sessions"]
+    if (
+        sessions_df is None or getattr(sessions_df, "empty", True)
+        or sets_df is None or getattr(sets_df, "empty", True)
+    ):
+        return pd.DataFrame(columns=cols)
+
+    work = enrich_strength_sets(sets_df, sessions_df, exercises_df, formula)
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+    for col, default in (("is_warmup", 0), ("completed", 1)):
+        if col not in work:
+            work[col] = default
+    warm = pd.to_numeric(work["is_warmup"], errors="coerce").fillna(0).astype(int)
+    done = pd.to_numeric(work["completed"], errors="coerce").fillna(1).astype(int)
+    work = work[(warm == 0) & (done == 1)].copy()
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    sessions = sessions_df[["session_id", "date"]].copy()
+    sessions["date_dt"] = pd.to_datetime(sessions["date"], errors="coerce")
+    work = work.merge(sessions, on="session_id", how="left", suffixes=("", "_session"))
+    work = work.dropna(subset=["date_dt"])
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    if exercises_df is not None and not getattr(exercises_df, "empty", True):
+        meta_cols = [
+            col for col in ("exercise_id", "movement_pattern", "primary_muscle")
+            if col in exercises_df.columns
+        ]
+        if "exercise_id" in meta_cols:
+            work = work.merge(exercises_df[meta_cols], on="exercise_id", how="left", suffixes=("", "_catalog"))
+    mode = str(group_by or "pattern").lower()
+    if mode in ("muscle", "primary_muscle"):
+        work["group"] = work.get("primary_muscle", pd.Series("other", index=work.index)).apply(
+            _strength_muscle_group_label
+        )
+    else:
+        work["group"] = work.get("movement_pattern", pd.Series("other", index=work.index)).apply(
+            _strength_pattern_group_label
+        )
+
+    work["reps_num"] = pd.to_numeric(work["reps"], errors="coerce").fillna(0)
+    work["load_num"] = pd.to_numeric(work["effective_load_kg"], errors="coerce").fillna(0)
+    work["volume"] = work["reps_num"] * work["load_num"]
+    work["week_start"] = (
+        work["date_dt"].dt.normalize()
+        - pd.to_timedelta(work["date_dt"].dt.weekday, unit="D")
+    )
+
+    if weeks and weeks > 0:
+        last_week = work["week_start"].max()
+        cutoff = last_week - pd.Timedelta(weeks=max(1, int(weeks)) - 1)
+        work = work[work["week_start"] >= cutoff]
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    out = (
+        work.groupby(["week_start", "group"], as_index=False)
+        .agg(
+            total_volume_kg=("volume", "sum"),
+            working_sets=("volume", "size"),
+            sessions=("session_id", "nunique"),
+        )
+        .sort_values(["week_start", "group"])
+    )
+    out["week_start"] = out["week_start"].dt.strftime("%Y-%m-%d")
+    out["total_volume_kg"] = out["total_volume_kg"].round(0)
+    out["working_sets"] = out["working_sets"].astype(int)
+    out["sessions"] = out["sessions"].astype(int)
+    return out[cols].reset_index(drop=True)
+
+
+def _strength_pattern_group_label(value) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "horizontal_push": "Push",
+        "vertical_push": "Push",
+        "horizontal_pull": "Pull",
+        "vertical_pull": "Pull",
+        "squat": "Squat",
+        "lunge": "Squat",
+        "hinge": "Hinge",
+        "core": "Core",
+        "carry": "Core",
+    }
+    if raw == "isolation":
+        return "Other"
+    return mapping.get(raw, "Other")
+
+
+def _strength_muscle_group_label(value) -> str:
+    raw = str(value or "").strip().lower()
+    return raw.title() if raw else "Other"
+
+
+def compute_strength_momentum_flags(
+    sessions_df,
+    sets_df,
+    exercises_df,
+    formula="epley",
+    as_of=None,
+    undertrained_days: int = 21,
+    flat_sessions: int = 3,
+    progress_pct: float = 2.0,
+    regression_pct: float = -3.0,
+    flat_tolerance_pct: float = 1.5,
+) -> dict:
+    """Classify strength momentum for the Strength Insights page.
+
+    Progressing, regressing, and flat are exercise-level signals. Undertrained
+    is intentionally movement-pattern level because stale single exercises are
+    noisy; the useful question is which area has gone quiet.
+    """
+    empty = {
+        "status": "no_data",
+        "as_of": None,
+        "categories": {
+            "progressing": [],
+            "flat": [],
+            "regressing": [],
+            "undertrained": [],
+        },
+        "summary": {"progressing": 0, "flat": 0, "regressing": 0, "undertrained": 0},
+    }
+    if sessions_df is None or getattr(sessions_df, "empty", True):
+        return empty
+
+    sessions = sessions_df.copy()
+    sessions["date_dt"] = pd.to_datetime(sessions.get("date"), errors="coerce")
+    sessions = sessions.dropna(subset=["date_dt"])
+    if sessions.empty:
+        return empty
+    anchor = pd.to_datetime(as_of, errors="coerce") if as_of is not None else sessions["date_dt"].max()
+    if pd.isna(anchor):
+        anchor = sessions["date_dt"].max()
+    anchor = pd.Timestamp(anchor).normalize()
+
+    rollups = summarize_session_exercises(sessions_df, sets_df, exercises_df, formula)
+    if rollups.empty:
+        return {**empty, "as_of": anchor.strftime("%Y-%m-%d")}
+    hist = rollups.merge(
+        sessions[["session_id", "date_dt"]],
+        on="session_id",
+        how="left",
+    ).dropna(subset=["date_dt"])
+    hist["best_est_1rm_kg"] = pd.to_numeric(hist["best_est_1rm_kg"], errors="coerce")
+    hist["working_sets"] = pd.to_numeric(hist["working_sets"], errors="coerce").fillna(0)
+    hist["volume_kg"] = pd.to_numeric(hist["volume_kg"], errors="coerce").fillna(0)
+    hist = hist.dropna(subset=["best_est_1rm_kg"])
+    if hist.empty:
+        return {**empty, "as_of": anchor.strftime("%Y-%m-%d")}
+
+    buckets = {key: [] for key in empty["categories"]}
+    for ex_id, grp in hist.sort_values(["date_dt", "session_id"]).groupby("exercise_id", sort=False):
+        grp = grp.sort_values(["date_dt", "session_id"]).reset_index(drop=True)
+        last = grp.iloc[-1]
+        last_date = pd.Timestamp(last["date_dt"]).normalize()
+        days_since = int(max(0, (anchor - last_date).days))
+        recent = grp.tail(max(2, int(flat_sessions or 3))).copy()
+        values = pd.to_numeric(recent["best_est_1rm_kg"], errors="coerce").dropna()
+        if values.empty:
+            continue
+        last_best = float(values.iloc[-1])
+        previous = grp.iloc[:-1]
+        previous_best = _first_number(pd.to_numeric(previous["best_est_1rm_kg"], errors="coerce").max()) \
+            if not previous.empty else None
+        first_recent = float(values.iloc[0])
+        recent_delta_pct = (
+            (last_best - first_recent) / first_recent * 100.0
+            if first_recent else None
+        )
+        prior = grp.iloc[:-len(recent)] if len(grp) > len(recent) else pd.DataFrame()
+        prior_avg = _first_number(pd.to_numeric(prior["best_est_1rm_kg"], errors="coerce").mean()) \
+            if not prior.empty else None
+        recent_avg = _first_number(values.mean())
+        avg_delta_pct = (
+            (recent_avg - prior_avg) / prior_avg * 100.0
+            if recent_avg is not None and prior_avg not in (None, 0) else None
+        )
+        prev_best_delta_pct = (
+            (last_best - previous_best) / previous_best * 100.0
+            if previous_best not in (None, 0) else None
+        )
+        recent_window_pct = (
+            (float(values.max()) - float(values.min())) / float(values.max()) * 100.0
+            if float(values.max()) > 0 else None
+        )
+        recent_sets = int(grp[grp["date_dt"] >= anchor - pd.Timedelta(days=28)]["working_sets"].sum())
+        recent_volume = float(grp[grp["date_dt"] >= anchor - pd.Timedelta(days=28)]["volume_kg"].sum())
+        item = {
+            "exercise_id": str(ex_id),
+            "name": str(last.get("name") or ex_id),
+            "sessions": int(len(grp)),
+            "last_date": last_date.strftime("%Y-%m-%d"),
+            "days_since": days_since,
+            "last_best_est_1rm_kg": _round_or_none(last_best, 1),
+            "delta_pct": _round_or_none(
+                prev_best_delta_pct if prev_best_delta_pct is not None else recent_delta_pct,
+                1,
+            ),
+            "recent_working_sets": recent_sets,
+            "recent_volume_kg": _round_or_none(recent_volume, 0),
+            "note": "",
+        }
+
+        if days_since >= int(undertrained_days or 21):
+            continue
+
+        has_progress = (
+            prev_best_delta_pct is not None and prev_best_delta_pct >= progress_pct
+        ) or (
+            avg_delta_pct is not None and avg_delta_pct >= progress_pct
+        )
+        if has_progress:
+            item["delta_pct"] = _round_or_none(
+                prev_best_delta_pct if prev_best_delta_pct is not None and prev_best_delta_pct >= progress_pct
+                else avg_delta_pct,
+                1,
+            )
+            item["note"] = "new high or recent average rising"
+            buckets["progressing"].append(item)
+            continue
+
+        has_regression = (
+            recent_delta_pct is not None and recent_delta_pct <= regression_pct
+        ) or (
+            avg_delta_pct is not None and avg_delta_pct <= regression_pct
+        )
+        if has_regression and len(values) >= 2:
+            item["delta_pct"] = _round_or_none(
+                avg_delta_pct if avg_delta_pct is not None and avg_delta_pct <= regression_pct
+                else recent_delta_pct,
+                1,
+            )
+            item["note"] = "recent sessions trending down"
+            buckets["regressing"].append(item)
+            continue
+
+        has_flat = (
+            len(values) >= int(flat_sessions or 3)
+            and recent_window_pct is not None
+            and recent_window_pct <= flat_tolerance_pct
+        )
+        if has_flat:
+            item["delta_pct"] = _round_or_none(recent_window_pct, 1)
+            item["note"] = f"last {len(values)} sessions inside {flat_tolerance_pct:g}%"
+            buckets["flat"].append(item)
+
+    buckets["undertrained"] = _strength_undertrained_pattern_flags(
+        hist,
+        exercises_df,
+        anchor,
+        undertrained_days=int(undertrained_days or 21),
+    )
+    buckets["progressing"] = sorted(
+        buckets["progressing"], key=lambda item: item.get("delta_pct") or 0, reverse=True)
+    buckets["regressing"] = sorted(
+        buckets["regressing"], key=lambda item: item.get("delta_pct") or 0)
+    buckets["flat"] = sorted(
+        buckets["flat"], key=lambda item: (item.get("sessions") or 0, item.get("name") or ""), reverse=True)
+    buckets["undertrained"] = sorted(
+        buckets["undertrained"], key=lambda item: item.get("days_since") or 0, reverse=True)
+    summary = {key: len(value) for key, value in buckets.items()}
+    total = sum(summary.values())
+    return {
+        "status": "ok" if total else "learning",
+        "as_of": anchor.strftime("%Y-%m-%d"),
+        "categories": buckets,
+        "summary": summary,
+    }
+
+
+def _strength_undertrained_pattern_flags(hist, exercises_df, anchor, undertrained_days: int) -> list[dict]:
+    if hist is None or getattr(hist, "empty", True):
+        return []
+    data = hist.copy()
+    if exercises_df is not None and not getattr(exercises_df, "empty", True):
+        if "exercise_id" in exercises_df.columns and "movement_pattern" in exercises_df.columns:
+            data = data.merge(
+                exercises_df[["exercise_id", "movement_pattern"]],
+                on="exercise_id",
+                how="left",
+                suffixes=("", "_catalog"),
+            )
+    data["group"] = data.get("movement_pattern", pd.Series("other", index=data.index)).apply(
+        _strength_pattern_group_label
+    )
+    data["working_sets"] = pd.to_numeric(
+        data["working_sets"] if "working_sets" in data else pd.Series(0, index=data.index),
+        errors="coerce",
+    ).fillna(0)
+    data["volume_kg"] = pd.to_numeric(
+        data["volume_kg"] if "volume_kg" in data else pd.Series(0, index=data.index),
+        errors="coerce",
+    ).fillna(0)
+    cutoff = anchor - pd.Timedelta(days=max(1, int(undertrained_days or 21)))
+    out = []
+    for group, grp in data.groupby("group", sort=False):
+        grp = grp.dropna(subset=["date_dt"])
+        if grp.empty:
+            continue
+        last_date = pd.Timestamp(grp["date_dt"].max()).normalize()
+        days_since = int(max(0, (anchor - last_date).days))
+        if days_since < undertrained_days:
+            continue
+        recent = grp[grp["date_dt"] >= cutoff]
+        exercise_count = int(grp["exercise_id"].nunique()) if "exercise_id" in grp else 0
+        out.append({
+            "group": str(group),
+            "name": str(group),
+            "last_date": last_date.strftime("%Y-%m-%d"),
+            "days_since": days_since,
+            "recent_working_sets": int(recent["working_sets"].sum()) if not recent.empty else 0,
+            "recent_volume_kg": _round_or_none(recent["volume_kg"].sum(), 0) if not recent.empty else 0,
+            "exercise_count": exercise_count,
+            "note": f"last trained {last_date.strftime('%Y-%m-%d')} across {exercise_count} exercises",
+        })
+    return sorted(out, key=lambda item: item.get("days_since") or 0, reverse=True)
+
+
 def compute_pr_timeline(sets_df, sessions_df, exercises_df, formula="epley"):
     """Best est-1RM per exercise per session over time, with a PR flag. Pure."""
     cols = ["exercise_id", "date", "session_id", "best_est_1rm_kg", "is_pr"]
@@ -2842,6 +3614,102 @@ def compute_pr_timeline(sets_df, sessions_df, exercises_df, formula="epley"):
     grp["is_first"] = ~grp.duplicated("exercise_id")
     grp["is_pr"] = grp["is_first"] | (grp["best_est_1rm_kg"] > grp["prev_max"])
     return grp[cols].reset_index(drop=True)
+
+
+def filter_strength_history_sessions(
+    sessions_df,
+    sets_df,
+    exercises_df,
+    start_date=None,
+    end_date=None,
+    exercise_id=None,
+    workout_name: str | None = None,
+    query: str | None = None,
+    pr_only: bool = False,
+    formula: str = "epley",
+):
+    """Filter completed strength sessions for the History tab.
+
+    Filters stay at the session level: an exercise filter returns workouts that
+    included that exercise, and PR-only returns workouts where a working set set
+    a new estimated-1RM record.
+    """
+    if sessions_df is None or getattr(sessions_df, "empty", True):
+        return pd.DataFrame(columns=list(getattr(sessions_df, "columns", [])))
+
+    out = sessions_df.copy()
+    if "date" in out.columns:
+        out["_date_dt"] = pd.to_datetime(out["date"], errors="coerce")
+    else:
+        out["_date_dt"] = pd.NaT
+
+    if start_date is not None:
+        start = pd.to_datetime(start_date, errors="coerce")
+        if pd.notna(start):
+            out = out[out["_date_dt"].notna() & (out["_date_dt"] >= pd.Timestamp(start).normalize())]
+    if end_date is not None:
+        end = pd.to_datetime(end_date, errors="coerce")
+        if pd.notna(end):
+            out = out[out["_date_dt"].notna() & (out["_date_dt"] <= pd.Timestamp(end).normalize())]
+
+    if exercise_id:
+        session_ids = _strength_sessions_for_exercise(sets_df, exercise_id)
+        out = out[out["session_id"].isin(session_ids)]
+
+    workout = str(workout_name or "").strip()
+    if workout:
+        names = out["name"] if "name" in out.columns else pd.Series("", index=out.index)
+        out = out[names.fillna("").astype(str) == workout]
+
+    if pr_only:
+        prs = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
+        if prs.empty:
+            out = out.iloc[0:0]
+        else:
+            p = prs[prs["is_pr"] == True]  # noqa: E712
+            if exercise_id:
+                p = p[p["exercise_id"] == exercise_id]
+            out = out[out["session_id"].isin(set(p["session_id"]))]
+
+    q = str(query or "").strip().lower()
+    if q and not out.empty:
+        search = out.apply(lambda row: _strength_session_search_text(row, sets_df, exercises_df), axis=1)
+        out = out[search.str.contains(q, regex=False, na=False)]
+
+    return out.drop(columns=["_date_dt"], errors="ignore")
+
+
+def _strength_sessions_for_exercise(sets_df, exercise_id) -> set:
+    if sets_df is None or getattr(sets_df, "empty", True) or "exercise_id" not in sets_df:
+        return set()
+    s = sets_df[sets_df["exercise_id"] == exercise_id].copy()
+    if s.empty:
+        return set()
+    warm = pd.to_numeric(
+        s["is_warmup"] if "is_warmup" in s.columns else pd.Series(0, index=s.index),
+        errors="coerce",
+    ).fillna(0).astype(int)
+    done = pd.to_numeric(
+        s["completed"] if "completed" in s.columns else pd.Series(1, index=s.index),
+        errors="coerce",
+    ).fillna(1).astype(int)
+    return set(s[(warm == 0) & (done == 1)]["session_id"])
+
+
+def _strength_session_search_text(row, sets_df, exercises_df) -> str:
+    parts = [
+        str(row.get("name") or ""),
+        str(row.get("date") or ""),
+    ]
+    if sets_df is not None and not getattr(sets_df, "empty", True) and "session_id" in sets_df:
+        names = {}
+        if exercises_df is not None and not getattr(exercises_df, "empty", True):
+            if "exercise_id" in exercises_df and "name" in exercises_df:
+                names = dict(zip(exercises_df["exercise_id"], exercises_df["name"]))
+        s = sets_df[sets_df["session_id"] == row.get("session_id")]
+        if not s.empty and "exercise_id" in s:
+            parts.extend(str(names.get(ex_id, ex_id)) for ex_id in s["exercise_id"].dropna().unique())
+    return " ".join(parts).lower()
 
 
 def readiness_snapshot_from_daily(daily_row):
@@ -3447,6 +4315,433 @@ def compute_weekly_sleep_overview(daily, days: int = 7, anchor_date=None) -> dic
             "band_2sd_high": _round_or_none(min(100.0, mean + 2 * std), 1),
         })
     return result
+
+
+def compute_prebed_sleep_score_prediction(
+    daily: pd.DataFrame,
+    activities: pd.DataFrame | None = None,
+    sleep_timing: pd.DataFrame | None = None,
+    target_date=None,
+    sleep_need_h: float | None = None,
+    prebed_hr: float | None = None,
+    stress_avg: float | None = None,
+    cardio_load: float | None = None,
+    body_battery_current: float | None = None,
+    planned_bedtime=None,
+    min_training_days: int = 7,
+) -> dict:
+    """Predict the next sleep score from signals available before bed.
+
+    The model is deliberately local and deterministic: it fits a small ridge
+    regression on the user's own past nights, using same-evening signals such as
+    stress, load, planned bedtime, and pre-sleep HR plus lagged sleep history.
+    It does not use the target night's sleep score, sleep duration, overnight
+    HRV, or next-morning recovery metrics.
+    """
+    sleep_need_h = float(config.SLEEP_NEED_HOURS if sleep_need_h is None else sleep_need_h)
+    min_training_days = max(3, int(min_training_days or 7))
+    empty = {
+        "status": "no_data",
+        "prediction": None,
+        "range_low": None,
+        "range_high": None,
+        "confidence": "low",
+        "training_days": 0,
+        "features_used": [],
+        "inputs": {},
+        "reasons": [],
+        "missing": ["sleep score history"],
+        "message": "Sync sleep scores before the pre-bed sleep score model can train.",
+        "model": "personal_prebed_sleep_score_ridge_v1",
+    }
+    if daily is None or getattr(daily, "empty", True) or "date" not in daily:
+        return empty
+
+    df = daily.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    df = df.dropna(subset=["date"]).sort_values("date")
+    if df.empty or "sleep_score" not in df:
+        return empty
+    if "sleep_hours" not in df and "sleep_seconds" in df:
+        df["sleep_hours"] = pd.to_numeric(df["sleep_seconds"], errors="coerce") / 3600.0
+
+    df = _attach_cardio_load(df, activities)
+    df = _attach_sleep_regularity(df, sleep_timing)
+    df = _add_bedtime_hr_delta(df)
+    df = _add_prebed_prediction_features(df, sleep_need_h)
+
+    numeric_cols = [
+        "sleep_score", "stress_avg", "cardio_load", "body_battery_current",
+        "body_battery_low", "body_battery_start", "hr_bedtime",
+        "bedtime_hr_delta", "prior_sleep_score_7d", "prior_sleep_debt_7d",
+        "planned_bedtime_delta_min", "planned_bedtime_deviation_min",
+    ]
+    for col in numeric_cols:
+        if col in df:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    latest_date = df["date"].max()
+    target = pd.to_datetime(target_date, errors="coerce") if target_date is not None else None
+    if target is None or pd.isna(target):
+        latest_score = df.iloc[-1].get("sleep_score")
+        target = latest_date if pd.isna(latest_score) else latest_date + pd.Timedelta(days=1)
+    target = pd.Timestamp(target).normalize()
+
+    history = df[df["date"] < target].copy()
+    if history.empty:
+        history = df.copy()
+    scored_history = history[pd.to_numeric(history["sleep_score"], errors="coerce").notna()].copy()
+    if int(len(scored_history)) < min_training_days:
+        recent_score = _first_number(scored_history["sleep_score"].tail(7).mean()) if not scored_history.empty else None
+        return {
+            **empty,
+            "status": "learning" if recent_score is not None else "no_data",
+            "prediction": _round_or_none(recent_score, 0),
+            "training_days": int(len(scored_history)),
+            "target_date": target.strftime("%Y-%m-%d"),
+            "missing": [f"{max(0, min_training_days - int(len(scored_history)))} more nights with sleep scores"],
+            "message": "The model needs more scored nights before it can personalize a pre-bed estimate.",
+        }
+
+    current_row = _prebed_current_row(df, target)
+    current = _prebed_current_inputs(
+        df,
+        history,
+        current_row,
+        target,
+        sleep_need_h=sleep_need_h,
+        prebed_hr=prebed_hr,
+        stress_avg=stress_avg,
+        cardio_load=cardio_load,
+        body_battery_current=body_battery_current,
+        planned_bedtime=planned_bedtime,
+    )
+
+    specs = _prebed_prediction_feature_specs()
+    selected = []
+    missing_inputs = []
+    for spec in specs:
+        key = spec["key"]
+        if key not in scored_history:
+            missing_inputs.append(spec["missing"])
+            continue
+        value = current.get(key)
+        if value is None:
+            missing_inputs.append(spec["missing"])
+            continue
+        pairs = scored_history[["sleep_score", key]].dropna()
+        if len(pairs) < min_training_days or pairs[key].nunique() < 2:
+            missing_inputs.append(spec["missing"])
+            continue
+        selected.append(spec)
+
+    baseline_score = _first_number(scored_history["sleep_score"].tail(7).mean(), scored_history["sleep_score"].mean())
+    if not selected:
+        prediction = _round_or_none(baseline_score, 0)
+        return {
+            **empty,
+            "status": "learning",
+            "prediction": prediction,
+            "range_low": _round_or_none(max(0.0, (baseline_score or 0.0) - 10.0), 0) if baseline_score is not None else None,
+            "range_high": _round_or_none(min(100.0, (baseline_score or 0.0) + 10.0), 0) if baseline_score is not None else None,
+            "training_days": int(len(scored_history)),
+            "target_date": target.strftime("%Y-%m-%d"),
+            "inputs": _prediction_input_summary(current, specs),
+            "missing": missing_inputs[:5] or ["current pre-bed inputs"],
+            "message": "Using your recent sleep-score average until enough before-bed inputs are available.",
+        }
+
+    feature_keys = [s["key"] for s in selected]
+    train = scored_history[["date", "sleep_score", *feature_keys]].copy()
+    train["sleep_score"] = pd.to_numeric(train["sleep_score"], errors="coerce")
+    train = train.dropna(subset=["sleep_score"])
+    medians = {key: _first_number(train[key].median()) for key in feature_keys}
+    for key in feature_keys:
+        train[key] = pd.to_numeric(train[key], errors="coerce").fillna(medians[key])
+
+    y = train["sleep_score"].astype(float).to_numpy()
+    x = train[feature_keys].astype(float)
+    means = x.mean(axis=0)
+    stds = x.std(axis=0, ddof=0).replace(0, np.nan)
+    usable_keys = [key for key in feature_keys if pd.notna(stds[key]) and stds[key] > 0]
+    if not usable_keys:
+        prediction = _round_or_none(baseline_score, 0)
+        return {
+            **empty,
+            "status": "learning",
+            "prediction": prediction,
+            "training_days": int(len(scored_history)),
+            "target_date": target.strftime("%Y-%m-%d"),
+            "inputs": _prediction_input_summary(current, specs),
+            "missing": ["more variation in before-bed inputs"],
+            "message": "The model needs more variation in your before-bed inputs before it can adjust the estimate.",
+        }
+
+    selected = [s for s in selected if s["key"] in usable_keys]
+    feature_keys = usable_keys
+    x_std = ((x[feature_keys] - means[feature_keys]) / stds[feature_keys]).to_numpy()
+    design = np.column_stack([np.ones(len(x_std)), x_std])
+    alpha = 4.0 + len(feature_keys)
+    penalty = np.diag([0.0] + [alpha] * len(feature_keys))
+    beta = np.linalg.pinv(design.T @ design + penalty) @ design.T @ y
+
+    current_values = pd.Series({key: current[key] for key in feature_keys}, dtype=float)
+    current_z = ((current_values - means[feature_keys]) / stds[feature_keys]).to_numpy()
+    raw_prediction = float(beta[0] + current_z @ beta[1:])
+    prediction = float(np.clip(raw_prediction, 0.0, 100.0))
+
+    fitted = design @ beta
+    residuals = y - fitted
+    mae = float(np.mean(np.abs(residuals))) if len(residuals) else 8.0
+    recent_std = _first_number(train["sleep_score"].tail(14).std(ddof=0), train["sleep_score"].std(ddof=0), 8.0) or 8.0
+    uncertainty = float(np.clip(max(5.0, mae * 1.35, recent_std * 0.55), 5.0, 18.0))
+    range_low = max(0.0, prediction - uncertainty)
+    range_high = min(100.0, prediction + uncertainty)
+
+    contributions = beta[1:] * current_z
+    features_used = []
+    for spec, contribution in sorted(zip(selected, contributions), key=lambda item: abs(item[1]), reverse=True):
+        key = spec["key"]
+        features_used.append({
+            "key": key,
+            "label": spec["label"],
+            "value": _round_or_none(current.get(key), spec.get("digits", 1)),
+            "baseline": _round_or_none(means[key], spec.get("digits", 1)),
+            "unit": spec.get("unit", ""),
+            "impact_points": _round_or_none(contribution, 1),
+        })
+
+    confidence = "low"
+    if len(train) >= 35 and len(feature_keys) >= 3 and mae <= 8.0:
+        confidence = "high"
+    elif len(train) >= 18 and len(feature_keys) >= 2:
+        confidence = "medium"
+    status = "ready" if len(train) >= 14 and len(feature_keys) >= 2 else "learning"
+
+    reasons = _prebed_prediction_reasons(features_used, prediction, baseline_score)
+    message = (
+        f"Predicted sleep score {prediction:.0f} ({range_low:.0f}-{range_high:.0f}) "
+        f"from {len(train)} personal nights."
+    )
+
+    return {
+        "status": status,
+        "prediction": _round_or_none(prediction, 0),
+        "range_low": _round_or_none(range_low, 0),
+        "range_high": _round_or_none(range_high, 0),
+        "confidence": confidence,
+        "training_days": int(len(train)),
+        "feature_count": int(len(feature_keys)),
+        "target_date": target.strftime("%Y-%m-%d"),
+        "baseline_score": _round_or_none(baseline_score, 1),
+        "residual_mae": _round_or_none(mae, 1),
+        "features_used": features_used,
+        "inputs": _prediction_input_summary(current, specs),
+        "reasons": reasons,
+        "missing": missing_inputs[:5],
+        "message": message,
+        "model": "personal_prebed_sleep_score_ridge_v1",
+    }
+
+
+def _add_prebed_prediction_features(df: pd.DataFrame, sleep_need_h: float) -> pd.DataFrame:
+    out = df.sort_values("date").copy()
+    score = pd.to_numeric(out.get("sleep_score"), errors="coerce")
+    out["prior_sleep_score_7d"] = score.shift(1).rolling(7, min_periods=3).mean()
+    if "sleep_hours" in out:
+        sleep_hours = pd.to_numeric(out["sleep_hours"], errors="coerce")
+        debt = (float(sleep_need_h) - sleep_hours).clip(lower=0)
+        out["prior_sleep_debt_7d"] = debt.shift(1).rolling(7, min_periods=1).mean()
+    else:
+        out["prior_sleep_debt_7d"] = np.nan
+
+    if "bedtime_minute" in out:
+        bedtime = pd.to_numeric(out["bedtime_minute"], errors="coerce")
+        bedtime_baseline = bedtime.rolling(14, min_periods=3).median().shift(1)
+        delta = bedtime - bedtime_baseline
+        out["planned_bedtime_delta_min"] = delta
+        out["planned_bedtime_deviation_min"] = delta.abs()
+    else:
+        out["planned_bedtime_delta_min"] = np.nan
+        out["planned_bedtime_deviation_min"] = np.nan
+    return out
+
+
+def _prebed_prediction_feature_specs() -> list[dict]:
+    return [
+        {
+            "key": "prior_sleep_score_7d",
+            "label": "Recent sleep score",
+            "unit": "pts",
+            "digits": 0,
+            "missing": "recent sleep score history",
+        },
+        {
+            "key": "prior_sleep_debt_7d",
+            "label": "Recent sleep debt",
+            "unit": "h",
+            "digits": 1,
+            "missing": "recent sleep duration history",
+        },
+        {
+            "key": "stress_avg",
+            "label": "Avg stress today",
+            "unit": "",
+            "digits": 0,
+            "missing": "today's average stress",
+        },
+        {
+            "key": "cardio_load",
+            "label": "Training load today",
+            "unit": "load",
+            "digits": 0,
+            "missing": "today's activity load",
+        },
+        {
+            "key": "bedtime_hr_delta",
+            "label": "Pre-bed HR vs baseline",
+            "unit": "bpm",
+            "digits": 1,
+            "missing": "current pre-bed heart rate",
+        },
+        {
+            "key": "planned_bedtime_deviation_min",
+            "label": "Bedtime off baseline",
+            "unit": "min",
+            "digits": 0,
+            "missing": "planned bedtime",
+        },
+        {
+            "key": "body_battery_current",
+            "label": "Body Battery now",
+            "unit": "",
+            "digits": 0,
+            "missing": "current Body Battery",
+        },
+    ]
+
+
+def _prebed_current_row(df: pd.DataFrame, target: pd.Timestamp) -> pd.Series:
+    exact = df[df["date"] == target]
+    if not exact.empty:
+        return exact.iloc[-1]
+    prior = df[df["date"] < target]
+    return prior.iloc[-1] if not prior.empty else df.iloc[-1]
+
+
+def _prebed_current_inputs(
+    df: pd.DataFrame,
+    history: pd.DataFrame,
+    current_row: pd.Series,
+    target: pd.Timestamp,
+    *,
+    sleep_need_h: float,
+    prebed_hr: float | None,
+    stress_avg: float | None,
+    cardio_load: float | None,
+    body_battery_current: float | None,
+    planned_bedtime,
+) -> dict:
+    current = {}
+    current["prior_sleep_score_7d"] = _first_number(history["sleep_score"].tail(7).mean())
+    if "sleep_hours" in history:
+        debt = (float(sleep_need_h) - pd.to_numeric(history["sleep_hours"], errors="coerce")).clip(lower=0)
+        current["prior_sleep_debt_7d"] = _first_number(debt.tail(7).mean())
+    else:
+        current["prior_sleep_debt_7d"] = None
+
+    current["stress_avg"] = _first_number(stress_avg, current_row.get("stress_avg"))
+    current["cardio_load"] = _first_number(cardio_load, current_row.get("cardio_load"))
+    current["body_battery_current"] = _first_number(
+        body_battery_current,
+        current_row.get("body_battery_current"),
+        current_row.get("body_battery_low"),
+    )
+
+    prebed_value = _first_number(prebed_hr, current_row.get("hr_bedtime") if current_row.get("date") == target else None)
+    bedtime_baseline = _first_number(
+        pd.to_numeric(history.get("hr_bedtime"), errors="coerce").tail(30).median()
+        if "hr_bedtime" in history else None
+    )
+    if prebed_value is not None and bedtime_baseline is not None:
+        current["bedtime_hr_delta"] = prebed_value - bedtime_baseline
+    else:
+        current["bedtime_hr_delta"] = _first_number(current_row.get("bedtime_hr_delta"))
+
+    planned_min = _clock_to_bedtime_minute(planned_bedtime)
+    if planned_min is None and current_row.get("date") == target:
+        planned_min = _first_number(current_row.get("bedtime_minute"))
+    bedtime_history = (
+        pd.to_numeric(history.get("bedtime_minute"), errors="coerce").dropna().tail(14)
+        if "bedtime_minute" in history else pd.Series(dtype=float)
+    )
+    bedtime_base = _first_number(bedtime_history.median()) if len(bedtime_history) >= 3 else None
+    if planned_min is not None and bedtime_base is not None:
+        current["planned_bedtime_delta_min"] = planned_min - bedtime_base
+        current["planned_bedtime_deviation_min"] = abs(planned_min - bedtime_base)
+    else:
+        current["planned_bedtime_delta_min"] = _first_number(current_row.get("planned_bedtime_delta_min"))
+        current["planned_bedtime_deviation_min"] = _first_number(current_row.get("planned_bedtime_deviation_min"))
+    return current
+
+
+def _clock_to_bedtime_minute(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        minute = float(value)
+        return minute + 1440.0 if minute < 12 * 60 else minute
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        parts = text.split(":")
+        if len(parts) >= 2:
+            try:
+                hour = int(parts[0])
+                minute = int(parts[1])
+            except ValueError:
+                return None
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                return None
+            total = hour * 60 + minute
+            return float(total + 1440 if total < 12 * 60 else total)
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.isna(ts):
+        return None
+    return _bedtime_minute(ts)
+
+
+def _prediction_input_summary(current: dict, specs: list[dict]) -> dict:
+    out = {}
+    for spec in specs:
+        key = spec["key"]
+        value = current.get(key)
+        if value is not None:
+            out[key] = _round_or_none(value, spec.get("digits", 1))
+    return out
+
+
+def _prebed_prediction_reasons(features: list[dict], prediction: float, baseline_score: float | None) -> list[str]:
+    reasons = []
+    if baseline_score is not None:
+        delta = prediction - float(baseline_score)
+        if abs(delta) >= 3:
+            direction = "above" if delta > 0 else "below"
+            reasons.append(f"Estimate is {abs(delta):.0f} pts {direction} your recent sleep-score baseline.")
+    for feature in features[:3]:
+        impact = _first_number(feature.get("impact_points"))
+        if impact is None or abs(impact) < 1.0:
+            continue
+        verb = "adds" if impact > 0 else "subtracts"
+        unit = feature.get("unit") or ""
+        unit_txt = f" {unit}" if unit else ""
+        reasons.append(
+            f"{feature['label']} ({feature['value']}{unit_txt}) {verb} {abs(impact):.1f} pts in this fit."
+        )
+    if not reasons:
+        reasons.append("Current inputs are close to your recent baseline, so the estimate stays near average.")
+    return reasons
 
 
 def _fmt_clock(minute_of_day: float) -> str:

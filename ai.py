@@ -181,12 +181,52 @@ COACH_NOTE_SYSTEM = (
     "linear-progression plan, and a compact strength summary, write ONE or TWO "
     "sentences of practical guidance for today's session. Be specific about "
     "which lifts to push, hold, or back off, and why (tie to recovery). No "
-    "lists, no preamble, no diagnosis. Plain text."
+    "lists, no preamble, no diagnosis. Plain text. You may also receive "
+    "coach_memory: durable, user-approved facts about the athlete. Honor goals, "
+    "injuries, constraints, observed patterns, and prior coaching when relevant."
 )
+
+STRENGTH_FEEDBACK_SYSTEM = """You are a concise strength coach reviewing one
+athlete's latest completed strength session. You receive compact derived
+strength data only: latest-session totals, exercise rollups, recent trend
+deltas, recent PRs, standards/balance/readiness summaries, and recovery context.
+You do not receive raw set ids or raw Garmin time-series data.
+
+Ground every claim in the supplied numbers. Keep it practical and specific.
+You may also receive coach_memory: durable, user-approved facts about this
+athlete. When present, honor goals, injuries, constraints, observed patterns,
+and prior coaching. Reference these facts naturally when relevant.
+
+Output exactly these markdown sections:
+## Session read
+One short paragraph on what the latest session shows.
+## Trend signals
+2-4 bullets covering volume, top estimated 1RM, PRs, recovery/readiness, or
+balance flags when present.
+## Next session
+2-3 concrete coaching actions."""
+
+
+def _coach_session_note_prompt(
+    strength_summary: dict,
+    verdict: dict,
+    plan: list,
+    coach_memory: dict | None = None,
+) -> str:
+    return (
+        "Recovery verdict:\n\n" + json.dumps(verdict or {}, indent=2)
+        + "\n\nToday's progression plan (per main lift):\n\n"
+        + json.dumps(plan or [], indent=2)
+        + "\n\nStrength summary:\n\n"
+        + json.dumps(strength_summary or {}, indent=2)
+        + _memory_block(coach_memory)
+        + "\n\nWrite the session note."
+    )
 
 
 def coach_session_note(strength_summary: dict, verdict: dict,
-                       plan: list, model: str | None = None) -> str:
+                       plan: list, model: str | None = None,
+                       coach_memory: dict | None = None) -> str:
     if not config.ANTHROPIC_API_KEY:
         return ""
     try:
@@ -197,17 +237,46 @@ def coach_session_note(strength_summary: dict, verdict: dict,
             system=COACH_NOTE_SYSTEM,
             messages=[{
                 "role": "user",
-                "content": "Recovery verdict:\n\n" + json.dumps(verdict or {}, indent=2)
-                           + "\n\nToday's progression plan (per main lift):\n\n"
-                           + json.dumps(plan or [], indent=2)
-                           + "\n\nStrength summary:\n\n"
-                           + json.dumps(strength_summary or {}, indent=2)
-                           + "\n\nWrite the session note.",
+                "content": _coach_session_note_prompt(
+                    strength_summary, verdict, plan, coach_memory=coach_memory),
             }],
         )
         return "".join(b.text for b in msg.content if b.type == "text").strip()
     except Exception:
         return ""
+
+
+def _strength_overview_feedback_prompt(
+    context: dict,
+    coach_memory: dict | None = None,
+) -> str:
+    return (
+        "Strength context:\n\n"
+        + json.dumps(context or {}, indent=2)
+        + _memory_block(coach_memory)
+        + "\n\nWrite the feedback."
+    )
+
+
+def strength_overview_feedback(context: dict, model: str | None = None,
+                               coach_memory: dict | None = None) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        return "_Set ANTHROPIC_API_KEY in .env to enable AI strength feedback._"
+    try:
+        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        msg = client.messages.create(
+            model=model or config.ANTHROPIC_MODEL,
+            max_tokens=420,
+            system=STRENGTH_FEEDBACK_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": _strength_overview_feedback_prompt(
+                    context, coach_memory=coach_memory),
+            }],
+        )
+        return "".join(b.text for b in msg.content if b.type == "text").strip()
+    except Exception as e:
+        return f"_Strength feedback failed: {e}_"
 
 
 _MEMORY_CATEGORIES = ("goal", "injury", "pattern", "coaching", "note")
@@ -268,16 +337,24 @@ def _parse_memory_candidates(text: str) -> list[dict]:
     return out
 
 
+def _suggest_memories_payload(
+    summary: dict,
+    strength: dict | None = None,
+    existing_memories: dict | None = None,
+) -> dict:
+    return {
+        "metrics_summary": summary or {},
+        "strength_profile": strength or {},
+        "existing_memories": existing_memories or {},
+    }
+
+
 def suggest_memories(summary: dict, strength: dict | None = None,
                      existing_memories: dict | None = None,
                      model: str | None = None) -> list[dict]:
     if not config.ANTHROPIC_API_KEY:
         return []
-    payload = {
-        "metrics_summary": summary or {},
-        "strength_profile": strength or {},
-        "existing_memories": existing_memories or {},
-    }
+    payload = _suggest_memories_payload(summary, strength, existing_memories)
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=model or config.ANTHROPIC_MODEL,

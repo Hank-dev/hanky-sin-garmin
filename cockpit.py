@@ -603,16 +603,9 @@ def topbar(date_str: str, sparse: bool) -> str:
 
 # ── readiness numeral + progress fill ────────────────────────────────────────
 def _num_fill(pct) -> str:
-    """Slim champagne→teal progress track whose fill grows to `pct` (0–1) on load."""
+    """Slim champagne→teal progress track for `pct` (0–1)."""
     p = max(0.0, min(1.0, pct)) * 100
-    uid = _uid()
-    return f"""
-    <style>
-      @keyframes grow_{uid} {{ from {{ width:0; }} to {{ width:{p:.1f}%; }} }}
-      #fill_{uid} {{ width:{p:.1f}%; animation:grow_{uid} 1.2s cubic-bezier(.34,1.1,.4,1) forwards; }}
-      @media (prefers-reduced-motion: reduce){{ #fill_{uid}{{animation:none;}} }}
-    </style>
-    <div class="num-track"><span class="num-fill" id="fill_{uid}"></span></div>"""
+    return f'<div class="num-track"><span class="num-fill" style="width:{p:.1f}%"></span></div>'
 
 
 def hero(readiness, verdict, tagline, chips_html, ribbon_html="", sparse=False) -> str:

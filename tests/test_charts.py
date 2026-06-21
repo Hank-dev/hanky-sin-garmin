@@ -6,6 +6,18 @@ import cockpit
 
 
 class ChartRenderingTest(unittest.TestCase):
+    def test_hero_with_missing_readiness_does_not_emit_inline_style_block(self):
+        html = cockpit.hero(
+            None,
+            "TRAIN EASY",
+            "Recovery markers are off and readiness isn't synced - train easy.",
+            cockpit.chips("suppressed", 50, 55, 8.0),
+        )
+
+        self.assertNotIn("<style", html)
+        self.assertIn('style="width:0.0%"', html)
+        self.assertIn("TRAIN EASY", html)
+
     def test_hrv_chart_single_point_uses_marker(self):
         view = pd.DataFrame([{
             "date": "2026-06-04",

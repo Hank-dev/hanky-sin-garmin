@@ -72,3 +72,31 @@ def test_coach_session_note_no_key_returns_empty(monkeypatch):
     importlib.reload(ai)
     out = ai.coach_session_note({"status": "ok"}, {"day_type": "Push"}, [])
     assert out == ""
+
+
+def test_coach_session_note_prompt_includes_coach_memory():
+    prompt = ai._coach_session_note_prompt(
+        {"status": "ok"},
+        {"day_type": "Push"},
+        [{"exercise": "Bench Press", "state": "hold"}],
+        coach_memory={"injuries": [{"text": "left shoulder irritated"}]},
+    )
+
+    assert "Coach memory" in prompt
+    assert "left shoulder irritated" in prompt
+
+
+def test_strength_overview_feedback_without_key(monkeypatch):
+    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    out = ai.strength_overview_feedback({"latest_session": {"name": "Lower"}})
+    assert "ANTHROPIC_API_KEY" in out
+
+
+def test_strength_overview_feedback_prompt_includes_coach_memory():
+    prompt = ai._strength_overview_feedback_prompt(
+        {"latest_session": {"name": "Lower"}},
+        coach_memory={"goals": [{"text": "improve deadlift"}]},
+    )
+
+    assert "Coach memory" in prompt
+    assert "improve deadlift" in prompt

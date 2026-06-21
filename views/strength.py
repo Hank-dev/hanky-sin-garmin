@@ -9,6 +9,7 @@ import importlib
 from datetime import datetime, date
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 import config
@@ -27,6 +28,88 @@ ai = importlib.reload(ai)
 
 st.markdown("""
 <style>
+.strength-page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:4px 0 18px;}
+.strength-page-title{font-family:var(--font-serif);font-size:34px;line-height:1.05;color:var(--text);font-weight:400;}
+.strength-page-sub{color:var(--text-faint);font-size:13px;margin-top:4px;}
+.strength-overview{display:grid;gap:14px;}
+.strength-hero{
+  border:1px solid var(--border);border-top-color:var(--brass);border-radius:8px;
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  padding:18px 20px;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr);
+  gap:18px;align-items:start;
+}
+.strength-hero h2{font-family:var(--font-serif);font-size:31px;font-weight:400;line-height:1.05;margin:0;color:var(--text);}
+.strength-hero .meta{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;}
+.strength-hero .sub{color:var(--text-dim);font-size:13px;margin-top:8px;}
+.strength-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;}
+.strength-kpi{background:var(--surface-2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:10px 12px;min-height:74px;}
+.strength-kpi .lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-faint);}
+.strength-kpi .val{margin-top:6px;font-size:22px;color:var(--text);font-weight:750;font-variant-numeric:tabular-nums;line-height:1.05;}
+.strength-kpi .sub{margin-top:4px;font-size:11px;color:var(--text-faint);line-height:1.25;}
+.strength-panel{
+  border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px 16px;
+}
+.strength-panel h3{font-family:var(--font-serif);font-size:22px;font-weight:400;margin:0 0 10px;color:var(--text);}
+.strength-table{display:grid;gap:7px;}
+.strength-row{display:grid;grid-template-columns:minmax(0,1.7fr) .7fr .9fr .9fr .55fr;gap:10px;align-items:center;
+  padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.strength-row:last-child{border-bottom:0;}
+.strength-row.head{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);padding-top:0;}
+.strength-row .name{font-weight:700;color:var(--text);min-width:0;}
+.strength-row .num{font-family:var(--font-mono);font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.strength-pr{display:inline-flex;align-items:center;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+  color:var(--accent);border-radius:999px;padding:3px 8px;font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;}
+.strength-history-rollup{display:grid;gap:0;margin:8px 0 10px;border:1px solid rgba(255,255,255,.06);border-radius:8px;overflow:hidden;}
+.strength-history-row{display:grid;grid-template-columns:minmax(0,1.5fr) .55fr .8fr .78fr .78fr .45fr;gap:10px;align-items:center;
+  padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.018);}
+.strength-history-row:last-child{border-bottom:0;}
+.strength-history-row.head{background:rgba(255,255,255,.035);font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);}
+.strength-history-row .name{font-weight:700;color:var(--text);min-width:0;}
+.strength-history-row .num{font-family:var(--font-mono);font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.strength-momentum-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:2px 0 12px;}
+.strength-momentum-count{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:9px 10px;}
+.strength-momentum-count .lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);}
+.strength-momentum-count .val{margin-top:4px;font-size:21px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums;}
+.strength-momentum-section{margin-top:10px;}
+.strength-momentum-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+.strength-momentum-row{display:grid;grid-template-columns:minmax(0,1.25fr) .65fr .55fr minmax(0,1.4fr);gap:10px;align-items:center;
+  padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.strength-momentum-row:last-child{border-bottom:0;}
+.strength-momentum-row .name{font-weight:700;color:var(--text);min-width:0;}
+.strength-momentum-row .num{font-family:var(--font-mono);font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.strength-momentum-row .note{color:var(--text-faint);font-size:12px;line-height:1.3;}
+.strength-leaderboard{display:grid;gap:0;margin-top:8px;border:1px solid rgba(255,255,255,.06);border-radius:8px;overflow:hidden;}
+.strength-leaderboard-row{display:grid;grid-template-columns:.36fr minmax(0,1.2fr) .72fr .86fr .82fr .78fr .7fr;gap:10px;align-items:center;
+  padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.018);}
+.strength-leaderboard-row:last-child{border-bottom:0;}
+.strength-leaderboard-row.head{background:rgba(255,255,255,.035);font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);}
+.strength-leaderboard-row .rank{font-family:var(--font-mono);font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
+.strength-leaderboard-row .name{font-weight:750;color:var(--text);min-width:0;}
+.strength-leaderboard-row .num{font-family:var(--font-mono);font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.strength-ai-title{font-family:var(--font-serif);font-size:22px;font-weight:400;color:var(--text);line-height:1.05;}
+.strength-ai-meta{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-top:4px;}
+.strength-feedback-preview{color:var(--text);line-height:1.55;margin-top:6px;max-width:92ch;}
+.strength-feedback{color:var(--text);line-height:1.55;}
+@media (max-width:820px){
+  .strength-hero{grid-template-columns:1fr;}
+  .strength-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .strength-row{grid-template-columns:minmax(0,1.4fr) .6fr .8fr .8fr .45fr;gap:6px;}
+  .strength-history-row{grid-template-columns:minmax(0,1.4fr) .45fr .7fr .7fr .72fr .42fr;gap:6px;}
+  .strength-momentum-counts{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .strength-momentum-row{grid-template-columns:minmax(0,1.1fr) .6fr .5fr minmax(0,1fr);gap:6px;}
+  .strength-leaderboard-row{grid-template-columns:.3fr minmax(0,1.1fr) .64fr .74fr .7fr .7fr .58fr;gap:6px;}
+}
+@media (max-width:560px){
+  .strength-kpi-grid{grid-template-columns:1fr 1fr;}
+  .strength-row{font-size:13px;}
+  .strength-row .num{font-size:11px;}
+  .strength-history-row{font-size:12px;padding:7px 8px;}
+  .strength-history-row .num{font-size:10px;}
+  .strength-momentum-row{font-size:12px;}
+  .strength-momentum-row .num,.strength-momentum-row .note{font-size:10px;}
+  .strength-leaderboard-row{font-size:11px;padding:7px 8px;}
+  .strength-leaderboard-row .num,.strength-leaderboard-row .rank{font-size:10px;}
+}
 .st-key-strong_logger{
   max-width:720px;margin:0 auto 22px!important;padding:0 22px 18px!important;background:var(--surface);
   border:1px solid rgba(255,255,255,.06);border-radius:8px;overflow:hidden;
@@ -164,6 +247,10 @@ db.init_db()
 @st.cache_data(ttl=60)
 def load_catalog():
     return db.load_exercises_df()
+
+
+def coach_memory_digest():
+    return analysis.build_coach_memory_digest(db.load_memory_df())
 
 
 def today_str():
@@ -444,13 +531,596 @@ def save_active_as_routine(active: dict, routine_name: str) -> str:
     return rid
 
 
+def fmt_num(value, digits: int = 0, suffix: str = "") -> str:
+    if value is None:
+        return "-"
+    try:
+        if pd.isna(value):
+            return "-"
+        n = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    text = f"{n:,.0f}" if digits == 0 else f"{n:,.{digits}f}"
+    return f"{text}{suffix}"
+
+
+def fmt_signed(value, digits: int = 1, suffix: str = "") -> str:
+    if value is None:
+        return "-"
+    try:
+        if pd.isna(value):
+            return "-"
+        n = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{n:+.{digits}f}{suffix}"
+
+
+def strength_kpi(label: str, value: str, sub: str = "") -> str:
+    return (
+        f"<div class='strength-kpi'><div class='lab'>{html.escape(label)}</div>"
+        f"<div class='val'>{html.escape(value)}</div>"
+        f"<div class='sub'>{html.escape(sub)}</div></div>"
+    )
+
+
+def strength_trend_chart(rows: list[dict]) -> go.Figure:
+    fig = go.Figure()
+    data = pd.DataFrame(rows or [])
+    if data.empty:
+        return fig
+    data["date"] = pd.to_datetime(data["date"], errors="coerce")
+    data = data.dropna(subset=["date"]).sort_values("date")
+    if data.empty:
+        return fig
+    fig.add_trace(go.Bar(
+        x=data["date"],
+        y=pd.to_numeric(data["total_volume_kg"], errors="coerce"),
+        name="Volume",
+        marker_color=cockpit.ACCENT,
+        opacity=0.68,
+        yaxis="y",
+    ))
+    fig.add_trace(go.Scatter(
+        x=data["date"],
+        y=pd.to_numeric(data["top_est_1rm_kg"], errors="coerce"),
+        name="Top est 1RM",
+        mode="lines+markers",
+        line=dict(color=cockpit.SERIES2, width=2),
+        marker=dict(size=7, color=cockpit.SERIES2),
+        yaxis="y2",
+        connectgaps=False,
+    ))
+    fig.update_layout(
+        height=280,
+        margin=dict(l=42, r=42, t=18, b=34),
+        paper_bgcolor=cockpit.BG,
+        plot_bgcolor=cockpit.BG,
+        font=dict(family="Archivo, sans-serif", color=cockpit.TEXT),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(gridcolor="rgba(255,255,255,.04)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
+        yaxis=dict(title="kg volume", gridcolor="rgba(255,255,255,.06)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
+        yaxis2=dict(title="kg 1RM", overlaying="y", side="right", showgrid=False, tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
+    )
+    return fig
+
+
+def weekly_strength_load_chart(rows, metric: str = "total_volume_kg") -> go.Figure:
+    fig = go.Figure()
+    data = pd.DataFrame(rows or [])
+    if data.empty:
+        return fig
+    data["week_start"] = pd.to_datetime(data["week_start"], errors="coerce")
+    data = data.dropna(subset=["week_start"]).sort_values(["week_start", "group"])
+    if data.empty:
+        return fig
+    metric = metric if metric in data.columns else "total_volume_kg"
+    data[metric] = pd.to_numeric(data[metric], errors="coerce").fillna(0)
+    preferred = ["Push", "Pull", "Squat", "Hinge", "Core", "Other"]
+    groups = [g for g in preferred if g in set(data["group"])]
+    groups.extend(sorted(g for g in data["group"].dropna().unique() if g not in groups))
+    colors = {
+        "Push": cockpit.ACCENT,
+        "Pull": cockpit.SERIES2,
+        "Squat": cockpit.AMBER,
+        "Hinge": "#8FA7FF",
+        "Core": "#D98BD2",
+        "Other": cockpit.TEXT_FAINT,
+    }
+    fallback = ["#B7C3D0", "#73BBA3", "#E2A6A1", "#C7A7F2", "#D7C27C", "#9FB6D8"]
+    for idx, group in enumerate(groups):
+        sub = data[data["group"] == group]
+        fig.add_trace(go.Bar(
+            x=sub["week_start"],
+            y=sub[metric],
+            name=str(group),
+            marker_color=colors.get(group, fallback[idx % len(fallback)]),
+            hovertemplate="%{x|%b %d}<br>%{y:,.0f}<extra>" + html.escape(str(group)) + "</extra>",
+        ))
+    ytitle = "kg volume" if metric == "total_volume_kg" else "working sets"
+    fig.update_layout(
+        height=320,
+        barmode="stack",
+        margin=dict(l=42, r=20, t=18, b=36),
+        paper_bgcolor=cockpit.BG,
+        plot_bgcolor=cockpit.BG,
+        font=dict(family="Archivo, sans-serif", color=cockpit.TEXT),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(gridcolor="rgba(255,255,255,.04)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
+        yaxis=dict(title=ytitle, gridcolor="rgba(255,255,255,.06)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
+    )
+    return fig
+
+
+def strength_feedback_context(overview: dict, strength_summary: dict) -> dict:
+    latest = dict((overview or {}).get("latest_session") or {})
+    latest.pop("session_id", None)
+    latest_summary = dict((overview or {}).get("latest_summary") or {})
+    latest_summary.pop("session_id", None)
+    exercise_rows = []
+    for row in (overview or {}).get("exercise_rows") or []:
+        item = dict(row)
+        item.pop("exercise_id", None)
+        exercise_rows.append(item)
+    trend_rows = []
+    for row in (overview or {}).get("trend_rows") or []:
+        item = dict(row)
+        item.pop("session_id", None)
+        trend_rows.append(item)
+    return {
+        "latest_session": latest,
+        "latest_summary": latest_summary,
+        "latest_exercises": exercise_rows,
+        "trend": (overview or {}).get("trend") or {},
+        "trend_rows": trend_rows,
+        "recent_prs": (overview or {}).get("recent_prs") or [],
+        "strength_summary": strength_summary or {},
+    }
+
+
+def strength_memory_context(
+    sessions,
+    sets,
+    catalog,
+    bodyweight,
+    verdict=None,
+    overview: dict | None = None,
+    strength_summary: dict | None = None,
+) -> dict:
+    overview = overview or analysis.compute_strength_recent_overview(
+        sessions, sets, catalog, config.ONE_RM_FORMULA
+    )
+    strength_summary = strength_summary or analysis.summarize_strength(
+        sessions,
+        sets,
+        catalog,
+        db.load_profile(),
+        bodyweight,
+        formula=config.ONE_RM_FORMULA,
+        verdict=verdict,
+    )
+    momentum = analysis.compute_strength_momentum_flags(
+        sessions, sets, catalog, formula=config.ONE_RM_FORMULA
+    )
+    leaderboard = analysis.compute_strength_best_set_leaderboard(
+        sessions, sets, catalog, formula=config.ONE_RM_FORMULA
+    )
+    weekly = analysis.compute_weekly_strength_load(
+        sessions, sets, catalog, formula=config.ONE_RM_FORMULA, weeks=8
+    )
+    leaders = []
+    if not leaderboard.empty:
+        for row in leaderboard.head(8).to_dict("records"):
+            item = dict(row)
+            item.pop("exercise_id", None)
+            leaders.append(item)
+    return {
+        "strength_summary": strength_summary or {},
+        "recent_session": strength_feedback_context(overview, strength_summary),
+        "momentum": _compact_strength_momentum(momentum),
+        "best_set_leaders": leaders,
+        "weekly_load": weekly.to_dict("records") if not weekly.empty else [],
+    }
+
+
+def _compact_strength_momentum(momentum: dict) -> dict:
+    out = {
+        "status": (momentum or {}).get("status"),
+        "as_of": (momentum or {}).get("as_of"),
+        "summary": (momentum or {}).get("summary") or {},
+        "categories": {},
+    }
+    for key, rows in ((momentum or {}).get("categories") or {}).items():
+        compact = []
+        for row in (rows or [])[:6]:
+            item = dict(row)
+            item.pop("exercise_id", None)
+            compact.append(item)
+        out["categories"][key] = compact
+    return out
+
+
+def strength_feedback_preview(feedback: str, max_chars: int = 420) -> str:
+    text = str(feedback or "").strip()
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.splitlines()]
+    body = []
+    for line in lines:
+        if not line:
+            if body:
+                break
+            continue
+        if line.startswith("## "):
+            if body:
+                break
+            continue
+        body.append(line.lstrip("- ").strip())
+        if len(" ".join(body)) >= max_chars:
+            break
+    preview = " ".join(body).strip() or text
+    if len(preview) > max_chars:
+        preview = preview[: max_chars - 1].rstrip() + "..."
+    return preview
+
+
+def render_strength_ai_feedback(overview: dict, strength_summary: dict, coach_memory: dict | None = None):
+    latest = (overview or {}).get("latest_session") or {}
+    feedback_key = f"strength_feedback_{latest.get('session_id')}"
+    with st.container(border=True):
+        head, action_1, action_2 = st.columns([6, 1.15, 1.15], vertical_alignment="center")
+        with head:
+            st.markdown(
+                "<div class='strength-ai-title'>AI strength feedback</div>"
+                "<div class='strength-ai-meta'>latest session overview</div>",
+                unsafe_allow_html=True,
+            )
+        generate = action_1.button(
+            "Generate",
+            disabled=not bool(config.ANTHROPIC_API_KEY),
+            key=f"{feedback_key}_generate",
+            width="stretch",
+        )
+        refresh = action_2.button(
+            "Refresh",
+            disabled=not bool(config.ANTHROPIC_API_KEY),
+            key=f"{feedback_key}_refresh",
+            width="stretch",
+        )
+        if refresh:
+            st.session_state.pop(feedback_key, None)
+            generate = True
+        if not config.ANTHROPIC_API_KEY:
+            st.caption("Set `ANTHROPIC_API_KEY` in .env to generate strength feedback.")
+        elif generate:
+            with st.spinner("Generating strength feedback..."):
+                st.session_state[feedback_key] = ai.strength_overview_feedback(
+                    strength_feedback_context(overview, strength_summary),
+                    coach_memory=coach_memory,
+                )
+        feedback = st.session_state.get(feedback_key)
+        if feedback:
+            preview = html.escape(strength_feedback_preview(feedback))
+            st.markdown(
+                f"<div class='strength-feedback-preview'>{preview}</div>",
+                unsafe_allow_html=True,
+            )
+            with st.expander("Read full AI feedback"):
+                st.markdown(feedback)
+        elif config.ANTHROPIC_API_KEY:
+            st.caption("Click Generate to create feedback for this session.")
+
+
+def render_strength_memory_panel(strength_context: dict, existing_memory: dict | None = None):
+    with st.container(border=True):
+        head, action = st.columns([5, 1.4], vertical_alignment="center")
+        with head:
+            st.markdown(
+                "<div class='strength-ai-title'>Coach memory</div>"
+                "<div class='strength-ai-meta'>strength patterns worth remembering</div>",
+                unsafe_allow_html=True,
+            )
+        suggest = action.button(
+            "Suggest",
+            disabled=not bool(config.ANTHROPIC_API_KEY),
+            key="strength_memory_suggest",
+            width="stretch",
+        )
+        if not config.ANTHROPIC_API_KEY:
+            st.caption("Set `ANTHROPIC_API_KEY` in .env to suggest strength memories.")
+            return
+        if suggest:
+            with st.spinner("Looking for durable strength memories..."):
+                st.session_state["strength_mem_candidates"] = ai.suggest_memories(
+                    {},
+                    strength_context,
+                    existing_memory or {},
+                )
+        candidates = st.session_state.get("strength_mem_candidates", [])
+        if not candidates:
+            st.caption("Click Suggest to find strength facts the coach should remember.")
+            return
+        for idx, cand in enumerate(candidates):
+            with st.container(border=True):
+                st.markdown(f"**{cand['category']}** - {cand['text']}")
+                if cand.get("rationale"):
+                    st.caption(cand["rationale"])
+                cols = st.columns([1, 1, 4])
+                with cols[0]:
+                    if st.button("Approve", key=f"strength_mem_approve_{idx}", width="stretch"):
+                        rec = {"category": cand["category"], "text": cand["text"], "source": "ai"}
+                        for key in ("confidence", "target_date", "body_part"):
+                            if cand.get(key):
+                                rec[key] = cand[key]
+                        db.add_memory(rec)
+                        st.session_state["strength_mem_candidates"] = [
+                            c for j, c in enumerate(candidates) if j != idx
+                        ]
+                        st.rerun()
+                with cols[1]:
+                    if st.button("Reject", key=f"strength_mem_reject_{idx}", width="stretch"):
+                        st.session_state["strength_mem_candidates"] = [
+                            c for j, c in enumerate(candidates) if j != idx
+                        ]
+                        st.rerun()
+
+
+def render_strength_overview(overview: dict, strength_summary: dict, coach_memory: dict | None = None):
+    if (overview or {}).get("status") != "ok":
+        st.info("Log a strength workout to build the recent-session cockpit.")
+        return
+
+    latest = overview["latest_session"]
+    summ = overview.get("latest_summary") or {}
+    trend = overview.get("trend") or {}
+    exercises = overview.get("exercise_rows") or []
+    prs = overview.get("recent_prs") or []
+    name = html.escape(latest.get("name") or "Workout")
+    date_txt = html.escape(latest.get("date") or "")
+    duration = fmt_num(latest.get("duration_min"), 0, " min") if latest.get("duration_min") is not None else "-"
+    recovery = latest.get("recovery_zone") or latest.get("readiness_level") or "not tagged"
+    kpis = [
+        strength_kpi("Volume", fmt_num(summ.get("total_volume_kg"), 0, " kg"), fmt_signed(trend.get("volume_delta_pct"), 1, "% vs prior")),
+        strength_kpi("Working sets", fmt_num(summ.get("working_sets"), 0), fmt_signed(trend.get("working_sets_delta"), 1, " sets")),
+        strength_kpi("Top est 1RM", fmt_num(summ.get("top_est_1rm_kg"), 1, " kg"), fmt_signed(trend.get("top_est_1rm_delta_kg"), 1, " kg")),
+        strength_kpi("Recovery", str(recovery), f"score {fmt_num(latest.get('recovery_score'), 0)}"),
+    ]
+
+    st.markdown(
+        f"""
+        <div class='strength-hero'>
+          <div>
+            <div class='meta'>Latest completed session</div>
+            <h2>{name}</h2>
+            <div class='sub'>{date_txt} · {html.escape(duration)} · {len(exercises)} exercises tracked</div>
+          </div>
+          <div class='strength-kpi-grid'>{''.join(kpis)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    render_strength_ai_feedback(overview, strength_summary, coach_memory=coach_memory)
+
+    left, right = st.columns([1.15, 0.85], gap="medium")
+    with left:
+        with st.container(border=True):
+            st.markdown("#### Session trend")
+            rows = overview.get("trend_rows") or []
+            if rows:
+                st.plotly_chart(strength_trend_chart(rows), use_container_width=True)
+                basis = trend.get("basis")
+                if basis:
+                    st.caption(basis)
+            else:
+                st.caption("Log a few sessions to see volume and top-estimated-1RM trends.")
+
+        with st.container(border=True):
+            st.markdown("#### Latest exercises")
+            if not exercises:
+                st.caption("No completed working sets were saved for the latest session.")
+            else:
+                table_rows = [
+                    "<div class='strength-row head'><span>Exercise</span><span>Sets</span><span>Volume</span><span>Best</span><span>PR</span></div>"
+                ]
+                for row in exercises[:8]:
+                    pr = "<span class='strength-pr'>PR</span>" if row.get("is_pr") else ""
+                    table_rows.append(
+                        "<div class='strength-row'>"
+                        f"<span class='name'>{html.escape(str(row.get('name') or 'Exercise'))}</span>"
+                        f"<span class='num'>{fmt_num(row.get('working_sets'), 0)}</span>"
+                        f"<span class='num'>{fmt_num(row.get('volume_kg'), 0, ' kg')}</span>"
+                        f"<span class='num'>{html.escape(str(row.get('best_set') or '-'))}</span>"
+                        f"<span>{pr}</span></div>"
+                    )
+                st.markdown("<div class='strength-table'>" + "".join(table_rows) + "</div>", unsafe_allow_html=True)
+
+    with right:
+        with st.container(border=True):
+            st.markdown("#### Recent PRs")
+            latest_prs = [p for p in prs if p.get("latest_session")]
+            visible_prs = latest_prs or prs[-5:]
+            if visible_prs:
+                for pr in reversed(visible_prs[-5:]):
+                    marker = "latest" if pr.get("latest_session") else pr.get("date")
+                    st.markdown(
+                        f"**{pr.get('exercise')}** - {fmt_num(pr.get('est_1rm_kg'), 1, ' kg')}  \n"
+                        f"<span style='color:{cockpit.TEXT_FAINT};font-size:12px'>{html.escape(str(marker))}</span>",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.caption("No PRs detected yet.")
+
+        with st.container(border=True):
+            st.markdown("#### Strength profile")
+            standards = (strength_summary or {}).get("standards") or {}
+            recent = (strength_summary or {}).get("recent") or {}
+            readiness = (strength_summary or {}).get("readiness_link") or {}
+            if standards.get("overall"):
+                st.metric("Standards", standards["overall"].get("level"), f"~{standards['overall'].get('percentile')} pct")
+            else:
+                st.caption(f"Standards: {standards.get('status', 'learning')}")
+            st.metric("28d tonnage", fmt_num(recent.get("tonnage_kg"), 0, " kg"), f"{recent.get('sessions_per_week', 0)} sessions/wk")
+            st.caption(readiness.get("insight") or f"Readiness link: {readiness.get('status', 'learning')}")
+
+
+def render_history_exercise_rollup(rows):
+    if rows is None or len(rows) == 0:
+        st.caption("No completed working sets for this session.")
+        return
+    table_rows = [
+        "<div class='strength-history-row head'>"
+        "<span>Exercise</span><span>Sets</span><span>Volume</span>"
+        "<span>Best</span><span>Est 1RM</span><span>PR</span></div>"
+    ]
+    for row in rows:
+        pr = "<span class='strength-pr'>PR</span>" if row.get("is_pr") else ""
+        table_rows.append(
+            "<div class='strength-history-row'>"
+            f"<span class='name'>{html.escape(str(row.get('name') or 'Exercise'))}</span>"
+            f"<span class='num'>{fmt_num(row.get('working_sets'), 0)}</span>"
+            f"<span class='num'>{fmt_num(row.get('volume_kg'), 0, ' kg')}</span>"
+            f"<span class='num'>{html.escape(str(row.get('best_set') or '-'))}</span>"
+            f"<span class='num'>{fmt_num(row.get('best_est_1rm_kg'), 1, ' kg')}</span>"
+            f"<span>{pr}</span></div>"
+        )
+    st.markdown(
+        "<div class='strength-history-rollup'>" + "".join(table_rows) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_strength_momentum_panel(momentum: dict):
+    momentum = momentum or {}
+    if momentum.get("status") in (None, "no_data"):
+        st.caption("Log completed working sets to classify exercise momentum.")
+        return
+    categories = momentum.get("categories") or {}
+    summary = momentum.get("summary") or {}
+    order = [
+        ("progressing", "Progressing", cockpit.SERIES2),
+        ("flat", "Flat", cockpit.AMBER),
+        ("regressing", "Regressing", cockpit.RED),
+        ("undertrained", "Undertrained areas", cockpit.TEXT_FAINT),
+    ]
+    count_html = []
+    for key, label, color in order:
+        count_html.append(
+            "<div class='strength-momentum-count'>"
+            f"<div class='lab' style='color:{color}'>{html.escape(label)}</div>"
+            f"<div class='val'>{int(summary.get(key) or 0)}</div></div>"
+        )
+    st.markdown(
+        "<div class='strength-momentum-counts'>" + "".join(count_html) + "</div>",
+        unsafe_allow_html=True,
+    )
+    if momentum.get("status") == "learning":
+        st.caption("No clear momentum flags yet.")
+        return
+    for key, label, color in order:
+        items = categories.get(key) or []
+        if not items:
+            continue
+        rows = [
+            f"<div class='strength-momentum-title' style='color:{color}'>{html.escape(label)}</div>"
+        ]
+        for item in items[:6]:
+            if key == "undertrained":
+                change = f"{int(item.get('days_since') or 0)}d"
+                metric = f"{int(item.get('recent_working_sets') or 0)} sets"
+            elif key == "flat":
+                change = fmt_num(item.get("delta_pct"), 1, "%")
+                metric = fmt_num(item.get("last_best_est_1rm_kg"), 1, " kg")
+            else:
+                change = fmt_signed(item.get("delta_pct"), 1, "%")
+                metric = fmt_num(item.get("last_best_est_1rm_kg"), 1, " kg")
+            rows.append(
+                "<div class='strength-momentum-row'>"
+                f"<span class='name'>{html.escape(str(item.get('name') or 'Exercise'))}</span>"
+                f"<span class='num'>{html.escape(metric)}</span>"
+                f"<span class='num' style='color:{color}'>{html.escape(change)}</span>"
+                f"<span class='note'>{html.escape(str(item.get('note') or ''))}</span>"
+                "</div>"
+            )
+        st.markdown(
+            "<div class='strength-momentum-section'>" + "".join(rows) + "</div>",
+            unsafe_allow_html=True,
+        )
+    if momentum.get("as_of"):
+        st.caption(f"Momentum as of {momentum['as_of']}.")
+
+
+def render_best_set_leaderboard(rows, limit: int = 12):
+    if rows is None or len(rows) == 0:
+        st.caption("Log completed working sets to build the best-set leaderboard.")
+        return
+    visible = list(rows)[:max(1, int(limit or 12))]
+    table_rows = [
+        "<div class='strength-leaderboard-row head'>"
+        "<span>#</span><span>Exercise</span><span>Top 1RM</span>"
+        "<span>Best set</span><span>Heaviest</span><span>Recent</span><span>Last PR</span></div>"
+    ]
+    for idx, row in enumerate(visible, start=1):
+        table_rows.append(
+            "<div class='strength-leaderboard-row'>"
+            f"<span class='rank'>{idx}</span>"
+            f"<span class='name'>{html.escape(str(row.get('name') or 'Exercise'))}</span>"
+            f"<span class='num'>{fmt_num(row.get('best_est_1rm_kg'), 1, ' kg')}</span>"
+            f"<span class='num'>{html.escape(str(row.get('best_est_1rm_set') or '-'))}</span>"
+            f"<span class='num'>{html.escape(str(row.get('heaviest_set') or '-'))}</span>"
+            f"<span class='num'>{fmt_num(row.get('recent_best_est_1rm_kg'), 1, ' kg')}</span>"
+            f"<span class='num'>{html.escape(str(row.get('last_pr_date') or '-'))}</span>"
+            "</div>"
+        )
+    st.markdown(
+        "<div class='strength-leaderboard'>" + "".join(table_rows) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ── page ──────────────────────────────────────────────────────────────────────
-st.title("🏋️ Strength")
+st.markdown(
+    "<div class='strength-page-head'><div><div class='strength-page-title'>Strength</div>"
+    "<div class='strength-page-sub'>Recent session, trends, recovery context, and coach feedback.</div></div></div>",
+    unsafe_allow_html=True,
+)
 
 catalog = load_catalog()
 
-tab_log, tab_history, tab_insights, tab_body = st.tabs(
-    ["Log workout", "History", "Insights", "Bodyweight"])
+tab_overview, tab_log, tab_history, tab_insights, tab_body = st.tabs(
+    ["Overview", "Log workout", "History", "Insights", "Bodyweight"])
+
+with tab_overview:
+    sessions = db.load_strength_sessions_df()
+    sets = db.load_strength_sets_df()
+    if not sessions.empty:
+        bodyweight = resolve_bodyweight(today_str())
+        verdict, _readiness = todays_recovery_verdict(today_str())
+        overview = analysis.compute_strength_recent_overview(
+            sessions, sets, catalog, config.ONE_RM_FORMULA
+        )
+        strength_summary = analysis.summarize_strength(
+            sessions, sets, catalog, db.load_profile(), bodyweight,
+            formula=config.ONE_RM_FORMULA, verdict=verdict,
+        )
+        memory_digest = coach_memory_digest()
+        render_strength_overview(
+            overview, strength_summary, coach_memory=memory_digest)
+        render_strength_memory_panel(
+            strength_memory_context(
+                sessions,
+                sets,
+                catalog,
+                bodyweight,
+                verdict=verdict,
+                overview=overview,
+                strength_summary=strength_summary,
+            ),
+            existing_memory=memory_digest,
+        )
+    else:
+        st.info("No completed strength sessions yet. Start a workout from the Log workout tab.")
 
 with tab_history:
     st.subheader("History")
@@ -459,64 +1129,159 @@ with tab_history:
     if sessions.empty:
         st.info("No workouts logged yet.")
     else:
-        summaries = analysis.summarize_sessions(sessions, sets, catalog,
-                                                config.ONE_RM_FORMULA)
-        sm = {r["session_id"]: r for _, r in summaries.iterrows()}
-        for _, sess in sessions.sort_values("date", ascending=False).iterrows():
-            session_id = str(sess["session_id"])
-            summ = sm.get(sess["session_id"], {})
-            st.markdown(cockpit.strength_session_card(dict(sess), dict(summ)),
-                        unsafe_allow_html=True)
-            snap = {k: sess.get(k) for k in (
-                "readiness_score", "readiness_level", "hrv_status",
-                "body_battery_start")}
-            st.markdown(cockpit.strength_readiness_badge(snap),
-                        unsafe_allow_html=True)
-            with st.expander("Sets"):
-                ssets = sets[sets["session_id"] == sess["session_id"]]
-                if ssets.empty:
-                    st.caption("No sets.")
-                else:
-                    named = ssets.merge(
-                        catalog[["exercise_id", "name"]], on="exercise_id",
-                        how="left")
-                    st.table(named[["name", "set_index", "side", "reps",
-                                    "weight_kg", "rpe", "is_warmup",
-                                    "completed"]])
-            with st.expander("Delete workout"):
-                st.caption("This removes the saved workout and all of its sets.")
-                label = f"{sess.get('date')} — {sess.get('name') or 'Workout'}"
-                confirmed = st.checkbox(
-                    f"Delete {label}",
-                    key=f"confirm_delete_workout_{session_id}",
-                )
-                if st.button(
-                    "Delete workout",
-                    key=f"delete_workout_{session_id}",
-                    disabled=not confirmed,
-                ):
-                    db.delete_strength_session(session_id)
-                    st.cache_data.clear()
-                    st.success("Workout deleted.")
-                    st.rerun()
-            st.write("")
+        date_values = pd.to_datetime(sessions.get("date"), errors="coerce").dropna()
+        start_filter = end_filter = None
+        workout_filter = None
+        exercise_filter = None
+        query_filter = ""
+        pr_only = False
 
-        st.divider()
-        st.subheader("Estimated 1RM progress")
-        prs = analysis.compute_pr_timeline(sets, sessions, catalog,
-                                           config.ONE_RM_FORMULA)
-        if prs.empty:
-            st.caption("Log a few working sets to see 1RM trends.")
+        with st.container(border=True):
+            dcol, wcol, ecol = st.columns([1.25, 1, 1], gap="medium")
+            if not date_values.empty:
+                min_day = date_values.min().date()
+                max_day = date_values.max().date()
+                picked = dcol.date_input(
+                    "Date range",
+                    value=(min_day, max_day),
+                    min_value=min_day,
+                    max_value=max_day,
+                    key="strength_history_date_range",
+                )
+                if isinstance(picked, (list, tuple)):
+                    if len(picked) >= 2:
+                        start_filter, end_filter = picked[0], picked[1]
+                    elif len(picked) == 1:
+                        start_filter = end_filter = picked[0]
+                elif picked:
+                    start_filter = end_filter = picked
+            else:
+                dcol.caption("No valid session dates.")
+
+            workout_names = []
+            if "name" in sessions.columns:
+                workout_names = sorted({
+                    str(name).strip()
+                    for name in sessions["name"].dropna()
+                    if str(name).strip()
+                })
+            workout_label = wcol.selectbox(
+                "Workout",
+                ["All workouts"] + workout_names,
+                key="strength_history_workout_filter",
+            )
+            if workout_label != "All workouts":
+                workout_filter = workout_label
+
+            name_map = (
+                dict(zip(catalog["exercise_id"], catalog["name"]))
+                if catalog is not None and not catalog.empty and "name" in catalog.columns
+                else {}
+            )
+            used_ids = []
+            if sets is not None and not sets.empty and "exercise_id" in sets.columns:
+                used_ids = [ex_id for ex_id in sets["exercise_id"].dropna().unique()]
+            exercise_options = {"All exercises": None}
+            for ex_id in sorted(used_ids, key=lambda value: str(name_map.get(value, value)).lower()):
+                exercise_options[str(name_map.get(ex_id, ex_id))] = ex_id
+            exercise_label = ecol.selectbox(
+                "Exercise",
+                list(exercise_options.keys()),
+                key="strength_history_exercise_filter",
+            )
+            exercise_filter = exercise_options.get(exercise_label)
+
+            qcol, pcol = st.columns([3, 1], gap="medium")
+            query_filter = qcol.text_input(
+                "Search",
+                placeholder="Workout, date, or exercise",
+                key="strength_history_search",
+            )
+            pr_only = pcol.checkbox("PR only", key="strength_history_pr_only")
+
+        filtered_sessions = analysis.filter_strength_history_sessions(
+            sessions,
+            sets,
+            catalog,
+            start_date=start_filter,
+            end_date=end_filter,
+            exercise_id=exercise_filter,
+            workout_name=workout_filter,
+            query=query_filter,
+            pr_only=pr_only,
+            formula=config.ONE_RM_FORMULA,
+        )
+        if filtered_sessions.empty:
+            st.info("No strength sessions match the current filters.")
         else:
-            id_to_name = dict(zip(catalog["exercise_id"], catalog["name"])) \
-                if not catalog.empty else {}
-            ex_ids = list(prs["exercise_id"].unique())
-            choices = {id_to_name.get(i, i): i for i in ex_ids}
-            label = st.selectbox("Exercise", list(choices.keys()))
-            ex_id = choices[label]
-            fig = cockpit.strength_onerm_trend(
-                prs[prs["exercise_id"] == ex_id], label)
-            st.plotly_chart(fig, use_container_width=True)
+            st.caption(f"Showing {len(filtered_sessions)} of {len(sessions)} sessions.")
+
+            summaries = analysis.summarize_sessions(sessions, sets, catalog,
+                                                    config.ONE_RM_FORMULA)
+            sm = {r["session_id"]: r for _, r in summaries.iterrows()}
+            exercise_rollups = analysis.summarize_session_exercises(
+                sessions, sets, catalog, config.ONE_RM_FORMULA
+            )
+            rollups_by_session = {}
+            if not exercise_rollups.empty:
+                for sid, grp in exercise_rollups.groupby("session_id", sort=False):
+                    rollups_by_session[str(sid)] = grp.to_dict("records")
+            for _, sess in filtered_sessions.sort_values("date", ascending=False).iterrows():
+                session_id = str(sess["session_id"])
+                summ = sm.get(sess["session_id"], {})
+                st.markdown(cockpit.strength_session_card(dict(sess), dict(summ)),
+                            unsafe_allow_html=True)
+                snap = {k: sess.get(k) for k in (
+                    "readiness_score", "readiness_level", "hrv_status",
+                    "body_battery_start")}
+                st.markdown(cockpit.strength_readiness_badge(snap),
+                            unsafe_allow_html=True)
+                render_history_exercise_rollup(rollups_by_session.get(session_id, []))
+                with st.expander("Raw sets"):
+                    ssets = sets[sets["session_id"] == sess["session_id"]]
+                    if ssets.empty:
+                        st.caption("No sets.")
+                    else:
+                        named = ssets.merge(
+                            catalog[["exercise_id", "name"]], on="exercise_id",
+                            how="left")
+                        st.table(named[["name", "set_index", "side", "reps",
+                                        "weight_kg", "rpe", "is_warmup",
+                                        "completed"]])
+                with st.expander("Delete workout"):
+                    st.caption("This removes the saved workout and all of its sets.")
+                    label = f"{sess.get('date')} — {sess.get('name') or 'Workout'}"
+                    confirmed = st.checkbox(
+                        f"Delete {label}",
+                        key=f"confirm_delete_workout_{session_id}",
+                    )
+                    if st.button(
+                        "Delete workout",
+                        key=f"delete_workout_{session_id}",
+                        disabled=not confirmed,
+                    ):
+                        db.delete_strength_session(session_id)
+                        st.cache_data.clear()
+                        st.success("Workout deleted.")
+                        st.rerun()
+                st.write("")
+
+            st.divider()
+            st.subheader("Estimated 1RM progress")
+            prs = analysis.compute_pr_timeline(sets, sessions, catalog,
+                                               config.ONE_RM_FORMULA)
+            if prs.empty:
+                st.caption("Log a few working sets to see 1RM trends.")
+            else:
+                id_to_name = dict(zip(catalog["exercise_id"], catalog["name"])) \
+                    if not catalog.empty else {}
+                ex_ids = list(prs["exercise_id"].unique())
+                choices = {id_to_name.get(i, i): i for i in ex_ids}
+                label = st.selectbox("Exercise", list(choices.keys()))
+                ex_id = choices[label]
+                fig = cockpit.strength_onerm_trend(
+                    prs[prs["exercise_id"] == ex_id], label)
+                st.plotly_chart(fig, use_container_width=True)
 
 with tab_insights:
     st.subheader("Insights")
@@ -531,6 +1296,101 @@ with tab_insights:
         best_map = (prs.groupby("exercise_id")["best_est_1rm_kg"].max().to_dict()
                     if not prs.empty else {})
 
+        st.markdown("##### Weekly strength load")
+        with st.container(border=True):
+            lcol, mcol, wcol = st.columns([1.25, 1, 0.75], gap="medium")
+            group_label = lcol.selectbox(
+                "Group by",
+                ["Training pattern", "Primary muscle"],
+                key="strength_weekly_load_group",
+            )
+            metric_label = mcol.selectbox(
+                "Metric",
+                ["Volume", "Working sets"],
+                key="strength_weekly_load_metric",
+            )
+            weeks = wcol.selectbox(
+                "Weeks",
+                [8, 12, 16, 24],
+                index=1,
+                key="strength_weekly_load_weeks",
+            )
+            group_mode = "muscle" if group_label == "Primary muscle" else "pattern"
+            metric = "working_sets" if metric_label == "Working sets" else "total_volume_kg"
+            load_rows = analysis.compute_weekly_strength_load(
+                sessions,
+                sets,
+                catalog,
+                formula=config.ONE_RM_FORMULA,
+                weeks=int(weeks),
+                group_by=group_mode,
+            )
+            if load_rows.empty:
+                st.caption("Log completed working sets to see weekly strength load.")
+            else:
+                st.plotly_chart(
+                    weekly_strength_load_chart(load_rows.to_dict("records"), metric),
+                    use_container_width=True,
+                )
+                latest_week = load_rows["week_start"].max()
+                recent_load = load_rows[load_rows["week_start"] == latest_week].copy()
+                if not recent_load.empty:
+                    total = recent_load[metric].sum()
+                    top = recent_load.sort_values(metric, ascending=False).iloc[0]
+                    unit = "sets" if metric == "working_sets" else "kg"
+                    st.caption(
+                        f"Latest week {latest_week}: {fmt_num(total, 0, ' ' + unit)} total, "
+                        f"largest bucket {top['group']}."
+                    )
+
+        st.divider()
+        st.markdown("##### Plateau and momentum")
+        with st.container(border=True):
+            momentum = analysis.compute_strength_momentum_flags(
+                sessions,
+                sets,
+                catalog,
+                formula=config.ONE_RM_FORMULA,
+            )
+            render_strength_momentum_panel(momentum)
+
+        st.divider()
+        st.markdown("##### Best set leaderboard")
+        with st.container(border=True):
+            sort_col, limit_col = st.columns([1.4, .7], gap="medium")
+            sort_label = sort_col.selectbox(
+                "Rank by",
+                ["Estimated 1RM", "Heaviest load", "Set volume", "Recent 90d 1RM"],
+                key="strength_best_set_rank_by",
+            )
+            limit_label = limit_col.selectbox(
+                "Rows",
+                [10, 20, 50],
+                key="strength_best_set_limit",
+            )
+            leaderboard = analysis.compute_strength_best_set_leaderboard(
+                sessions,
+                sets,
+                catalog,
+                formula=config.ONE_RM_FORMULA,
+                recent_days=90,
+            )
+            if leaderboard.empty:
+                st.caption("Log completed working sets to build the best-set leaderboard.")
+            else:
+                sort_map = {
+                    "Estimated 1RM": "best_est_1rm_kg",
+                    "Heaviest load": "heaviest_load_kg",
+                    "Set volume": "best_volume_kg",
+                    "Recent 90d 1RM": "recent_best_est_1rm_kg",
+                }
+                metric = sort_map.get(sort_label, "best_est_1rm_kg")
+                leaderboard = leaderboard.copy()
+                leaderboard[metric] = pd.to_numeric(leaderboard[metric], errors="coerce")
+                leaderboard = leaderboard.sort_values(metric, ascending=False, na_position="last")
+                render_best_set_leaderboard(leaderboard.to_dict("records"), int(limit_label))
+
+        st.divider()
         st.markdown("##### Strength standards")
         standards = analysis.compute_strength_standards(best_map, profile, bodyweight)
         st.markdown(cockpit.strength_standards_panel(standards), unsafe_allow_html=True)
@@ -680,7 +1540,12 @@ with tab_log:
                 db.load_strength_sessions_df(), db.load_strength_sets_df(), catalog,
                 db.load_profile(), resolve_bodyweight(active["date"]),
                 formula=config.ONE_RM_FORMULA, verdict=verdict)
-            st.session_state[note_key] = ai.coach_session_note(strength_summary, verdict, plan)
+            st.session_state[note_key] = ai.coach_session_note(
+                strength_summary,
+                verdict,
+                plan,
+                coach_memory=coach_memory_digest(),
+            )
         if st.session_state.get(note_key):
             cols[0].caption("🧠 " + st.session_state[note_key])
 
