@@ -20,6 +20,32 @@ ai = importlib.reload(ai)
 analysis = importlib.reload(analysis)
 cockpit = importlib.reload(cockpit)
 
+st.markdown(
+    """
+    <style>
+    .sleep-metric{
+      border:1px solid var(--border);border-radius:var(--r-lg);
+      padding:26px 28px 28px;background:rgba(255,255,255,.015);
+      min-height:180px;display:flex;flex-direction:column;justify-content:flex-start;
+    }
+    .sleep-metric .lab{
+      font-family:var(--font-mono);font-size:10px;letter-spacing:.16em;
+      text-transform:uppercase;color:var(--text-faint);font-weight:500;
+    }
+    .sleep-metric .val{
+      font-family:var(--font-serif);font-size:40px;font-weight:400;
+      font-variant-numeric:tabular-nums;margin-top:24px;line-height:1;
+    }
+    .sleep-metric .sub{
+      font-size:13px;color:var(--text-dim);margin-top:24px;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
+    .sleep-overview-spacer{height:22px;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 @st.cache_data(ttl=300)
 def load(local_timezone: str):
@@ -80,12 +106,11 @@ def chart_card(title, unit, fig):
 
 
 def metric_panel(label: str, value: str, sub: str = ""):
-    with st.container(border=True):
-        st.markdown(
-            f'<div class="early-stat"><div class="lab">{label}</div>'
-            f'<div class="val">{value}</div><div class="sub">{sub}</div></div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f'<div class="sleep-metric"><div class="lab">{label}</div>'
+        f'<div class="val">{value}</div><div class="sub">{sub}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def sleep_prediction_panel(model: dict):
@@ -442,8 +467,8 @@ if st.session_state.get("sleep_chat_day") != sleep_day:
 if "sleep_chat" not in st.session_state:
     st.session_state.sleep_chat = [{"role": "assistant", "content": daily_message}]
 
-overview_tab, recovery_tab, physiology_tab, coach_tab = st.tabs(
-    ["Overview", "Early for Recovery", "Physiology & Timing", "Coach"]
+overview_tab, prediction_tab, recovery_tab, physiology_tab, coach_tab = st.tabs(
+    ["Overview", "Prediction", "Early for Recovery", "Physiology & Timing", "Coach"]
 )
 
 with coach_tab:
@@ -517,6 +542,27 @@ with overview_tab:
         )
         metric_panel("Weekly sleep score", weekly_label, "latest rolling week")
 
+    st.markdown('<div class="sleep-overview-spacer"></div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        chart_card("Sleep duration", f"target {sleep_need:.1f}h", cockpit.chart_sleep(view, sleep_need))
+        if personal_sleep_need.get("source") != "personal_recovery_nights":
+            st.caption(personal_sleep_need.get("message", "Learning personal sleep need."))
+    with c2:
+        if weekly_sleep.get("status") == "ready":
+            sleep_meta = _week_label(weekly_sleep["week_start"], weekly_sleep["week_end"])
+            if weekly_sleep.get("mean") is not None:
+                sleep_meta += f" - avg {weekly_sleep['mean']:.0f}"
+            if weekly_sleep.get("std") is not None:
+                sleep_meta += f" - SD {weekly_sleep['std']:.1f}"
+            chart_card("Weekly sleep score", sleep_meta, cockpit.chart_weekly_sleep_score(weekly_sleep))
+            if weekly_sleep.get("days_with_data", 0) < 2:
+                st.caption("Only one sleep score is synced for this week so far.")
+        else:
+            st.caption("No sleep scores are synced for the latest week yet.")
+
+with prediction_tab:
     target_sleep_date = _next_sleep_date(latest)
     latest_load = _latest_cardio_load(acts, latest["date"])
     battery_default = _float_or_none(latest.get("body_battery_current"))
@@ -580,24 +626,6 @@ with overview_tab:
         planned_bedtime=bedtime_input,
     )
     sleep_prediction_panel(prebed_prediction)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        chart_card("Sleep duration", f"target {sleep_need:.1f}h", cockpit.chart_sleep(view, sleep_need))
-        if personal_sleep_need.get("source") != "personal_recovery_nights":
-            st.caption(personal_sleep_need.get("message", "Learning personal sleep need."))
-    with c2:
-        if weekly_sleep.get("status") == "ready":
-            sleep_meta = _week_label(weekly_sleep["week_start"], weekly_sleep["week_end"])
-            if weekly_sleep.get("mean") is not None:
-                sleep_meta += f" - avg {weekly_sleep['mean']:.0f}"
-            if weekly_sleep.get("std") is not None:
-                sleep_meta += f" - SD {weekly_sleep['std']:.1f}"
-            chart_card("Weekly sleep score", sleep_meta, cockpit.chart_weekly_sleep_score(weekly_sleep))
-            if weekly_sleep.get("days_with_data", 0) < 2:
-                st.caption("Only one sleep score is synced for this week so far.")
-        else:
-            st.caption("No sleep scores are synced for the latest week yet.")
 
     if recommended_bedtime.get("status") == "ready":
         with st.container(border=True):

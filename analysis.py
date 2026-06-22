@@ -2819,6 +2819,7 @@ def compute_strength_recent_overview(
     exercises_df,
     formula="epley",
     trend_sessions: int = 8,
+    trend_gap_days: int | None = None,
 ) -> dict:
     """Recent-session cockpit for the strength page.
 
@@ -2868,10 +2869,15 @@ def compute_strength_recent_overview(
         "recovery_score": _round_or_none(latest.get("recovery_score"), 0),
         "recovery_zone": _clean_strength_scalar(latest.get("recovery_zone")),
         "readiness_score": _round_or_none(latest.get("readiness_score"), 0),
+        "garmin_readiness_score": _round_or_none(latest.get("garmin_readiness_score"), 0),
         "readiness_level": _clean_strength_scalar(latest.get("readiness_level")),
         "sleep_score": _round_or_none(latest.get("sleep_score"), 0),
         "hrv_overnight_avg": _round_or_none(latest.get("hrv_overnight_avg"), 0),
         "resting_hr": _round_or_none(latest.get("resting_hr"), 0),
+        "garmin_avg_hr": _round_or_none(latest.get("garmin_avg_hr"), 0),
+        "garmin_max_hr": _round_or_none(latest.get("garmin_max_hr"), 0),
+        "garmin_training_load": _round_or_none(latest.get("garmin_training_load"), 0),
+        "garmin_activity_id": _clean_strength_scalar(latest.get("garmin_activity_id")),
     }
 
     pr = compute_pr_timeline(sets_df, sessions_df, exercises_df, formula)
@@ -2918,9 +2924,11 @@ def compute_strength_recent_overview(
     trend = {}
     if not summaries.empty:
         s = summaries.merge(
-            sessions[["session_id", "date_dt", "name"]], on="session_id", how="left"
-        ).sort_values(["date_dt", "session_id"])
-        s = s.tail(max(1, int(trend_sessions or 8))).copy()
+            sessions[["session_id", "date_dt", "started_at_dt", "name"]], on="session_id", how="left"
+        ).sort_values(["date_dt", "started_at_dt", "session_id"], na_position="first")
+        s = s.tail(max(1, int(trend_sessions or 8))).reset_index(drop=True).copy()
+        gap_days = config.STRENGTH_TREND_GAP_DAYS if trend_gap_days is None else trend_gap_days
+        s = _trim_strength_trend_after_gap(s, gap_days)
         for _, row in s.iterrows():
             trend_rows.append({
                 "session_id": str(row.get("session_id")),
@@ -2934,6 +2942,8 @@ def compute_strength_recent_overview(
         prior = s[s["session_id"] != latest_sid].tail(3)
         if not latest_row.empty and not prior.empty:
             lr = latest_row.iloc[-1]
+            prior_count = int(len(prior))
+            prior_label = "session" if prior_count == 1 else "sessions"
             prior_volume = _first_number(pd.to_numeric(prior["total_volume_kg"], errors="coerce").mean())
             prior_sets = _first_number(pd.to_numeric(prior["working_sets"], errors="coerce").mean())
             prior_top = _first_number(pd.to_numeric(prior["top_est_1rm_kg"], errors="coerce").mean())
@@ -2941,7 +2951,7 @@ def compute_strength_recent_overview(
             latest_sets = _first_number(lr.get("working_sets"))
             latest_top = _first_number(lr.get("top_est_1rm_kg"))
             trend = {
-                "basis": f"latest vs prior {int(len(prior))} sessions",
+                "basis": f"latest vs prior {prior_count} {prior_label}",
                 "volume_delta_pct": (
                     _round_or_none((latest_volume - prior_volume) / prior_volume * 100.0, 1)
                     if latest_volume is not None and prior_volume not in (None, 0) else None
@@ -2982,6 +2992,24 @@ def compute_strength_recent_overview(
         "trend": trend,
         "recent_prs": recent_prs,
     }
+
+
+def _trim_strength_trend_after_gap(rows: pd.DataFrame, gap_days: int | None) -> pd.DataFrame:
+    if rows is None or rows.empty or len(rows) < 2:
+        return rows
+    try:
+        threshold = int(gap_days)
+    except (TypeError, ValueError):
+        return rows
+    if threshold <= 0 or "date_dt" not in rows:
+        return rows
+
+    dates = pd.to_datetime(rows["date_dt"], errors="coerce")
+    gaps = dates.diff().dt.days
+    long_gap_positions = list(gaps[gaps > threshold].index)
+    if not long_gap_positions:
+        return rows
+    return rows.iloc[int(long_gap_positions[-1]):].reset_index(drop=True).copy()
 
 
 def _strength_set_label(row) -> str | None:
@@ -3736,6 +3764,7 @@ def readiness_snapshot_from_daily(daily_row):
 
     return {
         "readiness_score": g("training_readiness_score"),
+        "garmin_readiness_score": g("training_readiness_score"),
         "readiness_level": g("training_readiness_level"),
         "hrv_status": g("hrv_status"),
         "hrv_overnight_avg": g("hrv_overnight_avg"),
@@ -3744,6 +3773,200 @@ def readiness_snapshot_from_daily(daily_row):
         "resting_hr": g("resting_hr"),
         "acwr": g("acwr"),
     }
+
+
+def merge_strength_session_context(
+    sessions_df,
+    activities_df=None,
+    daily_df=None,
+) -> pd.DataFrame:
+    """Attach Garmin/daily context to logged strength sessions.
+
+    The strength logger/Hevy import owns sets and tonnage. Garmin owns same-day
+    activity summaries such as HR/load, while daily_metrics owns readiness/HRV.
+    This function merges those compact summaries without copying raw payloads.
+    Existing stored session snapshots win; missing fields are filled from the
+    matching daily row.
+    """
+    if sessions_df is None:
+        return pd.DataFrame()
+    out = sessions_df.copy()
+    if out.empty:
+        return out
+
+    snapshot_cols = [
+        "readiness_score", "readiness_level", "hrv_status",
+        "hrv_overnight_avg", "body_battery_start", "sleep_score",
+        "resting_hr", "acwr", "recovery_score", "recovery_zone",
+        "garmin_readiness_score",
+    ]
+    garmin_cols = [
+        "garmin_activity_id", "garmin_activity_name", "garmin_activity_type",
+        "garmin_duration_s", "garmin_avg_hr", "garmin_max_hr",
+        "garmin_training_load", "garmin_aerobic_te", "garmin_anaerobic_te",
+    ]
+    for col in snapshot_cols + garmin_cols:
+        if col not in out.columns:
+            out[col] = None
+
+    daily = _strength_daily_context(daily_df)
+    if daily is not None and not daily.empty:
+        daily_by_day = {
+            row["_date_key"]: row
+            for _, row in daily.drop_duplicates("_date_key", keep="last").iterrows()
+        }
+        for idx, row in out.iterrows():
+            day = _date_key(row.get("date"))
+            daily_row = daily_by_day.get(day)
+            if daily_row is None:
+                continue
+            snap = readiness_snapshot_from_daily(daily_row)
+            for key, value in snap.items():
+                if _is_missing_strength_context(out.at[idx, key]) and not _is_missing_strength_context(value):
+                    out.at[idx, key] = value
+            recovery = recovery_readiness(daily, as_of=day)
+            if recovery.get("status") != "no_data":
+                if _is_missing_strength_context(out.at[idx, "recovery_score"]):
+                    out.at[idx, "recovery_score"] = recovery.get("value")
+                if _is_missing_strength_context(out.at[idx, "recovery_zone"]):
+                    out.at[idx, "recovery_zone"] = recovery.get("zone")
+
+    matches = _match_strength_activities(out, activities_df)
+    for idx, activity in matches.items():
+        out.at[idx, "garmin_activity_id"] = _clean_strength_scalar(activity.get("activity_id"))
+        out.at[idx, "garmin_activity_name"] = _clean_strength_scalar(activity.get("name"))
+        out.at[idx, "garmin_activity_type"] = _clean_strength_scalar(activity.get("type"))
+        out.at[idx, "garmin_duration_s"] = _round_or_none(activity.get("duration_s"), 0)
+        out.at[idx, "garmin_avg_hr"] = _round_or_none(activity.get("avg_hr"), 0)
+        out.at[idx, "garmin_max_hr"] = _round_or_none(activity.get("max_hr"), 0)
+        out.at[idx, "garmin_training_load"] = _round_or_none(activity.get("training_load"), 0)
+        out.at[idx, "garmin_aerobic_te"] = _round_or_none(activity.get("aerobic_te"), 1)
+        out.at[idx, "garmin_anaerobic_te"] = _round_or_none(activity.get("anaerobic_te"), 1)
+
+    return out
+
+
+def _strength_daily_context(daily_df):
+    if daily_df is None or getattr(daily_df, "empty", True) or "date" not in daily_df:
+        return None
+    daily = daily_df.copy()
+    daily["_date_key"] = daily["date"].map(_date_key)
+    daily = daily.dropna(subset=["_date_key"])
+    return daily
+
+
+def _date_key(value) -> str | None:
+    if value is None:
+        return None
+    try:
+        ts = pd.to_datetime(value, errors="coerce")
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.strftime("%Y-%m-%d")
+
+
+def _is_missing_strength_context(value) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        return value.strip().lower() in {"", "nan", "none", "null"}
+    return False
+
+
+def _match_strength_activities(sessions_df, activities_df) -> dict:
+    if (activities_df is None or getattr(activities_df, "empty", True)
+            or sessions_df is None or sessions_df.empty
+            or "date" not in sessions_df):
+        return {}
+    acts = activities_df.copy()
+    if "date" not in acts:
+        return {}
+    acts["_date_key"] = acts["date"].map(_date_key)
+    acts = acts[acts["_date_key"].notna()]
+    if acts.empty:
+        return {}
+    acts = acts[acts.apply(_is_garmin_strength_activity, axis=1)]
+    if acts.empty:
+        return {}
+
+    if "activity_id" in acts:
+        activity_by_id = {
+            str(row["activity_id"]): idx
+            for idx, row in acts.dropna(subset=["activity_id"]).iterrows()
+        }
+    else:
+        activity_by_id = {}
+    matches = {}
+    used_sessions = set()
+    used_activities = set()
+    if "garmin_activity_id" in sessions_df:
+        for sidx, row in sessions_df.iterrows():
+            activity_id = row.get("garmin_activity_id")
+            if _is_missing_strength_context(activity_id):
+                continue
+            aidx = activity_by_id.get(str(activity_id))
+            if aidx is None:
+                continue
+            matches[sidx] = acts.loc[aidx]
+            used_sessions.add(sidx)
+            used_activities.add(aidx)
+
+    session_days = sessions_df["date"].map(_date_key)
+    for day, session_idx in session_days.dropna().groupby(session_days.dropna()).groups.items():
+        day_acts = acts[acts["_date_key"] == day]
+        if used_activities:
+            day_acts = day_acts[~day_acts.index.isin(used_activities)]
+        if day_acts.empty:
+            continue
+        candidates = []
+        for sidx in session_idx:
+            if sidx in used_sessions:
+                continue
+            session_duration = _strength_session_duration_s(sessions_df.loc[sidx])
+            for aidx, act in day_acts.iterrows():
+                act_duration = _first_number(act.get("duration_s"))
+                if session_duration is not None and act_duration is not None:
+                    score = abs(session_duration - act_duration)
+                else:
+                    score = 0.0
+                candidates.append((score, str(sidx), str(aidx), sidx, aidx))
+        for _, _skey, _akey, sidx, aidx in sorted(candidates):
+            if sidx in used_sessions or aidx in used_activities:
+                continue
+            matches[sidx] = day_acts.loc[aidx]
+            used_sessions.add(sidx)
+            used_activities.add(aidx)
+    return matches
+
+
+def _is_garmin_strength_activity(row) -> bool:
+    typ = str(row.get("type") or "").strip().lower()
+    name = str(row.get("name") or "").strip().lower()
+    text = f"{typ} {name}"
+    if "breath" in text:
+        return False
+    return any(term in text for term in (
+        "strength", "strength_training", "weight_training", "weight training",
+        "gym", "styrke",
+    ))
+
+
+def _strength_session_duration_s(row) -> float | None:
+    started = pd.to_datetime(row.get("started_at"), errors="coerce")
+    ended = pd.to_datetime(row.get("ended_at"), errors="coerce")
+    if pd.isna(started) or pd.isna(ended):
+        return None
+    seconds = (ended - started).total_seconds()
+    if seconds < 0:
+        return None
+    return float(seconds)
 
 
 def compute_strength_standards(best_1rm_by_exercise, profile, bodyweight_kg):

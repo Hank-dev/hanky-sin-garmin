@@ -18,6 +18,30 @@ class ChartRenderingTest(unittest.TestCase):
         self.assertIn('style="width:0.0%"', html)
         self.assertIn("TRAIN EASY", html)
 
+    def test_activities_table_humanizes_type_and_uses_fixed_columns(self):
+        acts = pd.DataFrame([{
+            "date": "2026-06-20",
+            "type": "strength_training",
+            "name": "Styrke",
+            "duration_s": 4920,
+            "distance_m": 0,
+            "avg_hr": 125,
+            "max_hr": 167,
+            "training_load": 86,
+            "aerobic_te": 2.6,
+        }])
+
+        out = cockpit.activities_table(acts, limit=25)
+
+        self.assertIn("<colgroup>", out)
+        self.assertIn("Strength training", out)
+        self.assertIn("Styrke", out)
+        self.assertIn("HR avg/max", out)
+        self.assertIn("Volume", out)
+        self.assertIn("Load / TE", out)
+        self.assertNotIn("Distance</th>", out)
+        self.assertNotIn(">strength_training<", out)
+
     def test_hrv_chart_single_point_uses_marker(self):
         view = pd.DataFrame([{
             "date": "2026-06-04",

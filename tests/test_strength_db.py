@@ -36,12 +36,23 @@ def test_seed_is_idempotent_and_preserves_edits():
 def test_session_and_set_upserts_idempotent():
     _fresh_db()
     db.upsert_strength_session({"session_id": "s1", "date": "2026-06-05",
-                                "name": "Push", "bodyweight_kg": 80.0})
+                                "name": "Push", "bodyweight_kg": 80.0,
+                                "source": "hevy", "external_id": "h-1",
+                                "workout_type": "hypertrophy",
+                                "session_rpe": 7.5,
+                                "garmin_activity_id": "g-1",
+                                "garmin_readiness_score": 72})
     db.upsert_strength_session({"session_id": "s1", "date": "2026-06-05",
                                 "name": "Push Day", "bodyweight_kg": 80.0})
     sessions = db.load_strength_sessions_df()
     assert len(sessions) == 1
     assert sessions.iloc[0]["name"] == "Push Day"
+    assert sessions.iloc[0]["source"] == "hevy"
+    assert sessions.iloc[0]["external_id"] == "h-1"
+    assert sessions.iloc[0]["workout_type"] == "hypertrophy"
+    assert sessions.iloc[0]["session_rpe"] == 7.5
+    assert sessions.iloc[0]["garmin_activity_id"] == "g-1"
+    assert sessions.iloc[0]["garmin_readiness_score"] == 72
 
     db.upsert_strength_set({"set_id": "x1", "session_id": "s1",
                             "exercise_id": "bench-press", "position": 0,
@@ -134,7 +145,11 @@ def test_init_db_adds_smart_session_columns(tmp_path, monkeypatch):
     ex_cols = {r[1] for r in conn.execute("PRAGMA table_info(exercises)")}
     se_cols = {r[1] for r in conn.execute("PRAGMA table_info(strength_sessions)")}
     assert {"increment_kg", "target_reps"} <= ex_cols
-    assert {"recovery_score", "recovery_zone"} <= se_cols
+    assert {
+        "recovery_score", "recovery_zone", "source", "external_id",
+        "garmin_activity_id", "workout_type", "session_rpe",
+        "garmin_readiness_score",
+    } <= se_cols
     row = conn.execute(
         "SELECT increment_kg, target_reps FROM exercises WHERE exercise_id='back-squat'"
     ).fetchone()

@@ -30,6 +30,10 @@ SLEEP_NEED_MIN_HOURS = float(os.getenv("SLEEP_NEED_MIN_HOURS", "7.25"))
 # --- Strength training ---
 ONE_RM_FORMULA = os.getenv("ONE_RM_FORMULA", "epley")   # "epley" | "brzycki"
 STRENGTH_UNIT = os.getenv("STRENGTH_UNIT", "kg")
+try:
+    STRENGTH_TREND_GAP_DAYS = int(os.getenv("STRENGTH_TREND_GAP_DAYS", "90"))
+except ValueError:
+    STRENGTH_TREND_GAP_DAYS = 90
 
 
 def _int_or_none(value):

@@ -121,6 +121,20 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .brand .sub{font-family:var(--font-mono);font-size:9px;color:var(--text-faint);letter-spacing:.24em;text-transform:uppercase;}
 .topbar .date{color:var(--text-dim);font-size:13.5px;font-variant-numeric:tabular-nums;}
 .topbar .spacer{flex:1;}
+.st-key-cockpit_header [data-testid="stHorizontalBlock"]{
+  display:grid!important;grid-template-columns:minmax(0,1fr) 42px 42px!important;
+  gap:8px!important;align-items:center!important;}
+.st-key-cockpit_header [data-testid="column"]{width:auto!important;min-width:0!important;}
+.st-key-cockpit_header [data-testid="column"]:nth-child(2),
+.st-key-cockpit_header [data-testid="column"]:nth-child(3){min-width:42px!important;width:42px!important;}
+.st-key-cockpit_header .st-key-sync_btn button,
+.st-key-cockpit_header .st-key-window_btn button{
+  min-width:42px!important;width:42px!important;height:42px!important;min-height:42px!important;
+  padding:0!important;border-radius:var(--r-md)!important;}
+.st-key-cockpit_header .st-key-sync_btn button p,
+.st-key-cockpit_header .st-key-window_btn button p{display:none!important;}
+.st-key-cockpit_header .st-key-sync_btn button [data-testid="stIconMaterial"],
+.st-key-cockpit_header .st-key-window_btn button [data-testid="stIconMaterial"]{margin:0!important;font-size:20px!important;}
 .pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px 6px 10px;border-radius:999px;
   background:var(--surface);border:1px solid var(--border);
   color:var(--text-dim);font-size:12px;font-weight:500;}
@@ -147,11 +161,19 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .section-label::after{content:"";flex:1;height:1px;background:var(--hairline);}
 
 /* ── hero (serif numeric — the volt signature) ─────────────────────── */
-.hero{padding:var(--s6);}
+.hero{padding:var(--s6);margin-top:18px;}
 .hero.hero-numeric{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
   gap:var(--s6);align-items:center;
   background:linear-gradient(180deg,#211F26,#1B1B1F 66%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
+.hero.hero-empty{grid-template-columns:minmax(220px,.58fr) minmax(0,1fr);
+  gap:var(--s5);padding:28px 64px 32px;align-items:end;}
+.hero.hero-empty .num-block{gap:10px;}
+.hero.hero-empty .bignum .score{font-size:clamp(52px,6vw,82px);}
+.hero.hero-empty .bignum .den{font-size:16px;}
+.hero.hero-empty .verdict{gap:var(--s3);}
+.hero.hero-empty .verdict .vbig{font-size:clamp(42px,4.8vw,58px);}
+.hero.hero-empty .verdict .vsub{font-size:20px;max-width:42ch;}
 .num-block{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-faint);}
 .bignum{font-family:var(--font-serif);font-weight:400;line-height:.82;letter-spacing:-.02em;
@@ -270,6 +292,68 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   color:var(--accent);background:color-mix(in srgb,var(--accent) 11%,var(--surface));
   border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);}
 .coach .prompt{color:var(--text-dim);font-size:14.5px;line-height:1.6;max-width:70ch;}
+
+/* ── weekly summary ───────────────────────────────────────────────── */
+.weekly-summary{padding:var(--s5);border-color:var(--border);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0F0D11);}
+.weekly-summary-head{display:flex;align-items:center;justify-content:space-between;
+  gap:var(--s3);margin-bottom:var(--s4);padding-bottom:var(--s3);border-bottom:1px solid var(--hairline);}
+.weekly-summary-meta{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-faint);}
+.weekly-summary .coach-body,.weekly-summary-content .coach-body{gap:var(--s3);}
+.weekly-summary .coach-sec h4,.weekly-summary-content .coach-sec h4{margin-bottom:8px;}
+.weekly-summary .coach-sec p,.weekly-summary-content .coach-sec p{line-height:1.56;}
+.st-key-weekly_summary_card [data-testid="stVerticalBlockBorderWrapper"]{
+  padding:14px 18px 28px!important;border-color:var(--border)!important;
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0F0D11)!important;}
+.st-key-weekly_summary_card [data-testid="stVerticalBlock"]{gap:0!important;}
+.st-key-weekly_summary_card [data-testid="stElementContainer"]{margin:0!important;}
+.st-key-weekly_summary_header{padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--hairline);}
+.st-key-weekly_summary_header [data-testid="stHorizontalBlock"]{align-items:center!important;}
+.st-key-weekly_summary_header [data-testid="stMarkdownContainer"] p{margin:0!important;}
+.st-key-weekly_summary_card [data-testid="stButton"]{display:flex!important;justify-content:flex-end!important;}
+.st-key-weekly_summary_card [data-testid="stButton"]>button,
+.st-key-weekly_summary_card div.stButton>button{
+  width:34px!important;min-width:34px!important;max-width:34px!important;
+  height:34px!important;min-height:34px!important;max-height:34px!important;padding:0!important;
+  border-radius:var(--r-md)!important;background:var(--surface)!important;
+  border:1px solid var(--border)!important;color:var(--text-dim)!important;
+  box-shadow:inset 0 1px 0 var(--inset-hi)!important;filter:none!important;}
+.st-key-weekly_summary_card [data-testid="stButton"]>button:hover,
+.st-key-weekly_summary_card div.stButton>button:hover{
+  background:var(--surface-2)!important;border-color:var(--border-2)!important;color:var(--text)!important;}
+.st-key-weekly_summary_card [data-testid="stButton"]>button p,
+.st-key-weekly_summary_card div.stButton>button p{display:none!important;}
+.st-key-weekly_summary_card [data-testid="stButton"]>button [data-testid="stIconMaterial"],
+.st-key-weekly_summary_card div.stButton>button [data-testid="stIconMaterial"]{
+  margin:0!important;font-size:18px!important;}
+.weekly-summary-content{margin-top:0!important;padding-bottom:2px!important;}
+.weekly-summary-content .coach-sec p{margin:0!important;}
+
+/* ── coach memory peek ───────────────────────────────────────────── */
+.memory-peek{padding:var(--s5);position:relative;overflow:hidden;
+  border-color:color-mix(in srgb,var(--accent) 16%,var(--border));
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 68%,#0F0D11);}
+.memory-peek::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
+  background:var(--accent);opacity:.72;}
+.memory-peek-head{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s3);}
+.memory-peek-head .glyph{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  background:color-mix(in srgb,var(--good) 10%,var(--surface));
+  border:1px solid color-mix(in srgb,var(--good) 26%,transparent);color:var(--good);}
+.memory-peek-head h3{font-family:var(--font-sans);font-size:20px;font-weight:700;letter-spacing:0;margin:0;}
+.memory-peek-head .meta{font-size:12px;color:var(--text-faint);margin-top:2px;}
+.memory-peek-chips{display:flex;flex-wrap:wrap;gap:var(--s2);margin-bottom:var(--s3);}
+.memory-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;
+  background:rgba(255,255,255,.04);border:1px solid var(--border);
+  color:var(--text-dim);font-size:12px;font-weight:500;}
+.memory-chip b{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums;}
+.memory-peek-list{display:grid;gap:8px;}
+.memory-peek-item{border-top:1px solid var(--hairline);padding-top:8px;color:var(--text);
+  font-size:14px;line-height:1.45;max-width:86ch;}
+.memory-peek-item:first-child{border-top:0;padding-top:0;}
+.memory-peek-item .kind{display:inline-block;margin-right:8px;font-family:var(--font-mono);
+  font-size:9.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--text-faint);}
+.memory-peek-item .when{color:var(--text-faint);}
 .disclosure{margin-top:var(--s4);border-top:1px solid var(--hairline);padding-top:var(--s3);}
 .disclosure summary{cursor:pointer;font-family:var(--font-mono);font-size:12px;color:var(--text-dim);
   list-style:none;display:inline-flex;align-items:center;gap:7px;letter-spacing:.02em;}
@@ -408,7 +492,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 @media (max-width:420px){ .early-grid{grid-template-columns:1fr;} }
 
 /* ── research health panels ───────────────────────────────────────── */
-.research{padding:var(--s6);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
+.research{padding:var(--s6) var(--s6) calc(var(--s6) + 18px);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
   background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .research-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
@@ -421,19 +505,20 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .research-pill.learning,.research-pill.yellow{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent);background:color-mix(in srgb,var(--amber) 8%,transparent);}
 .research-pill.no_data,.research-pill.red{color:var(--red);border-color:color-mix(in srgb,var(--red) 30%,transparent);background:color-mix(in srgb,var(--red) 8%,transparent);}
 .research-message{color:var(--text);font-size:15px;line-height:1.55;max-width:82ch;margin-bottom:var(--s4);}
-.research-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s4);margin-bottom:var(--s4);}
-.research-panel{border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s4);background:rgba(255,255,255,.02);}
+.research-panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s4);margin-bottom:0;padding-bottom:10px;}
+.research-panel{min-width:0;padding:0 var(--s4) 18px 0;border-right:1px solid var(--hairline);}
+.research-panel:last-child{border-right:0;padding-right:0;}
 .research-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--s3);margin-bottom:var(--s3);}
 .research-panel h4{font-family:var(--font-serif);font-size:20px;font-weight:400;margin:0;}
 .research-panel p{color:var(--text-dim);font-size:13.5px;line-height:1.5;margin:0 0 var(--s3);}
-.research-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);}
+.research-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2);}
 .research-stat{border-top:1px solid var(--hairline);padding-top:9px;min-width:0;}
 .research-stat .lab{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);font-weight:500;}
 .research-stat .val{font-family:var(--font-serif);font-size:26px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:4px;white-space:nowrap;}
 .research-stat .sub{font-size:11.5px;color:var(--text-dim);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .research-flags{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s3);}
 .research-quality{display:flex;flex-wrap:wrap;gap:var(--s2);border-top:1px solid var(--hairline);padding-top:var(--s3);}
-@media (max-width:980px){ .research-panels{grid-template-columns:1fr;} }
+@media (max-width:980px){ .research-panels{grid-template-columns:1fr;} .research-panel{border-right:0;border-top:1px solid var(--hairline);padding:var(--s4) 0 18px;} .research-panel:first-child{border-top:0;padding-top:0;} }
 @media (max-width:640px){ .research-stats{grid-template-columns:repeat(2,1fr);} .research-head,.research-panel-head{display:grid;} }
 
 /* ── grappling mode ───────────────────────────────────────────────── */
@@ -462,18 +547,34 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 @media (max-width:560px){ .grapple-grid{grid-template-columns:repeat(2,1fr);} .grapple{overflow-x:auto;} .grapple-table{min-width:720px;} }
 
 /* ── activities table ──────────────────────────────────────────────── */
-.acts{padding:2px 0;}
-.acts table{width:100%;border-collapse:collapse;}
+.acts{padding:0;overflow:hidden;}
+.acts table{width:100%;border-collapse:collapse;table-layout:fixed;}
+.acts .act-col-name{width:42%;}
+.acts .act-col-date{width:14%;}
+.acts .act-col-volume{width:15%;}
+.acts .act-col-hr{width:13%;}
+.acts .act-col-load{width:16%;}
 .acts thead th{text-align:right;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--text-faint);font-weight:500;padding:10px var(--s4);}
+  color:var(--text-faint);font-weight:500;padding:14px clamp(8px,1.05vw,14px);line-height:1.3;
+  white-space:nowrap;vertical-align:middle;}
 .acts thead th:first-child,.acts tbody td:first-child{text-align:left;}
-.acts tbody td{text-align:right;padding:11px var(--s4);font-size:13.5px;font-variant-numeric:tabular-nums;
-  border-top:1px solid var(--hairline);color:var(--text);}
+.acts tbody td{text-align:right;padding:14px clamp(8px,1.05vw,14px);font-size:13.5px;line-height:1.35;
+  font-variant-numeric:tabular-nums;border-top:1px solid var(--hairline);color:var(--text);
+  white-space:nowrap;vertical-align:middle;}
+.acts tbody td:first-child{white-space:normal;}
 .acts tbody tr:hover td{background:rgba(255,255,255,.02);}
-.acts .act-type{display:inline-flex;align-items:center;gap:9px;font-weight:500;}
+.acts .act-type{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:9px;min-width:0;}
 .acts .act-ico{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
-  background:var(--surface-3);border:1px solid var(--border);color:var(--text-dim);}
+  background:var(--surface-3);border:1px solid var(--border);color:var(--text-dim);flex:0 0 auto;}
 .acts .act-ico svg{width:14px;height:14px;} .acts .muted{color:var(--text-faint);}
+.acts .act-label{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap;}
+.acts .act-kind{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.acts .act-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.acts .act-stack{display:grid;gap:2px;justify-items:end;min-width:0;}
+.acts .act-stack .primary{font-weight:600;color:var(--text);white-space:nowrap;}
+.acts .act-stack .secondary{font-size:12px;color:var(--text-faint);white-space:nowrap;}
+.acts .act-load{display:flex;align-items:center;justify-content:flex-end;gap:7px;min-width:0;}
+.acts .act-load .load-num{font-variant-numeric:tabular-nums;}
 .te-badge{display:inline-block;min-width:34px;padding:2px 7px;border-radius:6px;font-size:12px;
   font-weight:600;background:var(--surface-3);}
 .te-badge.hi{background:color-mix(in srgb,var(--good) 12%,var(--surface));color:var(--good);}
@@ -543,12 +644,24 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 @media (max-width:1080px){ .tiles{grid-template-columns:repeat(3,1fr);} }
 @media (max-width:920px){
   .hero.hero-numeric{grid-template-columns:1fr;gap:var(--s4);}
+  .hero.hero-empty{padding:24px;align-items:start;}
   .bignum{justify-content:flex-start;} .verdict .vsub{max-width:52ch;}
 }
 @media (max-width:680px){
   .tiles{grid-template-columns:repeat(2,1fr);}
   .hero,.coach,.capacity,.leak,.grapple,.research,.early-classifier{padding:var(--s5);}
-  .acts{overflow-x:auto;} .acts table{min-width:560px;}
+  .acts thead th,.acts tbody td{padding:10px 6px;font-size:12px;}
+  .acts thead th{font-size:8px;letter-spacing:.06em;}
+  .acts .act-col-name{width:40%;}
+  .acts .act-col-date{width:18%;}
+  .acts .act-col-volume{width:19%;}
+  .acts .act-col-hr{display:none;}
+  .acts .act-col-load{width:23%;}
+  .acts thead th:nth-child(4),.acts tbody td:nth-child(4){display:none;}
+  .acts .act-type{grid-template-columns:1fr;}
+  .acts .act-ico,.acts .act-name{display:none;}
+  .acts .act-load{display:grid;gap:3px;justify-items:end;}
+  .te-badge{min-width:30px;padding:2px 5px;font-size:11px;}
 }
 @media (max-width:420px){ .tiles{grid-template-columns:1fr;} }
 </style>
@@ -587,7 +700,6 @@ def zone(readiness):
 
 
 def topbar(date_str: str, sparse: bool) -> str:
-    pill = "" if sparse else '<span class="pill"><span class="dot"></span>synced</span>'
     return _collapse_html(f"""
     <div class="topbar">
       <div class="brand">
@@ -597,7 +709,6 @@ def topbar(date_str: str, sparse: bool) -> str:
       </div>
       <span class="date tnum">{html.escape(date_str)}</span>
       <span class="spacer"></span>
-      {pill}
     </div>""")
 
 
@@ -626,8 +737,9 @@ def hero(readiness, verdict, tagline, chips_html, ribbon_html="", sparse=False) 
     z_key, color = zone(readiness)
     score = "—" if readiness is None else str(int(round(readiness)))
     den = "/ 100" if readiness is not None else "no score"
+    empty_cls = " hero-empty" if readiness is None else ""
     return f"""{ribbon_html}
-    <div class="card hero hero-numeric" style="--ring-color:{color}">
+    <div class="card hero hero-numeric{empty_cls}" style="--ring-color:{color}">
       <div class="num-block">
         <div class="kicker">Readiness</div>
         <div class="bignum"><span class="score tnum">{score}</span><span class="den">{den}</span></div>
@@ -1197,15 +1309,25 @@ def early_waking_classifier_card(model: dict) -> str:
 
 
 def weekly_summary_card(summary_md, meta) -> str:
-    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
-            f'<div><h3>Weekly summary</h3>'
-            f'<div class="meta">{html.escape(str(meta))}</div></div></div>')
+    head = f'<div class="weekly-summary-head"><div class="weekly-summary-meta">{html.escape(str(meta))}</div></div>'
+    return _collapse_html(f'<div class="card weekly-summary">{head}{weekly_summary_content(summary_md)}</div>')
+
+
+def weekly_summary_meta(meta) -> str:
+    return _collapse_html(f'<div class="weekly-summary-meta">{html.escape(str(meta))}</div>')
+
+
+def weekly_summary_content(summary_md) -> str:
     if not summary_md:
-        body = ('<div class="empty-note" style="margin:0"><span class="ico">⚡</span> '
-                'No completed week to summarize yet — sync a full Mon–Sun of data.</div>')
-        return _collapse_html(f'<div class="card coach">{head}{body}</div>')
-    body = f'<div class="coach-body">{_md_sections(summary_md)}</div>'
-    return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+        return _collapse_html(
+            '<div class="empty-note" style="margin:0"><span class="ico">⚡</span> '
+            'No completed week to summarize yet — sync a full Mon–Sun of data.</div>'
+        )
+    if not re.search(r"(?m)^##\s+", str(summary_md)):
+        body = f'<div class="coach-body"><div class="coach-sec"><p>{html.escape(str(summary_md))}</p></div></div>'
+    else:
+        body = f'<div class="coach-body">{_md_sections(summary_md)}</div>'
+    return _collapse_html(f'<div class="weekly-summary-content">{body}</div>')
 
 
 def weekly_summary_preview(summary_md: str, sentence_count: int = 2) -> str:
@@ -1246,20 +1368,17 @@ def weekly_summary_preview(summary_md: str, sentence_count: int = 2) -> str:
 
 def coach_memory_peek(digest: dict) -> str:
     """Compact 'Coach knows' card for the main dashboard."""
-    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
+    head = (f'<div class="memory-peek-head"><span class="glyph">{_SPARK}</span>'
             f'<div><h3>Coach knows</h3>'
             f'<div class="meta">your long-term context</div></div></div>')
     if not digest:
-        body = ('<div class="empty-note" style="margin:0"><span class="ico">🧠</span> '
+        body = ('<div class="empty-note" style="margin:0"><span class="ico">+</span> '
                 'Nothing remembered yet — add goals, injuries, or notes on the '
                 'Coach page.</div>')
-        return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+        return _collapse_html(f'<div class="card memory-peek">{head}{body}</div>')
 
-    chip_style = ("display:inline-block;padding:2px 8px;margin:0 6px 6px 0;"
-                  "border-radius:10px;background:rgba(255,255,255,.06);"
-                  "font-size:12px;opacity:.85")
     chips = "".join(
-        f'<span style="{chip_style}">{html.escape(label)}: {len(digest.get(key, []))}</span>'
+        f'<span class="memory-chip">{html.escape(label)} <b>{len(digest.get(key, []))}</b></span>'
         for label, key in (("Goals", "goals"), ("Injuries", "injuries"),
                             ("Patterns", "patterns"), ("Coaching", "coaching"),
                             ("Notes", "notes"))
@@ -1272,23 +1391,27 @@ def coach_memory_peek(digest: dict) -> str:
         date = item.get("metadata_date")
         time = item.get("metadata_time")
         if date and time:
-            return f' · {html.escape(str(date))} {html.escape(str(time))}'
+            return f'<span class="when"> · {html.escape(str(date))} {html.escape(str(time))}</span>'
         if date:
-            return f' · {html.escape(str(date))}'
+            return f'<span class="when"> · {html.escape(str(date))}</span>'
         if item.get("created_at"):
             stamp = html.escape(str(item["created_at"]).replace("T", " ")[:16])
-            return f" · added {stamp}"
+            return f'<span class="when"> · added {stamp}</span>'
         return ""
 
     for g in digest.get("goals", [])[:2]:
-        when = (f' · {html.escape(str(g["target_date"]))}'
+        when = (f'<span class="when"> · {html.escape(str(g["target_date"]))}</span>'
                 if g.get("target_date") else "")
-        lines.append(f'<div style="margin:2px 0">🎯 {html.escape(str(g["text"]))}{when}</div>')
+        lines.append(
+            f'<div class="memory-peek-item"><span class="kind">Goal</span>'
+            f'{html.escape(str(g["text"]))}{when}</div>'
+        )
     for inj in digest.get("injuries", [])[:2]:
         where = (f' ({html.escape(str(inj["body_part"]))})'
                  if inj.get("body_part") else "")
         lines.append(
-            f'<div style="margin:2px 0">🩹 {html.escape(str(inj["text"]))}'
+            f'<div class="memory-peek-item"><span class="kind">Injury</span>'
+            f'{html.escape(str(inj["text"]))}'
             f'{where}{_memory_when(inj)}</div>'
         )
     for note in digest.get("notes", [])[:2]:
@@ -1297,13 +1420,13 @@ def coach_memory_peek(digest: dict) -> str:
         else:
             text = note
         lines.append(
-            f'<div style="margin:2px 0">📌 {html.escape(str(text))}'
+            f'<div class="memory-peek-item"><span class="kind">Note</span>'
+            f'{html.escape(str(text))}'
             f'{_memory_when(note)}</div>'
         )
 
-    body = (f'<div style="margin-bottom:6px">{chips}</div>'
-            + "".join(lines))
-    return _collapse_html(f'<div class="card coach">{head}{body}</div>')
+    body = f'<div class="memory-peek-chips">{chips}</div><div class="memory-peek-list">{"".join(lines)}</div>'
+    return _collapse_html(f'<div class="card memory-peek">{head}{body}</div>')
 
 
 def question_card(question: str | None, result: str | None, payload: dict | None = None) -> str:
@@ -1736,6 +1859,16 @@ def _act_icon(type_str: str) -> str:
     return _ACT_ICONS[key]
 
 
+def _act_type_label(type_str: str) -> str:
+    text = str(type_str or "").strip().replace("_", " ").replace("-", " ")
+    text = " ".join(text.split())
+    if not text:
+        return "Activity"
+    if text.upper() in {"BJJ", "HIIT"}:
+        return text.upper()
+    return text[0].upper() + text[1:].lower()
+
+
 def activities_table(acts: pd.DataFrame, sparse=False, limit: int = 12) -> str:
     if sparse or acts is None or acts.empty:
         return ('<div class="card"><div class="empty-note" style="margin:0;justify-content:center">'
@@ -1753,25 +1886,39 @@ def activities_table(acts: pd.DataFrame, sparse=False, limit: int = 12) -> str:
         ahr, mhr = a.get("avg_hr"), a.get("max_hr")
         load = a.get("training_load")
         te = a.get("aerobic_te")
-        dur_s = "—" if pd.isna(dur) else f"{dur/60:.0f} min"
-        dist_s = '<span class="muted">—</span>' if pd.isna(dist) else f"{dist/1000:.1f} km"
-        hr_s = ("—" if pd.isna(ahr) else f"{ahr:.0f}") + (
-            "" if pd.isna(mhr) else f' <span class="muted">/ {mhr:.0f}</span>')
-        load_s = "—" if pd.isna(load) else f"{load:.0f}"
+        dur_s = '<span class="muted">—</span>' if pd.isna(dur) else f"{dur/60:.0f} min"
+        dist_s = "" if pd.isna(dist) else f"{dist/1000:.1f} km"
+        hr_s = '<span class="muted">—</span>' if pd.isna(ahr) else f"{ahr:.0f}"
+        if not pd.isna(mhr):
+            hr_s += f' <span class="muted">/ {mhr:.0f}</span>'
+        load_s = '<span class="muted">—</span>' if pd.isna(load) else f"{load:.0f}"
         if pd.isna(te):
             te_s = '<span class="muted">—</span>'
         else:
             cls = "hi" if te >= 3.5 else "mid" if te >= 2.5 else ""
             te_s = f'<span class="te-badge {cls}">{te:.1f}</span>'
-        date_s = str(a.get("date"))[:10]
-        label = html.escape(str(typ)) + (f' <span class="muted">{html.escape(str(name))}</span>' if name else "")
+        date_s = html.escape(str(a.get("date"))[:10])
+        name_s = (
+            f'<span class="act-name muted" title="{html.escape(str(name), quote=True)}">{html.escape(str(name))}</span>'
+            if name else ""
+        )
+        label = (
+            f'<span class="act-label">'
+            f'<span class="act-kind" title="{html.escape(str(typ), quote=True)}">{html.escape(_act_type_label(str(typ)))}</span>'
+            f'{name_s}</span>'
+        )
         rows.append(
             f'<tr><td><span class="act-type"><span class="act-ico">{_act_icon(str(typ))}</span>{label}</span></td>'
-            f'<td class="muted">{date_s}</td><td>{dur_s}</td><td>{dist_s}</td>'
-            f'<td>{hr_s}</td><td>{load_s}</td><td>{te_s}</td></tr>')
+            f'<td class="muted">{date_s}</td>'
+            f'<td><span class="act-stack"><span class="primary">{dur_s}</span>'
+            f'<span class="secondary">{dist_s}</span></span></td>'
+            f'<td>{hr_s}</td>'
+            f'<td><span class="act-load"><span class="load-num">{load_s}</span>{te_s}</span></td></tr>')
     return f"""<div class="card acts"><table>
-      <thead><tr><th>Activity</th><th>Date</th><th>Duration</th><th>Distance</th>
-      <th>Avg / Max HR</th><th>Load</th><th>Aerobic TE</th></tr></thead>
+      <colgroup><col class="act-col-name"><col class="act-col-date"><col class="act-col-volume">
+      <col class="act-col-hr"><col class="act-col-load"></colgroup>
+      <thead><tr><th scope="col">Activity</th><th scope="col">Date</th><th scope="col">Volume</th>
+      <th scope="col">HR avg/max</th><th scope="col">Load / TE</th></tr></thead>
       <tbody>{"".join(rows)}</tbody></table></div>"""
 
 
@@ -2343,15 +2490,22 @@ def strength_readiness_badge(snapshot: dict) -> str:
     """Compact readiness badge for a session, from its stored snapshot dict."""
     snapshot = snapshot or {}
     score = _fmt(snapshot.get("readiness_score"))
+    if score == "—":
+        score = _fmt(snapshot.get("garmin_readiness_score"))
     level = _fmt(snapshot.get("readiness_level"))
-    hrv = _fmt(snapshot.get("hrv_status"))
+    hrv_status = _fmt(snapshot.get("hrv_status"))
+    hrv_value = _fmt(snapshot.get("hrv_overnight_avg"), " ms")
+    hrv_parts = [part for part in (hrv_status, hrv_value) if part != "—"]
+    hrv = " / ".join(hrv_parts) if hrv_parts else "—"
+    rhr = _fmt(snapshot.get("resting_hr"), " bpm")
     bb = _fmt(snapshot.get("body_battery_start"))
     return (
         f"<div style='display:flex;gap:14px;align-items:center;"
         f"background:{SURFACE};border-radius:10px;padding:8px 14px;"
         f"font-family:JetBrains Mono,monospace;color:{TEXT_DIM};font-size:12px'>"
         f"<span style='color:{ACCENT};font-size:18px;font-weight:600'>{score}</span>"
-        f"<span>{level}</span><span>HRV {hrv}</span><span>BB {bb}</span></div>"
+        f"<span>{level}</span><span>HRV {hrv}</span><span>RHR {rhr}</span>"
+        f"<span>BB {bb}</span></div>"
     )
 
 
@@ -2364,15 +2518,33 @@ def strength_session_card(session: dict, summary: dict) -> str:
     vol = _fmt(summary.get("total_volume_kg"), " kg")
     sets = _fmt(summary.get("working_sets"))
     top = _fmt(summary.get("top_est_1rm_kg"), " kg")
+    metrics = [
+        f"Volume <b style='color:{TEXT}'>{vol}</b>",
+        f"Sets <b style='color:{TEXT}'>{sets}</b>",
+        f"Top est-1RM <b style='color:{SERIES2}'>{top}</b>",
+    ]
+    workout_type = str(session.get("workout_type") or "").strip()
+    if workout_type:
+        label = html.escape(workout_type.replace("_", " ").title())
+        metrics.append(f"Type <b style='color:{TEXT}'>{label}</b>")
+    rpe = _fmt(session.get("session_rpe"))
+    if rpe != "—":
+        metrics.append(f"RPE <b style='color:{TEXT}'>{rpe}</b>")
+    avg_hr = _fmt(session.get("garmin_avg_hr"))
+    max_hr = _fmt(session.get("garmin_max_hr"))
+    if avg_hr != "—" or max_hr != "—":
+        hr = avg_hr if max_hr == "—" else f"{avg_hr} <span style='color:{TEXT_DIM}'>/ {max_hr}</span>"
+        metrics.append(f"Garmin HR <b style='color:{TEXT}'>{hr}</b>")
+    load = _fmt(session.get("garmin_training_load"))
+    if load != "—":
+        metrics.append(f"Load <b style='color:{TEXT}'>{load}</b>")
     return (
         f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
         f"color:{TEXT};font-family:Archivo,sans-serif'>"
         f"<div style='font-size:18px;font-weight:600'>{name}"
         f"<span style='color:{TEXT_DIM};font-weight:400;font-size:13px'> · {day}</span></div>"
         f"<div style='color:{TEXT_DIM};font-size:13px;margin-top:6px'>"
-        f"Volume <b style='color:{TEXT}'>{vol}</b> · "
-        f"Sets <b style='color:{TEXT}'>{sets}</b> · "
-        f"Top est-1RM <b style='color:{SERIES2}'>{top}</b></div></div>"
+        f"{' · '.join(metrics)}</div></div>"
     )
 
 

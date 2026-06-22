@@ -147,41 +147,50 @@ suppressed = (not sparse) and val(latest, "hrv_flag") == "suppressed"
 rhr_elevated = (not sparse) and bool(val(latest, "rhr_elevated"))
 state_alert = (not sparse) and (suppressed or rhr_elevated)
 
-# ── top bar + sync + window control (single row, vertically aligned) ─────────
 latest_sync_day = str(latest["date"])[:10] if latest is not None else None
 planned_sync_days = ingest.smart_sync_days(latest_sync_day)
-
 win = st.session_state.get("win", 30) or 30
-head_l, head_sync, head_win = st.columns([7, 1.4, 1.1], vertical_alignment="center")
-with head_l:
-    st.markdown(cockpit.topbar(date_str, sparse), unsafe_allow_html=True)
-with head_sync:
-    sync_clicked = st.button("⟳ Sync", key="sync_btn", width="stretch",
-                             help=(
-                                 "Smart sync: pulls a small overlap for late Garmin updates, "
-                                 f"or catches up if the local DB is behind. Next pull: {planned_sync_days} day(s)."
-                             ))
-with head_win:
-    if not daily.empty:
-        with st.popover(f"{win}d", icon=":material/calendar_month:",
-                        use_container_width=True,
-                        help="Time horizon for trends & baselines"):
-            win = st.segmented_control(
-                "Window", [7, 30, 60], default=30, key="win",
-                format_func=lambda d: f"{d}d", label_visibility="collapsed") or 30
 
-# A sync is the ONLY path that writes / touches the network. garminconnect is
-# imported lazily here so normal (read-only) dashboard loads stay light.
+with st.container(key="cockpit_header"):
+    head_l, head_sync, head_win = st.columns([1, 0.001, 0.001], gap="small", vertical_alignment="center")
+    with head_l:
+        st.markdown(cockpit.topbar(date_str, sparse), unsafe_allow_html=True)
+    with head_sync:
+        sync_clicked = st.button(
+            "",
+            key="sync_btn",
+            icon=":material/sync:",
+            width="stretch",
+            help=(
+                "Smart sync: pulls a small overlap for late Garmin updates, "
+                f"or catches up if the local DB is behind. Next pull: {planned_sync_days} day(s)."
+            ),
+        )
+    with head_win:
+        if not daily.empty:
+            window_clicked = st.button(
+                "",
+                key="window_btn",
+                icon=":material/calendar_month:",
+                width="stretch",
+                help=f"Trend window: {win}d. Click to cycle 7d / 30d / 60d.",
+            )
+            if window_clicked:
+                options = [7, 30, 60]
+                win = options[(options.index(win) + 1) % len(options)] if win in options else 30
+                st.session_state["win"] = win
+                st.rerun()
+
 if sync_clicked:
-    with st.spinner(f"Smart syncing {planned_sync_days} day(s) from Garmin…"):
+    with st.spinner(f"Smart syncing {planned_sync_days} day(s) from Garmin..."):
         try:
             import garmin_client
             client = garmin_client.get_client(interactive=False)
             ingest.backfill(client, days=planned_sync_days)
-            load.clear()  # drop the 5-min cache so fresh data shows immediately
+            load.clear()
             st.session_state["sync_msg"] = (
                 "ok",
-                f"Synced ✓ — smart pull covered {planned_sync_days} day(s).",
+                f"Synced - smart pull covered {planned_sync_days} day(s).",
             )
         except RuntimeError as e:
             st.session_state["sync_msg"] = ("err", str(e))
@@ -250,13 +259,14 @@ def render_weekly_summary():
 
     full_key = f"weekly_summary_full_{ws}"
     show_full = bool(st.session_state.get(full_key, False))
-    summary_actions = st.columns([1, 1.2, 4])
-    with summary_actions[0]:
-        if st.button("Hide full" if show_full else "Show full", key=f"toggle_week_{ws}", width="stretch"):
-            st.session_state[full_key] = not show_full
-            st.rerun()
-    with summary_actions[1]:
-        regenerate = st.button("Regenerate", key="regen_week", width="stretch")
+    regen_key = f"weekly_summary_regen_{ws}"
+    regenerate = bool(st.session_state.pop(regen_key, False))
+
+    def toggle_weekly_summary():
+        st.session_state[full_key] = not bool(st.session_state.get(full_key, False))
+
+    def request_weekly_regenerate():
+        st.session_state[regen_key] = True
 
     cached = None if regenerate else db.load_weekly_summary(ws)
     if cached is None:
@@ -270,10 +280,29 @@ def render_weekly_summary():
         cached = db.load_weekly_summary(ws)
     meta_label = _week_label(week["week_start"], week["week_end"])
     meta_label += f' - generated {cached["generated_at"][:10]}'
-    summary_md = cached["summary_md"] if show_full else (
-        "## Week in brief\n" + cockpit.weekly_summary_preview(cached["summary_md"])
-    )
-    st.markdown(cockpit.weekly_summary_card(summary_md, meta_label), unsafe_allow_html=True)
+    summary_md = cached["summary_md"] if show_full else cockpit.weekly_summary_preview(cached["summary_md"])
+    with st.container(key="weekly_summary_card", border=True):
+        with st.container(key="weekly_summary_header"):
+            header_cols = st.columns([1, 0.12, 0.12], gap="small", vertical_alignment="center")
+            with header_cols[0]:
+                st.markdown(cockpit.weekly_summary_meta(meta_label), unsafe_allow_html=True)
+            with header_cols[1]:
+                st.button(
+                    "",
+                    key=f"toggle_week_{ws}",
+                    icon=":material/close_fullscreen:" if show_full else ":material/open_in_full:",
+                    help="Hide full summary" if show_full else "Show full summary",
+                    on_click=toggle_weekly_summary,
+                )
+            with header_cols[2]:
+                st.button(
+                    "",
+                    key="regen_week",
+                    icon=":material/refresh:",
+                    help="Regenerate weekly summary",
+                    on_click=request_weekly_regenerate,
+                )
+        st.markdown(cockpit.weekly_summary_content(summary_md), unsafe_allow_html=True)
 
 
 # ── key-stat tiles ───────────────────────────────────────────────────────────
@@ -360,21 +389,6 @@ def render_capacity_experimental():
 
 # ── AI coach readout ─────────────────────────────────────────────────────────
 st.markdown(cockpit.section_label("Coach"), unsafe_allow_html=True)
-with st.form("coach_quickadd", clear_on_submit=True):
-    qa_cols = st.columns([1, 3, 1])
-    with qa_cols[0]:
-        qcat = st.selectbox("Remember a",
-                            ["note", "goal", "injury", "pattern", "coaching"],
-                            key="qa_cat")
-    with qa_cols[1]:
-        qtext = st.text_input("Tell the coach something",
-                              placeholder="e.g. tweaked left knee in BJJ", key="qa_text")
-    with qa_cols[2]:
-        qa_submit = st.form_submit_button("Remember", width="stretch")
-    if qa_submit and qtext.strip():
-        db.add_memory({"category": qcat, "text": qtext.strip(), "source": "user"})
-        st.rerun()
-st.page_link("views/coach.py", label="Manage everything the coach knows →")
 if "health_chat" not in st.session_state:
     st.session_state.health_chat = []
 
@@ -418,37 +432,30 @@ question_payload = {
 }
 have_key = bool(config.ANTHROPIC_API_KEY)
 
-if not have_key:
-    st.caption("Set `ANTHROPIC_API_KEY` in .env to enable the health chat.")
+for msg in st.session_state.health_chat:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-pending_prompt = None
-coach_actions = st.columns([1.4, 1, 4])
-with coach_actions[0]:
-    if st.button("Analyse my health", disabled=not have_key or daily.empty, width="stretch"):
-        pending_prompt = "Analyse my health"
-with coach_actions[1]:
-    if st.button("Clear chat", disabled=not st.session_state.health_chat, width="stretch"):
-        st.session_state.health_chat = []
-        st.rerun()
+def submit_health_chat():
+    raw = str(st.session_state.get("health_chat_entry", "")).strip()
+    if raw:
+        st.session_state["health_chat_pending"] = raw
+        st.session_state["health_chat_entry"] = ""
 
-with st.container(border=True):
-    if not st.session_state.health_chat:
-        st.caption("Press `Analyse my health` or ask a specific question about sleep, stress, recovery, training load, or correlations.")
-    for msg in st.session_state.health_chat:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
 
-with st.form("health_chat_form", clear_on_submit=True):
-    chat_question = st.text_input(
-        "Message",
-        placeholder="Ask about sleep, stress, recovery, training load, or correlations…",
-        label_visibility="collapsed",
-        disabled=not have_key,
-    )
-    send_clicked = st.form_submit_button("Send", disabled=not have_key, width="stretch")
-
-if send_clicked and chat_question.strip():
-    pending_prompt = chat_question.strip()
+st.text_input(
+    "Coach chat",
+    placeholder=(
+        "Ask about sleep, stress, recovery, training load, or correlations..."
+        if have_key else
+        "Set ANTHROPIC_API_KEY in .env to enable coach chat"
+    ),
+    label_visibility="collapsed",
+    disabled=not have_key,
+    key="health_chat_entry",
+    on_change=submit_health_chat,
+)
+pending_prompt = st.session_state.pop("health_chat_pending", None)
 
 if pending_prompt:
     history = st.session_state.health_chat[-8:]

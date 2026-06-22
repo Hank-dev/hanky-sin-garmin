@@ -31,21 +31,24 @@ st.markdown("""
 .strength-page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:4px 0 18px;}
 .strength-page-title{font-family:var(--font-serif);font-size:34px;line-height:1.05;color:var(--text);font-weight:400;}
 .strength-page-sub{color:var(--text-faint);font-size:13px;margin-top:4px;}
-.strength-overview{display:grid;gap:14px;}
+.strength-overview{display:grid;gap:14px;container-type:inline-size;}
 .strength-hero{
   border:1px solid var(--border);border-top-color:var(--brass);border-radius:8px;
   background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
-  padding:18px 20px;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr);
-  gap:18px;align-items:start;
+  width:100%;box-sizing:border-box;overflow:hidden;
+  padding:18px 20px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:18px;align-items:stretch;
 }
+.strength-hero > div{min-width:0;}
 .strength-hero h2{font-family:var(--font-serif);font-size:31px;font-weight:400;line-height:1.05;margin:0;color:var(--text);}
 .strength-hero .meta{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;}
 .strength-hero .sub{color:var(--text-dim);font-size:13px;margin-top:8px;}
-.strength-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;}
-.strength-kpi{background:var(--surface-2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:10px 12px;min-height:74px;}
-.strength-kpi .lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-faint);}
-.strength-kpi .val{margin-top:6px;font-size:22px;color:var(--text);font-weight:750;font-variant-numeric:tabular-nums;line-height:1.05;}
-.strength-kpi .sub{margin-top:4px;font-size:11px;color:var(--text-faint);line-height:1.25;}
+.strength-kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(132px,1fr));gap:10px;width:100%;min-width:0;}
+.strength-kpi{min-width:0;overflow:hidden;background:var(--surface-2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:11px 12px;min-height:86px;}
+.strength-kpi *{word-break:normal;overflow-wrap:normal;hyphens:manual;}
+.strength-kpi .lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--text-faint);white-space:nowrap;}
+.strength-kpi .val{margin-top:7px;font-size:22px;color:var(--text);font-weight:750;font-variant-numeric:tabular-nums;line-height:1.08;white-space:nowrap;}
+.strength-kpi .sub{margin-top:5px;font-size:11px;color:var(--text-faint);line-height:1.25;}
 .strength-panel{
   border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:14px 16px;
 }
@@ -86,10 +89,50 @@ st.markdown("""
 .strength-leaderboard-row .rank{font-family:var(--font-mono);font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums;}
 .strength-leaderboard-row .name{font-weight:750;color:var(--text);min-width:0;}
 .strength-leaderboard-row .num{font-family:var(--font-mono);font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.st-key-strength_trend_card,
+.st-key-strength_pr_card{min-height:450px!important;box-sizing:border-box;}
+.st-key-strength_trend_card [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-strength_pr_card [data-testid="stVerticalBlockBorderWrapper"]{min-height:450px;padding:18px 18px 16px!important;}
+.st-key-strength_trend_card [data-testid="stVerticalBlock"],
+.st-key-strength_pr_card [data-testid="stVerticalBlock"]{gap:.45rem!important;}
+.strength-pr-list{display:grid;gap:0;margin-top:4px;}
+.strength-pr-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:baseline;
+  padding:10px 0;border-bottom:1px solid rgba(255,255,255,.055);}
+.strength-pr-row:last-child{border-bottom:0;}
+.strength-pr-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:750;font-size:14.5px;}
+.strength-pr-value{white-space:nowrap;color:var(--text);font-size:14px;font-variant-numeric:tabular-nums;}
+.strength-pr-date{grid-column:1/-1;color:var(--text-faint);font-size:11.5px;font-variant-numeric:tabular-nums;}
 .strength-ai-title{font-family:var(--font-serif);font-size:22px;font-weight:400;color:var(--text);line-height:1.05;}
 .strength-ai-meta{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-top:4px;}
-.strength-feedback-preview{color:var(--text);line-height:1.55;margin-top:6px;max-width:92ch;}
+.strength-feedback-empty{color:var(--text-dim);font-size:13.5px;line-height:1.45;margin-top:4px;}
+.strength-feedback-preview{color:var(--text);line-height:1.55;margin-top:8px;max-width:92ch;}
 .strength-feedback{color:var(--text);line-height:1.55;}
+.st-key-strength_ai_feedback{container-type:inline-size;margin-top:12px!important;}
+.st-key-strength_ai_feedback [data-testid="stVerticalBlockBorderWrapper"]{padding:16px 18px 18px!important;}
+.st-key-strength_ai_feedback [data-testid="stVerticalBlock"]{gap:.28rem!important;}
+.st-key-strength_ai_header [data-testid="stHorizontalBlock"]{
+  display:grid!important;grid-template-columns:minmax(0,1fr) max-content max-content!important;
+  gap:12px!important;align-items:center!important;
+}
+.st-key-strength_ai_header [data-testid="column"]{width:auto!important;min-width:0!important;}
+.st-key-strength_ai_header [data-testid="stButton"]{display:flex!important;justify-content:flex-end!important;}
+.st-key-strength_ai_header div.stButton>button{
+  width:104px!important;min-width:104px!important;max-width:104px!important;
+  min-height:36px!important;height:36px!important;padding:7px 10px!important;
+  border-radius:8px!important;font-size:12.5px!important;line-height:1!important;
+  background:var(--surface-2)!important;color:var(--text)!important;
+  border:1px solid var(--border-2)!important;box-shadow:inset 0 1px 0 var(--inset-hi)!important;
+  filter:none!important;
+}
+.st-key-strength_ai_header div.stButton>button:hover{
+  background:color-mix(in srgb,var(--accent) 10%,var(--surface-2))!important;
+  border-color:color-mix(in srgb,var(--accent) 38%,transparent)!important;color:var(--text)!important;
+}
+.st-key-strength_ai_header div.stButton>button p{margin:0!important;line-height:1!important;white-space:nowrap!important;}
+.st-key-strength_ai_header div.stButton>button [data-testid="stIconMaterial"]{font-size:16px!important;margin-right:5px!important;color:var(--accent)!important;}
+@container (max-width:900px){
+  .strength-hero{grid-template-columns:1fr;}
+}
 @media (max-width:820px){
   .strength-hero{grid-template-columns:1fr;}
   .strength-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
@@ -100,7 +143,10 @@ st.markdown("""
   .strength-leaderboard-row{grid-template-columns:.3fr minmax(0,1.1fr) .64fr .74fr .7fr .7fr .58fr;gap:6px;}
 }
 @media (max-width:560px){
+  .strength-hero{padding:14px;}
   .strength-kpi-grid{grid-template-columns:1fr 1fr;}
+  .strength-kpi{padding:10px;min-height:82px;}
+  .strength-kpi .val{font-size:20px;}
   .strength-row{font-size:13px;}
   .strength-row .num{font-size:11px;}
   .strength-history-row{font-size:12px;padding:7px 8px;}
@@ -323,6 +369,9 @@ def set_previous_label(prev: list[dict], index: int) -> str:
 def ensure_active_shape(active: dict):
     """Backfill active workout state as the UI evolves across reruns."""
     active.setdefault("started_at", datetime.now().isoformat(timespec="seconds"))
+    active.setdefault("source", "app")
+    active.setdefault("workout_type", "strength")
+    active.setdefault("session_rpe", None)
     active.setdefault("exercises", [])
     for pos, ex in enumerate(active["exercises"]):
         ex.setdefault("position", pos)
@@ -375,9 +424,13 @@ def finish_active_workout(active: dict):
         "ended_at": datetime.now().isoformat(timespec="seconds"),
         "name": active["name"], "bodyweight_kg": active.get("bodyweight_kg"),
         "routine_id": active.get("routine_id"),
+        "source": active.get("source") or "app",
+        "workout_type": active.get("workout_type") or "strength",
+        "session_rpe": active.get("session_rpe"),
         "recovery_score": _readiness.get("value"),
         "recovery_zone": _readiness.get("zone"),
         **snap,
+        "garmin_readiness_score": snap.get("garmin_readiness_score") or snap.get("readiness_score"),
     })
     for ex in active["exercises"]:
         for stt in ex["sets"]:
@@ -443,8 +496,74 @@ def todays_recovery_verdict(day: str) -> tuple[dict, dict]:
 
 
 @st.cache_data(ttl=30)
+def load_strength_sessions_with_context():
+    sessions = db.load_strength_sessions_df()
+    if sessions.empty:
+        return sessions
+    acts = db.load_activities_df()
+    daily = analysis.enrich_daily(db.load_daily_df())
+    if not daily.empty:
+        daily = analysis.compute_acwr(acts, daily)
+    merged = analysis.merge_strength_session_context(sessions, acts, daily)
+    persist_strength_session_context(sessions, merged)
+    return merged
+
+
+def _missing_context_value(value) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return isinstance(value, str) and not value.strip()
+
+
+def persist_strength_session_context(original, merged):
+    """Persist compact Garmin/daily context discovered during merge.
+
+    This only fills missing session columns; user/import-provided values win.
+    """
+    if original is None or merged is None or original.empty or merged.empty:
+        return
+    if "session_id" not in original or "session_id" not in merged:
+        return
+    backfill_cols = [
+        "garmin_activity_id", "garmin_readiness_score",
+        "readiness_score", "readiness_level", "hrv_status",
+        "hrv_overnight_avg", "body_battery_start", "sleep_score",
+        "resting_hr", "acwr", "recovery_score", "recovery_zone",
+    ]
+    original_by_session = {
+        row["session_id"]: row
+        for _, row in original.iterrows()
+        if not _missing_context_value(row.get("session_id"))
+    }
+    for _, row in merged.iterrows():
+        sid = row.get("session_id")
+        if _missing_context_value(sid):
+            continue
+        prior = original_by_session.get(sid)
+        if prior is None:
+            continue
+        record = {"session_id": sid}
+        for col in backfill_cols:
+            if col not in merged:
+                continue
+            value = row.get(col)
+            if _missing_context_value(value):
+                continue
+            if col in original and not _missing_context_value(prior.get(col)):
+                continue
+            record[col] = value.item() if hasattr(value, "item") else value
+        if len(record) > 1:
+            db.upsert_strength_session(record)
+
+
+@st.cache_data(ttl=30)
 def hist_sessions_for_note():
-    return db.load_strength_sessions_df()
+    return load_strength_sessions_with_context()
 
 
 @st.cache_data(ttl=30)
@@ -556,9 +675,20 @@ def fmt_signed(value, digits: int = 1, suffix: str = "") -> str:
     return f"{n:+.{digits}f}{suffix}"
 
 
+def fmt_recovery_label(value) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text or text.lower() in {"nan", "none", "not tagged"}:
+        return "Not tagged"
+    return text.replace("_", " ").title()
+
+
 def strength_kpi(label: str, value: str, sub: str = "") -> str:
+    title = f"{label}: {value}"
+    if sub:
+        title = f"{title} ({sub})"
     return (
-        f"<div class='strength-kpi'><div class='lab'>{html.escape(label)}</div>"
+        f"<div class='strength-kpi' title='{html.escape(title, quote=True)}'>"
+        f"<div class='lab'>{html.escape(label)}</div>"
         f"<div class='val'>{html.escape(value)}</div>"
         f"<div class='sub'>{html.escape(sub)}</div></div>"
     )
@@ -573,35 +703,61 @@ def strength_trend_chart(rows: list[dict]) -> go.Figure:
     data = data.dropna(subset=["date"]).sort_values("date")
     if data.empty:
         return fig
+    data = data.reset_index(drop=True)
+    data["x_pos"] = list(range(len(data)))
+    date_label_fmt = "%b %-d '%y" if data["date"].dt.year.nunique() > 1 else "%b %-d"
+    data["date_label"] = data["date"].dt.strftime(date_label_fmt)
+    data["date_full"] = data["date"].dt.strftime("%Y-%m-%d")
+    data["name"] = data.get("name", "Workout")
+    custom = data[["date_full", "name"]].fillna("").to_numpy()
+    x_range = [-0.5, max(0.5, len(data) - 0.5)]
     fig.add_trace(go.Bar(
-        x=data["date"],
+        x=data["x_pos"],
         y=pd.to_numeric(data["total_volume_kg"], errors="coerce"),
         name="Volume",
         marker_color=cockpit.ACCENT,
         opacity=0.68,
+        width=0.42,
         yaxis="y",
+        customdata=custom,
+        hovertemplate="%{customdata[0]}<br>%{customdata[1]}<br>Volume %{y:,.0f} kg<extra></extra>",
     ))
     fig.add_trace(go.Scatter(
-        x=data["date"],
+        x=data["x_pos"],
         y=pd.to_numeric(data["top_est_1rm_kg"], errors="coerce"),
         name="Top est 1RM",
         mode="lines+markers",
         line=dict(color=cockpit.SERIES2, width=2),
-        marker=dict(size=7, color=cockpit.SERIES2),
+        marker=dict(size=7, color=cockpit.SERIES2, line=dict(width=1, color=cockpit.BG)),
         yaxis="y2",
         connectgaps=False,
+        customdata=custom,
+        hovertemplate="%{customdata[0]}<br>%{customdata[1]}<br>Top est 1RM %{y:.1f} kg<extra></extra>",
     ))
     fig.update_layout(
-        height=280,
-        margin=dict(l=42, r=42, t=18, b=34),
+        height=340,
+        margin=dict(l=44, r=44, t=44, b=34),
         paper_bgcolor=cockpit.BG,
         plot_bgcolor=cockpit.BG,
         font=dict(family="Archivo, sans-serif", color=cockpit.TEXT),
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(gridcolor="rgba(255,255,255,.04)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
-        yaxis=dict(title="kg volume", gridcolor="rgba(255,255,255,.06)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
-        yaxis2=dict(title="kg 1RM", overlaying="y", side="right", showgrid=False, tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.04, xanchor="center", x=0.5,
+            bgcolor="rgba(0,0,0,0)", font=dict(size=12)
+        ),
+        xaxis=dict(
+            tickmode="array", tickvals=list(data["x_pos"]), ticktext=list(data["date_label"]),
+            range=x_range, gridcolor="rgba(255,255,255,.04)",
+            tickfont=dict(color=cockpit.TEXT_FAINT, size=10), fixedrange=True,
+        ),
+        yaxis=dict(
+            title=None, gridcolor="rgba(255,255,255,.06)",
+            tickfont=dict(color=cockpit.TEXT_FAINT, size=10), fixedrange=True,
+        ),
+        yaxis2=dict(
+            title=None, overlaying="y", side="right", showgrid=False,
+            tickfont=dict(color=cockpit.TEXT_FAINT, size=10), fixedrange=True,
+        ),
     )
     return fig
 
@@ -656,6 +812,7 @@ def weekly_strength_load_chart(rows, metric: str = "total_volume_kg") -> go.Figu
 def strength_feedback_context(overview: dict, strength_summary: dict) -> dict:
     latest = dict((overview or {}).get("latest_session") or {})
     latest.pop("session_id", None)
+    latest.pop("garmin_activity_id", None)
     latest_summary = dict((overview or {}).get("latest_summary") or {})
     latest_summary.pop("session_id", None)
     exercise_rows = []
@@ -768,26 +925,29 @@ def strength_feedback_preview(feedback: str, max_chars: int = 420) -> str:
 def render_strength_ai_feedback(overview: dict, strength_summary: dict, coach_memory: dict | None = None):
     latest = (overview or {}).get("latest_session") or {}
     feedback_key = f"strength_feedback_{latest.get('session_id')}"
-    with st.container(border=True):
-        head, action_1, action_2 = st.columns([6, 1.15, 1.15], vertical_alignment="center")
-        with head:
-            st.markdown(
-                "<div class='strength-ai-title'>AI strength feedback</div>"
-                "<div class='strength-ai-meta'>latest session overview</div>",
-                unsafe_allow_html=True,
+    with st.container(key="strength_ai_feedback", border=True):
+        with st.container(key="strength_ai_header"):
+            head, action_1, action_2 = st.columns([6, 1.15, 1.15], vertical_alignment="center")
+            with head:
+                st.markdown(
+                    "<div class='strength-ai-title'>AI strength feedback</div>"
+                    "<div class='strength-ai-meta'>latest session overview</div>",
+                    unsafe_allow_html=True,
+                )
+            generate = action_1.button(
+                "Generate",
+                icon=":material/auto_awesome:",
+                disabled=not bool(config.ANTHROPIC_API_KEY),
+                key=f"{feedback_key}_generate",
+                width="content",
             )
-        generate = action_1.button(
-            "Generate",
-            disabled=not bool(config.ANTHROPIC_API_KEY),
-            key=f"{feedback_key}_generate",
-            width="stretch",
-        )
-        refresh = action_2.button(
-            "Refresh",
-            disabled=not bool(config.ANTHROPIC_API_KEY),
-            key=f"{feedback_key}_refresh",
-            width="stretch",
-        )
+            refresh = action_2.button(
+                "Refresh",
+                icon=":material/refresh:",
+                disabled=not bool(config.ANTHROPIC_API_KEY),
+                key=f"{feedback_key}_refresh",
+                width="content",
+            )
         if refresh:
             st.session_state.pop(feedback_key, None)
             generate = True
@@ -809,7 +969,10 @@ def render_strength_ai_feedback(overview: dict, strength_summary: dict, coach_me
             with st.expander("Read full AI feedback"):
                 st.markdown(feedback)
         elif config.ANTHROPIC_API_KEY:
-            st.caption("Click Generate to create feedback for this session.")
+            st.markdown(
+                "<div class='strength-feedback-empty'>Click Generate to create feedback for this session.</div>",
+                unsafe_allow_html=True,
+            )
 
 
 def render_strength_memory_panel(strength_context: dict, existing_memory: dict | None = None):
@@ -879,23 +1042,27 @@ def render_strength_overview(overview: dict, strength_summary: dict, coach_memor
     name = html.escape(latest.get("name") or "Workout")
     date_txt = html.escape(latest.get("date") or "")
     duration = fmt_num(latest.get("duration_min"), 0, " min") if latest.get("duration_min") is not None else "-"
-    recovery = latest.get("recovery_zone") or latest.get("readiness_level") or "not tagged"
+    recovery = fmt_recovery_label(latest.get("recovery_zone") or latest.get("readiness_level"))
+    recovery_score = fmt_num(latest.get("recovery_score"), 0)
+    recovery_sub = f"score {recovery_score}" if recovery_score != "-" else "no score"
     kpis = [
         strength_kpi("Volume", fmt_num(summ.get("total_volume_kg"), 0, " kg"), fmt_signed(trend.get("volume_delta_pct"), 1, "% vs prior")),
         strength_kpi("Working sets", fmt_num(summ.get("working_sets"), 0), fmt_signed(trend.get("working_sets_delta"), 1, " sets")),
         strength_kpi("Top est 1RM", fmt_num(summ.get("top_est_1rm_kg"), 1, " kg"), fmt_signed(trend.get("top_est_1rm_delta_kg"), 1, " kg")),
-        strength_kpi("Recovery", str(recovery), f"score {fmt_num(latest.get('recovery_score'), 0)}"),
+        strength_kpi("Recovery", recovery, recovery_sub),
     ]
 
     st.markdown(
         f"""
-        <div class='strength-hero'>
-          <div>
-            <div class='meta'>Latest completed session</div>
-            <h2>{name}</h2>
-            <div class='sub'>{date_txt} · {html.escape(duration)} · {len(exercises)} exercises tracked</div>
+        <div class='strength-overview'>
+          <div class='strength-hero'>
+            <div>
+              <div class='meta'>Latest completed session</div>
+              <h2>{name}</h2>
+              <div class='sub'>{date_txt} · {html.escape(duration)} · {len(exercises)} exercises tracked</div>
+            </div>
+            <div class='strength-kpi-grid'>{''.join(kpis)}</div>
           </div>
-          <div class='strength-kpi-grid'>{''.join(kpis)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -903,13 +1070,13 @@ def render_strength_overview(overview: dict, strength_summary: dict, coach_memor
 
     render_strength_ai_feedback(overview, strength_summary, coach_memory=coach_memory)
 
-    left, right = st.columns([1.15, 0.85], gap="medium")
+    left, right = st.columns([1, 1], gap="medium")
     with left:
-        with st.container(border=True):
+        with st.container(key="strength_trend_card", border=True):
             st.markdown("#### Session trend")
             rows = overview.get("trend_rows") or []
             if rows:
-                st.plotly_chart(strength_trend_chart(rows), use_container_width=True)
+                st.plotly_chart(strength_trend_chart(rows), width="stretch")
                 basis = trend.get("basis")
                 if basis:
                     st.caption(basis)
@@ -937,18 +1104,23 @@ def render_strength_overview(overview: dict, strength_summary: dict, coach_memor
                 st.markdown("<div class='strength-table'>" + "".join(table_rows) + "</div>", unsafe_allow_html=True)
 
     with right:
-        with st.container(border=True):
+        with st.container(key="strength_pr_card", border=True):
             st.markdown("#### Recent PRs")
             latest_prs = [p for p in prs if p.get("latest_session")]
             visible_prs = latest_prs or prs[-5:]
             if visible_prs:
+                pr_rows = []
                 for pr in reversed(visible_prs[-5:]):
                     marker = "latest" if pr.get("latest_session") else pr.get("date")
-                    st.markdown(
-                        f"**{pr.get('exercise')}** - {fmt_num(pr.get('est_1rm_kg'), 1, ' kg')}  \n"
-                        f"<span style='color:{cockpit.TEXT_FAINT};font-size:12px'>{html.escape(str(marker))}</span>",
-                        unsafe_allow_html=True,
+                    exercise = str(pr.get("exercise") or "Exercise")
+                    pr_rows.append(
+                        "<div class='strength-pr-row'>"
+                        f"<div class='strength-pr-name' title='{html.escape(exercise, quote=True)}'>{html.escape(exercise)}</div>"
+                        f"<div class='strength-pr-value'>{fmt_num(pr.get('est_1rm_kg'), 1, ' kg')}</div>"
+                        f"<div class='strength-pr-date'>{html.escape(str(marker))}</div>"
+                        "</div>"
                     )
+                st.markdown("<div class='strength-pr-list'>" + "".join(pr_rows) + "</div>", unsafe_allow_html=True)
             else:
                 st.caption("No PRs detected yet.")
 
@@ -1092,7 +1264,7 @@ tab_overview, tab_log, tab_history, tab_insights, tab_body = st.tabs(
     ["Overview", "Log workout", "History", "Insights", "Bodyweight"])
 
 with tab_overview:
-    sessions = db.load_strength_sessions_df()
+    sessions = load_strength_sessions_with_context()
     sets = db.load_strength_sets_df()
     if not sessions.empty:
         bodyweight = resolve_bodyweight(today_str())
@@ -1124,7 +1296,7 @@ with tab_overview:
 
 with tab_history:
     st.subheader("History")
-    sessions = db.load_strength_sessions_df()
+    sessions = load_strength_sessions_with_context()
     sets = db.load_strength_sets_df()
     if sessions.empty:
         st.info("No workouts logged yet.")
@@ -1232,8 +1404,9 @@ with tab_history:
                 st.markdown(cockpit.strength_session_card(dict(sess), dict(summ)),
                             unsafe_allow_html=True)
                 snap = {k: sess.get(k) for k in (
-                    "readiness_score", "readiness_level", "hrv_status",
-                    "body_battery_start")}
+                    "readiness_score", "garmin_readiness_score",
+                    "readiness_level", "hrv_status", "hrv_overnight_avg",
+                    "resting_hr", "body_battery_start")}
                 st.markdown(cockpit.strength_readiness_badge(snap),
                             unsafe_allow_html=True)
                 render_history_exercise_rollup(rollups_by_session.get(session_id, []))
@@ -1281,11 +1454,11 @@ with tab_history:
                 ex_id = choices[label]
                 fig = cockpit.strength_onerm_trend(
                     prs[prs["exercise_id"] == ex_id], label)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
 with tab_insights:
     st.subheader("Insights")
-    sessions = db.load_strength_sessions_df()
+    sessions = load_strength_sessions_with_context()
     sets = db.load_strength_sets_df()
     if sessions.empty:
         st.info("Log a few workouts (especially the main lifts) to unlock standards, balance, and readiness insights.")
@@ -1330,7 +1503,7 @@ with tab_insights:
             else:
                 st.plotly_chart(
                     weekly_strength_load_chart(load_rows.to_dict("records"), metric),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 latest_week = load_rows["week_start"].max()
                 recent_load = load_rows[load_rows["week_start"] == latest_week].copy()
@@ -1408,7 +1581,7 @@ with tab_insights:
         if isinstance(panel, str):
             st.caption(panel)
         else:
-            st.plotly_chart(panel, use_container_width=True)
+            st.plotly_chart(panel, width="stretch")
             if corr.get("insight"):
                 st.caption(corr["insight"])
 
@@ -1457,6 +1630,9 @@ with tab_log:
                 "name": start_name,
                 "date": today_str(),
                 "started_at": datetime.now().isoformat(timespec="seconds"),
+                "source": "app",
+                "workout_type": "strength",
+                "session_rpe": None,
                 "bodyweight_kg": resolve_bodyweight(today_str()),
                 "routine_id": routine_id,
                 "exercises": exercises,
@@ -1537,7 +1713,7 @@ with tab_log:
                 if sug:
                     plan.append({"exercise": ex["name"], **sug})
             strength_summary = analysis.summarize_strength(
-                db.load_strength_sessions_df(), db.load_strength_sets_df(), catalog,
+                load_strength_sessions_with_context(), db.load_strength_sets_df(), catalog,
                 db.load_profile(), resolve_bodyweight(active["date"]),
                 formula=config.ONE_RM_FORMULA, verdict=verdict)
             st.session_state[note_key] = ai.coach_session_note(
@@ -1554,7 +1730,7 @@ with tab_log:
         if st.button("➕ Add to workout") and pick:
             ex_row = catalog[catalog["name"] == pick].iloc[0]
             sug = analysis.compute_progression_suggestion(
-                ex_row["exercise_id"], db.load_strength_sessions_df(),
+                ex_row["exercise_id"], load_strength_sessions_with_context(),
                 db.load_strength_sets_df(), catalog, config.ONE_RM_FORMULA)
             seed_sets = []
             if sug:
@@ -1602,7 +1778,7 @@ with tab_log:
                 st.success(f"Added {cx_name.strip()}.")
                 st.rerun()
 
-        hist_sessions = db.load_strength_sessions_df()
+        hist_sessions = load_strength_sessions_with_context()
         hist_sets = db.load_strength_sets_df()
 
         for ei, ex in enumerate(active["exercises"]):
@@ -1772,6 +1948,30 @@ with tab_log:
             if st.button("Save routine") and active["exercises"] and rname.strip():
                 save_active_as_routine(active, rname.strip())
                 st.success(f"Saved routine '{rname.strip()}'.")
+
+        with st.expander("Session details"):
+            workout_types = [
+                "strength", "hypertrophy", "heavy", "deload",
+                "rehab", "bjj_support",
+            ]
+            current_type = str(active.get("workout_type") or "strength")
+            type_index = workout_types.index(current_type) if current_type in workout_types else 0
+            active["workout_type"] = st.selectbox(
+                "Workout type",
+                workout_types,
+                index=type_index,
+                format_func=lambda value: str(value).replace("_", " ").title(),
+                key=f"session_workout_type_{active['session_id']}",
+            )
+            session_rpe = st.number_input(
+                "Session RPE",
+                min_value=0.0,
+                max_value=10.0,
+                step=0.5,
+                value=float(active.get("session_rpe") or 0.0),
+                key=f"session_rpe_{active['session_id']}",
+            )
+            active["session_rpe"] = session_rpe or None
 
         completion = workout_completion_status(active)
         confirm_pending = True

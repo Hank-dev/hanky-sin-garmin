@@ -20,6 +20,11 @@ def test_readiness_badge_handles_empty():
     assert "—" in html or "-" in html
 
 
+def test_readiness_badge_uses_garmin_readiness_fallback():
+    html = cockpit.strength_readiness_badge({"garmin_readiness_score": 68})
+    assert "68" in html
+
+
 def test_session_card_renders_tonnage():
     html = cockpit.strength_session_card(
         {"name": "Push Day", "date": "2026-06-05"},
@@ -27,6 +32,22 @@ def test_session_card_renders_tonnage():
     )
     assert "Push Day" in html
     assert "5000" in html or "5,000" in html
+
+
+def test_session_card_renders_garmin_hr_when_merged():
+    html = cockpit.strength_session_card(
+        {"name": "Hevy Upper", "date": "2026-06-20",
+         "garmin_avg_hr": 125, "garmin_max_hr": 167,
+         "garmin_training_load": 86, "workout_type": "hypertrophy",
+         "session_rpe": 7.5},
+        {"total_volume_kg": 5000.0, "working_sets": 12, "top_est_1rm_kg": 120.0},
+    )
+    assert "Garmin HR" in html
+    assert "125" in html
+    assert "167" in html
+    assert "Load" in html
+    assert "Hypertrophy" in html
+    assert "RPE" in html
 
 
 def test_onerm_trend_returns_figure():

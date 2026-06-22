@@ -26,6 +26,22 @@ checkins = db.load_checkins_df()
 METRIC_LABELS = {m["key"]: m["label"] for m in analysis.EXPERIMENT_METRICS}
 METRIC_KEYS = [m["key"] for m in analysis.EXPERIMENT_METRICS]
 
+st.markdown(
+    """
+    <style>
+    .experiments-page-head{margin:4px 0 22px;}
+    .experiments-page-title{font-family:var(--font-serif);font-size:34px;line-height:1.05;
+      color:var(--text);font-weight:400;}
+    .experiments-page-sub{margin-top:7px;color:var(--text-dim);font-size:14px;line-height:1.45;}
+    </style>
+    <div class="experiments-page-head">
+      <div class="experiments-page-title">Experiments</div>
+      <div class="experiments-page-sub">Track N-of-1 interventions against recovery, sleep, and training metrics.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown(cockpit.section_label("Experiment lab"), unsafe_allow_html=True)
 
 # ── create ───────────────────────────────────────────────────────────────────

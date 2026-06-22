@@ -128,6 +128,47 @@ def test_strength_recent_overview_rolls_up_latest_session_and_trends():
     assert "set_id" not in str(out)
 
 
+def test_strength_recent_overview_trend_starts_after_long_gap():
+    sessions = pd.DataFrame([
+        {"session_id": "old1", "date": "2025-03-05", "name": "Old lower",
+         "started_at": "2025-03-05T10:00:00", "ended_at": "2025-03-05T11:00:00",
+         "bodyweight_kg": 80},
+        {"session_id": "old2", "date": "2025-05-28", "name": "Old upper",
+         "started_at": "2025-05-28T10:00:00", "ended_at": "2025-05-28T11:00:00",
+         "bodyweight_kg": 80},
+        {"session_id": "z_recent_first", "date": "2026-05-04", "name": "Recent first",
+         "started_at": "2026-05-04T09:00:00", "ended_at": "2026-05-04T10:00:00",
+         "bodyweight_kg": 80},
+        {"session_id": "a_recent_latest", "date": "2026-05-04", "name": "Recent latest",
+         "started_at": "2026-05-04T12:00:00", "ended_at": "2026-05-04T13:00:00",
+         "bodyweight_kg": 80},
+    ])
+    sets = pd.DataFrame([
+        {"set_id": f"set-{sid}", "session_id": sid, "exercise_id": "bench-press",
+         "set_index": 1, "side": "both", "reps": 5, "weight_kg": weight,
+         "is_warmup": 0, "completed": 1}
+        for sid, weight in [
+            ("old1", 80.0),
+            ("old2", 90.0),
+            ("z_recent_first", 100.0),
+            ("a_recent_latest", 105.0),
+        ]
+    ])
+    exercises = pd.DataFrame([
+        {"exercise_id": "bench-press", "name": "Bench Press", "is_bodyweight": 0, "is_unilateral": 0},
+    ])
+
+    out = analysis.compute_strength_recent_overview(
+        sessions, sets, exercises, trend_gap_days=90
+    )
+
+    assert [r["session_id"] for r in out["trend_rows"]] == [
+        "z_recent_first", "a_recent_latest",
+    ]
+    assert out["latest_session"]["session_id"] == "a_recent_latest"
+    assert out["trend"]["basis"] == "latest vs prior 1 session"
+
+
 def test_strength_recent_overview_empty():
     out = analysis.compute_strength_recent_overview(pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
     assert out["status"] == "no_data"
@@ -468,6 +509,7 @@ def test_readiness_snapshot_maps_fields():
     })
     snap = analysis.readiness_snapshot_from_daily(row)
     assert snap["readiness_score"] == 72
+    assert snap["garmin_readiness_score"] == 72
     assert snap["readiness_level"] == "READY"
     assert snap["acwr"] == 1.1
 
@@ -477,6 +519,88 @@ def test_readiness_snapshot_handles_none_and_nan():
     assert snap["readiness_score"] is None
     row = pd.Series({"training_readiness_score": float("nan")})
     assert analysis.readiness_snapshot_from_daily(row)["readiness_score"] is None
+
+
+def test_merge_strength_session_context_attaches_garmin_and_daily_summaries():
+    sessions = pd.DataFrame([
+        {"session_id": "hevy-1", "date": "2026-06-20",
+         "started_at": "2026-06-20T15:00:00",
+         "ended_at": "2026-06-20T16:21:35",
+         "name": "Upper", "readiness_score": None},
+    ])
+    activities = pd.DataFrame([
+        {"activity_id": "breath-1", "date": "2026-06-20",
+         "name": "Sammenheng", "type": "breathwork",
+         "duration_s": 900, "avg_hr": 70, "max_hr": 90,
+         "training_load": 1, "aerobic_te": 0.1, "anaerobic_te": 0.0},
+        {"activity_id": "garmin-1", "date": "2026-06-20",
+         "name": "Styrke", "type": "strength_training",
+         "duration_s": 4895, "avg_hr": 125, "max_hr": 167,
+         "training_load": 86.4, "aerobic_te": 2.6, "anaerobic_te": 0.4},
+    ])
+    daily = pd.DataFrame([
+        {"date": "2026-06-20", "training_readiness_score": 72,
+         "training_readiness_level": "READY", "hrv_status": "BALANCED",
+         "hrv_overnight_avg": 58, "body_battery_start": 84,
+         "body_battery_current": 80, "sleep_score": 81, "resting_hr": 48,
+         "stress_avg": 30, "acwr": 1.1},
+    ])
+
+    out = analysis.merge_strength_session_context(sessions, activities, daily)
+    row = out.iloc[0]
+
+    assert row["garmin_activity_id"] == "garmin-1"
+    assert row["garmin_activity_name"] == "Styrke"
+    assert row["garmin_avg_hr"] == 125
+    assert row["garmin_max_hr"] == 167
+    assert row["garmin_training_load"] == 86
+    assert row["readiness_score"] == 72
+    assert row["garmin_readiness_score"] == 72
+    assert row["readiness_level"] == "READY"
+    assert row["hrv_overnight_avg"] == 58
+    assert row["resting_hr"] == 48
+    assert row["recovery_zone"] == "green"
+
+
+def test_merge_strength_session_context_prefers_saved_garmin_activity_id():
+    sessions = pd.DataFrame([
+        {"session_id": "hevy-1", "date": "2026-06-20",
+         "started_at": "2026-06-20T15:00:00",
+         "ended_at": "2026-06-20T16:00:00",
+         "garmin_activity_id": "wanted"},
+    ])
+    activities = pd.DataFrame([
+        {"activity_id": "closer-duration", "date": "2026-06-20",
+         "name": "Styrke", "type": "strength_training",
+         "duration_s": 3600, "avg_hr": 100},
+        {"activity_id": "wanted", "date": "2026-06-20",
+         "name": "Styrke", "type": "strength_training",
+         "duration_s": 5000, "avg_hr": 125},
+    ])
+
+    out = analysis.merge_strength_session_context(sessions, activities, pd.DataFrame())
+    row = out.iloc[0]
+
+    assert row["garmin_activity_id"] == "wanted"
+    assert row["garmin_avg_hr"] == 125
+
+
+def test_merge_strength_session_context_preserves_stored_snapshot_values():
+    sessions = pd.DataFrame([
+        {"session_id": "s1", "date": "2026-06-20",
+         "readiness_score": 55, "hrv_status": "STORED"},
+    ])
+    daily = pd.DataFrame([
+        {"date": "2026-06-20", "training_readiness_score": 72,
+         "hrv_status": "BALANCED", "hrv_overnight_avg": 58},
+    ])
+
+    out = analysis.merge_strength_session_context(sessions, pd.DataFrame(), daily)
+    row = out.iloc[0]
+
+    assert row["readiness_score"] == 55
+    assert row["hrv_status"] == "STORED"
+    assert row["hrv_overnight_avg"] == 58
 
 
 def test_enrich_none_sets_returns_empty_with_columns():

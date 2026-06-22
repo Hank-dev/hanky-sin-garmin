@@ -1,6 +1,7 @@
 """SQLite persistence. Idempotent upserts keyed on date / activity id."""
 import sqlite3
 import json
+import uuid
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -118,6 +119,12 @@ CREATE TABLE IF NOT EXISTS strength_sessions (
     ended_at TEXT,
     routine_id TEXT,
     name TEXT,
+    source TEXT,
+    external_id TEXT,
+    garmin_activity_id TEXT,
+    workout_type TEXT,
+    session_rpe REAL,
+    garmin_readiness_score REAL,
     bodyweight_kg REAL,
     notes TEXT,
     readiness_score REAL,
@@ -231,6 +238,8 @@ ROUTINE_EX_COLS = [
 ]
 SESSION_COLS = [
     "session_id", "date", "started_at", "ended_at", "routine_id", "name",
+    "source", "external_id", "garmin_activity_id", "workout_type",
+    "session_rpe", "garmin_readiness_score",
     "bodyweight_kg", "notes", "readiness_score", "readiness_level",
     "hrv_status", "hrv_overnight_avg", "body_battery_start", "sleep_score",
     "resting_hr", "acwr", "recovery_score", "recovery_zone",
@@ -295,7 +304,16 @@ def init_db():
             if col not in existing:
                 conn.execute(f"ALTER TABLE exercises ADD COLUMN {col} {kind}")
         existing = {r[1] for r in conn.execute("PRAGMA table_info(strength_sessions)")}
-        for col, kind in (("recovery_score", "REAL"), ("recovery_zone", "TEXT")):
+        for col, kind in (
+            ("recovery_score", "REAL"),
+            ("recovery_zone", "TEXT"),
+            ("source", "TEXT"),
+            ("external_id", "TEXT"),
+            ("garmin_activity_id", "TEXT"),
+            ("workout_type", "TEXT"),
+            ("session_rpe", "REAL"),
+            ("garmin_readiness_score", "REAL"),
+        ):
             if col not in existing:
                 conn.execute(f"ALTER TABLE strength_sessions ADD COLUMN {col} {kind}")
     # Seed the strength library + apply any .env profile override. Done AFTER
@@ -337,6 +355,16 @@ def upsert_activity(record: dict):
     )
     with connect() as conn:
         conn.execute(sql, [record[c] for c in cols])
+
+
+def add_manual_activity(record: dict) -> str:
+    """Insert a manually logged activity and return its generated activity id."""
+    date_text = str(record.get("date") or "").strip()
+    if not date_text:
+        raise ValueError("Manual activities require a date.")
+    activity_id = f"manual:{date_text}:{uuid.uuid4().hex[:12]}"
+    upsert_activity({**record, "activity_id": activity_id})
+    return activity_id
 
 
 def upsert_checkin(record: dict):
