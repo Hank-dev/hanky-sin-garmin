@@ -479,7 +479,7 @@ def _question_payload(question, summary, capacity, stress_leak_map,
                       grappling_sessions, prebed_discovery, chat_history,
                       strength=None, health_research=None, coach_memory=None,
                       active_experiments=None, early_waking=None,
-                      personal_sleep_need=None):
+                      personal_sleep_need=None, predictive_readiness=None):
     return {
         "question": question,
         "metrics_summary": summary,
@@ -490,6 +490,7 @@ def _question_payload(question, summary, capacity, stress_leak_map,
         "personal_sleep_need": personal_sleep_need or {},
         "early_waking": early_waking or {},
         "health_research": health_research or {},
+        "predictive_readiness": predictive_readiness or {},
         "strength_profile": strength or {},
         "previous_chat": chat_history or [],
         "coach_memory": coach_memory or {},
@@ -512,6 +513,7 @@ def answer_question(
     model: str | None = None,
     early_waking: dict | None = None,
     personal_sleep_need: dict | None = None,
+    predictive_readiness: dict | None = None,
 ) -> str:
     if not config.ANTHROPIC_API_KEY:
         return "_Set ANTHROPIC_API_KEY in .env to enable AI questions._"
@@ -527,6 +529,7 @@ def answer_question(
         active_experiments=active_experiments,
         early_waking=early_waking,
         personal_sleep_need=personal_sleep_need,
+        predictive_readiness=predictive_readiness,
     )
     client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
     msg = client.messages.create(

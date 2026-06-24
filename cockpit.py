@@ -1633,7 +1633,7 @@ def discovery_card(model: dict) -> str:
         _discovery_stat(top_label, _cap_text_num(top_rel.get("median_x")), f"median {top_unit} split".strip()),
         _discovery_stat("Sleep pairs", _cap_text_num(sleep_rel.get("pairs")), sleep_rel.get("confidence") or "not enough data"),
         _discovery_stat("Load pairs", _cap_text_num(load_rel.get("pairs")), load_rel.get("confidence") or "not enough data"),
-        _discovery_stat("Top r", _corr_text(top_rel.get("correlation")), "Pearson association"),
+        _discovery_stat("Top r", _corr_text(top_rel.get("correlation")), top_rel.get("evidence") or "Pearson association"),
     ]
     grid = f'<div class="discovery-grid">{"".join(stats)}</div>'
 
@@ -1641,10 +1641,18 @@ def discovery_card(model: dict) -> str:
     for rel in relationships:
         corr = _corr_text(rel.get("correlation"))
         delta = _signed_text(rel.get("high_vs_low_delta"), rel.get("y_unit") or "pts")
+        ci = ""
+        if rel.get("corr_ci_low") is not None and rel.get("corr_ci_high") is not None:
+            ci = f" · 95% CI {rel.get('corr_ci_low'):+.2f} to {rel.get('corr_ci_high'):+.2f}"
+        p_adj = rel.get("p_adjusted")
+        p_txt = f" · FDR p={float(p_adj):.3f}" if p_adj is not None else ""
+        sensitivity = rel.get("outlier_sensitivity")
+        sensitivity_txt = f" · {sensitivity}" if sensitivity and sensitivity != "unknown" else ""
         items.append(
             f'<div class="discovery-item"><b>{html.escape(rel.get("label", "Pattern"))}</b><br>'
             f'{html.escape(rel.get("summary", ""))} '
-            f'<span class="tnum">High-vs-low split: {html.escape(delta)} · {html.escape(corr)}</span></div>'
+            f'<span class="tnum">High-vs-low split: {html.escape(delta)} · {html.escape(corr)}'
+            f'{html.escape(ci)}{html.escape(p_txt)}{html.escape(sensitivity_txt)}</span></div>'
         )
     list_html = f'<div class="discovery-list">{"".join(items)}</div>' if items else ""
 
@@ -1656,6 +1664,76 @@ def discovery_card(model: dict) -> str:
 
     message = html.escape(model.get("message", "Learning pre-sleep heart-rate patterns."))
     return f'<div class="card discovery">{head}<div class="discovery-message">{message}</div>{grid}{list_html}{flags_html}</div>'
+
+
+def predictive_readiness_card(model: dict) -> str:
+    model = model or {}
+    status = html.escape(str(model.get("status") or "learning").replace("_", " ").title())
+    message = html.escape(str(model.get("message") or "Forecast will unlock as paired HRV, sleep, and activity history accumulates."))
+    target = html.escape(str(model.get("target_date") or "tomorrow"))
+    guidance = model.get("load_guidance") or {}
+    guidance_zone = html.escape(str(guidance.get("zone") or "learning"))
+    guidance_msg = html.escape(str(guidance.get("message") or "Learning how much load preserves tomorrow's HRV."))
+    safe_load = _fmt(guidance.get("safe_load"))
+    current_load = _fmt(guidance.get("current_load"))
+    floor = _fmt(guidance.get("suppression_floor"), " ms")
+    acc = model.get("accuracy") or {}
+    mae = _fmt(acc.get("mae"), " ms")
+    rmse = _fmt(acc.get("rmse"), " ms")
+    pairs = _fmt(acc.get("pairs"))
+    tone_by_zone = {"suppressed": RED, "balanced": ACCENT, "elevated": SERIES2, "learning": TEXT_DIM}
+    rows = []
+    for s in model.get("scenarios") or []:
+        zone = str(s.get("zone") or "unknown").lower()
+        tone = tone_by_zone.get(zone, TEXT_DIM)
+        rows.append(
+            "<div style='display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;"
+            f"align-items:center;padding:12px 0;border-top:1px solid {GRID}'>"
+            "<div style='min-width:0'>"
+            f"<div style='font-weight:700;color:{TEXT};line-height:1.25'>{html.escape(str(s.get('label') or 'Scenario'))}</div>"
+            f"<div style='font-size:12.5px;color:{TEXT_FAINT};line-height:1.35;margin-top:3px'>{html.escape(str(s.get('note') or ''))}</div>"
+            "</div>"
+            f"<div style='text-align:right;color:{tone};font-family:JetBrains Mono,monospace'>"
+            f"<div style='font-size:22px;font-weight:700'>{_fmt(s.get('predicted_hrv'), ' ms')}</div>"
+            f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.12em'>{html.escape(zone)}</div>"
+            "</div></div>"
+        )
+    if not rows:
+        rows.append(f"<div style='padding-top:10px;color:{TEXT_FAINT};font-size:13px'>Need more paired history before scenarios can be shown.</div>")
+
+    feature_bits = []
+    for f in (model.get("features_used") or [])[:4]:
+        unit = html.escape(str(f.get("unit") or ""))
+        suffix = f" {unit}" if unit else ""
+        feature_bits.append(
+            f"<span style='display:inline-flex;gap:6px;align-items:center;border:1px solid {GRID};"
+            f"border-radius:999px;padding:6px 9px;color:{TEXT_DIM};font-size:12px'>"
+            f"{html.escape(str(f.get('label') or f.get('key') or 'Feature'))}"
+            f"<b style='color:{TEXT}'>{_fmt(f.get('value'), suffix)}</b></span>"
+        )
+    feature_html = "".join(feature_bits) if feature_bits else f"<span style='color:{TEXT_FAINT};font-size:12px'>Learning which inputs matter.</span>"
+    return (
+        f"<div class='card' style='padding:20px 22px;margin-bottom:12px'>"
+        f"<div style='display:flex;justify-content:space-between;gap:16px;align-items:start'>"
+        f"<div><div class='kicker'>Predictive Readiness</div>"
+        f"<div style='font-family:Spectral,Georgia,serif;font-size:26px;line-height:1.1;color:{TEXT};margin-top:5px'>HRV-safe training load</div></div>"
+        f"<div style='font-family:JetBrains Mono,monospace;color:{TEXT_FAINT};font-size:10px;text-transform:uppercase;letter-spacing:.14em;text-align:right'>{status}<br>{target}</div>"
+        f"</div>"
+        f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 10px'>"
+        f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>Estimated safe load</div><b style='color:{TEXT};font-size:22px'>{safe_load}</b></div>"
+        f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>Current load</div><b style='color:{TEXT};font-size:22px'>{current_load}</b></div>"
+        f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>Suppression floor</div><b style='color:{TEXT};font-size:22px'>{floor}</b></div>"
+        f"</div>"
+        f"<p style='color:{TEXT_DIM};font-size:14px;line-height:1.45;margin:8px 0 10px'>{guidance_msg} <span style='color:{TEXT_FAINT}'>Zone: {guidance_zone}. {message}</span></p>"
+        f"{''.join(rows)}"
+        f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px'>"
+        f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>MAE</div><b style='color:{TEXT}'>{mae}</b></div>"
+        f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>RMSE</div><b style='color:{TEXT}'>{rmse}</b></div>"
+        f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>Backtest pairs</div><b style='color:{TEXT}'>{pairs}</b></div>"
+        f"</div>"
+        f"<div style='display:flex;flex-wrap:wrap;gap:7px;margin-top:12px'>{feature_html}</div>"
+        f"</div>"
+    )
 
 
 def _corr_text(value) -> str:

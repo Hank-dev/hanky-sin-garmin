@@ -40,6 +40,6 @@ pages = [
     st.Page("views/activities.py", title="Activities", icon=":material/directions_run:"),
     st.Page("views/strength.py", title="Strength", icon=":material/exercise:"),
     st.Page("views/coach.py", title="Coach", icon=":material/psychology:"),
-    st.Page("views/experiments.py", title="Experiments", icon=":material/science:"),
+    st.Page("views/experiments.py", title="Lab", icon=":material/science:"),
 ]
 st.navigation(pages).run()

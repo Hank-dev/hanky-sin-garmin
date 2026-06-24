@@ -34,9 +34,9 @@ palette and surface treatment.
 - **Activities table:** recent workouts with type icon, date, duration, distance,
   avg HR, load.
 
-**2. Strength** — workout history, estimated 1RM progress charts, strength-standard
-ratings, muscle-balance breakdown, readiness-vs-performance, bodyweight trend, and
-a "Start a workout" logger.
+**2. Strength** — imported workout history, estimated 1RM progress charts,
+strength-standard ratings, muscle-balance breakdown, readiness-vs-performance,
+and bodyweight trend.
 
 **3. Coach** — "What the coach knows" (categorized facts/context the AI uses) and
 "Find things to remember."

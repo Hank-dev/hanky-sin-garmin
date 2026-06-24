@@ -5,6 +5,7 @@ summary dict that the AI layer turns into prose. Everything here is
 deterministic and unit-testable.
 """
 import json
+import math
 import pandas as pd
 import numpy as np
 import config
@@ -51,6 +52,116 @@ def _t_critical_975(df) -> float:
         else:
             break
     return _T_TABLE_975[chosen]
+
+
+def _normal_cdf(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _approx_corr_p_value(r: float | None, n: int) -> float | None:
+    """Approximate two-sided p-value for a Pearson/Spearman correlation.
+
+    Uses the usual t statistic and a normal-tail approximation. This is good
+    enough for ranking personal-dashboard associations without adding scipy.
+    """
+    if r is None or n < 4 or abs(r) >= 1:
+        return 0.0 if r is not None and abs(r) >= 1 and n >= 4 else None
+    denom = max(1e-12, 1.0 - float(r) ** 2)
+    t_stat = abs(float(r)) * math.sqrt((n - 2) / denom)
+    return max(0.0, min(1.0, 2.0 * (1.0 - _normal_cdf(t_stat))))
+
+
+def _corr_ci_95(r: float | None, n: int) -> tuple[float | None, float | None]:
+    if r is None or n < 4:
+        return (None, None)
+    clipped = max(-0.999999, min(0.999999, float(r)))
+    z = math.atanh(clipped)
+    margin = 1.96 / math.sqrt(n - 3)
+    return (math.tanh(z - margin), math.tanh(z + margin))
+
+
+def _trimmed_corr(pairs: pd.DataFrame, x_col: str, y_col: str) -> float | None:
+    if len(pairs) < 8:
+        return None
+    x = pairs[x_col]
+    y = pairs[y_col]
+    keep = (
+        x.between(x.quantile(0.05), x.quantile(0.95), inclusive="both")
+        & y.between(y.quantile(0.05), y.quantile(0.95), inclusive="both")
+    )
+    trimmed = pairs[keep]
+    if len(trimmed) < 4 or trimmed[x_col].nunique() <= 1 or trimmed[y_col].nunique() <= 1:
+        return None
+    corr = float(trimmed[x_col].corr(trimmed[y_col]))
+    return None if pd.isna(corr) else corr
+
+
+def _correlation_stats(pairs: pd.DataFrame, x_col: str, y_col: str) -> dict:
+    n = int(len(pairs))
+    pearson = spearman = None
+    if n >= 3 and pairs[x_col].nunique() > 1 and pairs[y_col].nunique() > 1:
+        pearson = float(pairs[x_col].corr(pairs[y_col]))
+        spearman = float(pairs[x_col].rank().corr(pairs[y_col].rank()))
+        pearson = None if pd.isna(pearson) else pearson
+        spearman = None if pd.isna(spearman) else spearman
+    ci_low, ci_high = _corr_ci_95(pearson, n)
+    trimmed = _trimmed_corr(pairs, x_col, y_col)
+    sensitivity = "unknown"
+    if pearson is not None and trimmed is not None:
+        sensitivity = "stable" if abs(pearson - trimmed) <= 0.20 else "outlier-sensitive"
+    monotonic = (
+        pearson is not None
+        and spearman is not None
+        and (pearson == 0 or spearman == 0 or np.sign(pearson) == np.sign(spearman))
+        and abs(spearman) >= 0.25
+    )
+    return {
+        "correlation": pearson,
+        "spearman": spearman,
+        "corr_ci_low": ci_low,
+        "corr_ci_high": ci_high,
+        "p_value": _approx_corr_p_value(pearson, n),
+        "trimmed_correlation": trimmed,
+        "outlier_sensitivity": sensitivity,
+        "monotonic": bool(monotonic),
+    }
+
+
+def _bh_adjusted_p_values(p_values: list[float | None]) -> list[float | None]:
+    indexed = [(i, float(p)) for i, p in enumerate(p_values) if p is not None and not pd.isna(p)]
+    if not indexed:
+        return [None for _ in p_values]
+    m = len(indexed)
+    ranked = sorted(indexed, key=lambda item: item[1])
+    adjusted = [None for _ in p_values]
+    running = 1.0
+    for rank, (idx, p_val) in reversed(list(enumerate(ranked, start=1))):
+        running = min(running, p_val * m / rank)
+        adjusted[idx] = max(0.0, min(1.0, running))
+    return adjusted
+
+
+def _evidence_level(rel: dict, min_pairs: int) -> str:
+    n = int(rel.get("pairs") or 0)
+    p_adj = rel.get("p_adjusted")
+    ci_low = rel.get("corr_ci_low")
+    ci_high = rel.get("corr_ci_high")
+    stable = rel.get("outlier_sensitivity") != "outlier-sensitive"
+    if n >= 20 and p_adj is not None and p_adj <= 0.10 and ci_low is not None and ci_high is not None and ci_low * ci_high > 0 and stable:
+        return "strong"
+    if n >= min_pairs and p_adj is not None and p_adj <= 0.20 and rel.get("monotonic"):
+        return "suggestive"
+    if n >= min_pairs:
+        return "exploratory"
+    return "learning"
+
+
+def _relationship_rank(rel: dict) -> tuple:
+    evidence_order = {"strong": 4, "suggestive": 3, "exploratory": 2, "learning": 1}
+    corr = abs(float(rel.get("correlation") or 0.0))
+    p_adj = rel.get("p_adjusted")
+    p_rank = 1.0 - float(p_adj) if p_adj is not None else 0.0
+    return (evidence_order.get(rel.get("evidence"), 0), p_rank, corr, int(rel.get("pairs") or 0))
 
 
 GRAPPLING_PATTERNS = (
@@ -622,6 +733,22 @@ def compute_prebed_discovery(
             relationships.append(hrv_stress_rel)
 
     if has_daily_stress:
+        if "sleep_score" in df and df["sleep_score"].notna().any():
+            sleep_stress_rel = _prebed_relationship(
+                df,
+                x_col="sleep_score",
+                x_label="Sleep score",
+                x_unit="",
+                y_col="next_day_stress",
+                label="Sleep score vs following-day avg stress",
+                y_label="Following-day avg stress",
+                y_unit="",
+                desired_direction=-1,
+                min_pairs=min_pairs,
+            )
+            if sleep_stress_rel:
+                relationships.append(sleep_stress_rel)
+
         stress_early_rel = _prebed_relationship(
             df,
             x_col="stress_avg",
@@ -771,6 +898,14 @@ def compute_prebed_discovery(
                 "next_day_stress": _round_or_none(row.get("next_day_stress"), 0),
             })
 
+    adjusted = _bh_adjusted_p_values([r.get("p_value") for r in relationships])
+    for rel, p_adj in zip(relationships, adjusted):
+        rel["p_adjusted"] = _round_or_none(p_adj, 3)
+        rel["evidence"] = _evidence_level(rel, min_pairs)
+        rel["confidence"] = rel["evidence"]
+        rel["summary"] = _relationship_summary(rel, min_pairs)
+    relationships = sorted(relationships, key=_relationship_rank, reverse=True)
+
     paired_counts = [r["pairs"] for r in relationships]
     status = "ready" if paired_counts and max(paired_counts) >= min_pairs else "learning"
     missing = _prebed_missing(df, sleep_col, min_pairs, paired_counts)
@@ -813,11 +948,8 @@ def _prebed_relationship(
     pairs = df[["date", x_col, y_col]].dropna().copy()
     if pairs.empty:
         return None
-    corr = None
-    if len(pairs) >= 3 and pairs[x_col].nunique() > 1 and pairs[y_col].nunique() > 1:
-        corr = float(pairs[x_col].corr(pairs[y_col]))
-        if pd.isna(corr):
-            corr = None
+    stats = _correlation_stats(pairs, x_col, y_col)
+    corr = stats["correlation"]
 
     median_x = pairs[x_col].median()
     low = pairs[pairs[x_col] <= median_x][y_col]
@@ -826,8 +958,8 @@ def _prebed_relationship(
     high_mean = float(high.mean()) if not high.empty else None
     delta = high_mean - low_mean if low_mean is not None and high_mean is not None else None
     strength = abs(corr) if corr is not None else 0.0
-    confidence = "high" if len(pairs) >= 20 and strength >= 0.45 else (
-        "medium" if len(pairs) >= min_pairs and strength >= 0.30 else "low"
+    confidence = "strong" if len(pairs) >= 20 and strength >= 0.45 else (
+        "suggestive" if len(pairs) >= min_pairs and strength >= 0.30 else "learning"
     )
     direction_word = "higher" if delta is not None and delta > 0 else "lower"
     effect = _fmt_signed(delta, y_unit) if delta is not None else "unclear"
@@ -859,6 +991,15 @@ def _prebed_relationship(
         "y_unit": y_unit,
         "pairs": int(len(pairs)),
         "correlation": _round_or_none(corr, 2),
+        "spearman": _round_or_none(stats["spearman"], 2),
+        "corr_ci_low": _round_or_none(stats["corr_ci_low"], 2),
+        "corr_ci_high": _round_or_none(stats["corr_ci_high"], 2),
+        "p_value": _round_or_none(stats["p_value"], 3),
+        "p_adjusted": None,
+        "trimmed_correlation": _round_or_none(stats["trimmed_correlation"], 2),
+        "outlier_sensitivity": stats["outlier_sensitivity"],
+        "monotonic": stats["monotonic"],
+        "evidence": confidence,
         "median_prebed_hr": _round_or_none(median_x, 0),
         "median_x": _round_or_none(median_x, 0),
         "low_x_mean": _round_or_none(low_mean, 1),
@@ -894,11 +1035,8 @@ def _bucket_relationship(
     pairs = df[["date", bucket_col, code_col, y_col]].dropna().copy()
     if pairs.empty:
         return None
-    corr = None
-    if len(pairs) >= 3 and pairs[code_col].nunique() > 1 and pairs[y_col].nunique() > 1:
-        corr = float(pairs[code_col].corr(pairs[y_col]))
-        if pd.isna(corr):
-            corr = None
+    stats = _correlation_stats(pairs, code_col, y_col)
+    corr = stats["correlation"]
 
     grouped = (
         pairs.groupby([bucket_col, code_col], observed=True)[y_col]
@@ -944,6 +1082,15 @@ def _bucket_relationship(
         "y_unit": y_unit,
         "pairs": int(len(pairs)),
         "correlation": _round_or_none(corr, 2),
+        "spearman": _round_or_none(stats["spearman"], 2),
+        "corr_ci_low": _round_or_none(stats["corr_ci_low"], 2),
+        "corr_ci_high": _round_or_none(stats["corr_ci_high"], 2),
+        "p_value": _round_or_none(stats["p_value"], 3),
+        "p_adjusted": None,
+        "trimmed_correlation": _round_or_none(stats["trimmed_correlation"], 2),
+        "outlier_sensitivity": stats["outlier_sensitivity"],
+        "monotonic": stats["monotonic"],
+        "evidence": confidence,
         "median_x": None,
         "high_vs_low_delta": None,
         "confidence": confidence,
@@ -960,6 +1107,39 @@ def _bucket_relationship(
             for _, row in pairs.tail(90).iterrows()
         ],
     }
+
+
+def _relationship_summary(rel: dict, min_pairs: int) -> str:
+    label = rel.get("label") or "Relationship"
+    x_label = str(rel.get("x_label") or "metric")
+    y_label = str(rel.get("y_label") or "outcome")
+    y_unit = rel.get("y_unit") or "pts"
+    n = int(rel.get("pairs") or 0)
+    corr = rel.get("correlation")
+    p_adj = rel.get("p_adjusted")
+    evidence = rel.get("evidence") or "learning"
+    delta = rel.get("high_vs_low_delta")
+    if corr is None:
+        return f"{label} has {n} paired days, but there is not enough variance to estimate a correlation."
+    ci = ""
+    if rel.get("corr_ci_low") is not None and rel.get("corr_ci_high") is not None:
+        ci = f", 95% CI {rel['corr_ci_low']:+.2f} to {rel['corr_ci_high']:+.2f}"
+    p_text = f", FDR p={p_adj:.3f}" if p_adj is not None else ""
+    sens = rel.get("outlier_sensitivity")
+    sens_text = f", {sens}" if sens and sens != "unknown" else ""
+    if n < min_pairs:
+        return (
+            f"{label} is still learning from {n}/{min_pairs} paired days "
+            f"(r={corr:+.2f}{ci}{p_text})."
+        )
+    if delta is None:
+        effect = "split effect unclear"
+    else:
+        effect = f"high {x_label.lower()} split: {_fmt_signed(delta, y_unit)} in {y_label.lower()}"
+    return (
+        f"{evidence.title()} association: {x_label} vs {y_label.lower()} "
+        f"(r={corr:+.2f}{ci}{p_text}; {effect}{sens_text})."
+    )
 
 
 def _fmt_signed(value, unit="") -> str:
@@ -4765,6 +4945,281 @@ def compute_prebed_sleep_score_prediction(
         "message": message,
         "model": "personal_prebed_sleep_score_ridge_v1",
     }
+
+
+def compute_predictive_readiness(
+    daily: pd.DataFrame,
+    activities: pd.DataFrame | None = None,
+    sleep_need_h: float | None = None,
+    min_days: int = 14,
+) -> dict:
+    """Forecast tomorrow's overnight HRV under training-load scenarios.
+
+    The target is next-day HRV, learned only from local derived metrics:
+    same-day activity load, recent sleep-debt trajectory, and HRV trend slope.
+    Accuracy is backtested one-step-ahead on historical rows so the card can be
+    falsified as more actual HRV values arrive.
+    """
+    empty = {
+        "status": "no_data",
+        "model": "personal_next_day_hrv_ridge_v1",
+        "message": "Sync HRV, sleep, and activity history to forecast tomorrow's HRV.",
+        "scenarios": [],
+        "accuracy": {"pairs": 0, "mae": None, "rmse": None},
+        "features_used": [],
+        "missing": ["overnight HRV", "sleep duration", "activity training load"],
+    }
+    if daily is None or daily.empty:
+        return empty
+
+    df = daily.sort_values("date").copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    df = df.dropna(subset=["date"])
+    if df.empty or "hrv_overnight_avg" not in df:
+        return empty
+
+    if "sleep_hours" not in df and "sleep_seconds" in df:
+        df["sleep_hours"] = pd.to_numeric(df["sleep_seconds"], errors="coerce") / 3600.0
+    df = _attach_cardio_load(df, activities)
+    if "cardio_load" not in df:
+        df["cardio_load"] = np.nan
+    df["training_load_today"] = pd.to_numeric(df["cardio_load"], errors="coerce").fillna(0.0)
+    need = float(sleep_need_h or config.SLEEP_NEED_HOURS)
+    sleep_h = pd.to_numeric(df.get("sleep_hours"), errors="coerce")
+    df["sleep_debt_h"] = (need - sleep_h).clip(lower=0)
+    df["sleep_debt_7d"] = df["sleep_debt_h"].rolling(7, min_periods=3).mean()
+    df["sleep_debt_slope"] = df["sleep_debt_7d"] - df["sleep_debt_7d"].shift(3)
+    hrv = pd.to_numeric(df["hrv_overnight_avg"], errors="coerce")
+    df["hrv_7d"] = hrv.rolling(7, min_periods=3).mean()
+    df["hrv_slope_7d"] = df["hrv_7d"] - df["hrv_7d"].shift(3)
+    df["target_hrv"] = hrv.shift(-1)
+
+    feature_specs = [
+        {"key": "training_load_today", "label": "Training load", "unit": "", "digits": 0},
+        {"key": "sleep_debt_7d", "label": "Sleep debt", "unit": "h", "digits": 1},
+        {"key": "sleep_debt_slope", "label": "Sleep debt trend", "unit": "h", "digits": 1},
+        {"key": "hrv_slope_7d", "label": "HRV trend", "unit": "ms", "digits": 1},
+    ]
+    feature_keys = [s["key"] for s in feature_specs]
+    train = df.dropna(subset=["target_hrv"]).copy()
+    available = [
+        key for key in feature_keys
+        if key in train and train[key].notna().sum() >= max(5, min_days // 2)
+    ]
+    if len(train) < min_days or len(available) < 2:
+        latest_hrv = _first_number(hrv.dropna().tail(7).mean(), hrv.dropna().mean())
+        scenarios = _readiness_scenarios_from_baseline(latest_hrv, df)
+        return {
+            **empty,
+            "status": "learning",
+            "message": f"Learning from {int(len(train))} paired days; needs about {min_days} with HRV and inputs.",
+            "scenarios": scenarios,
+            "training_days": int(len(train)),
+            "missing": ["more paired HRV, sleep, and activity days"],
+        }
+
+    model = _fit_readiness_hrv_model(train, available)
+    latest = df.iloc[-1].copy()
+    scenarios = _predict_readiness_scenarios(model, latest, train, feature_specs)
+    load_guidance = _readiness_load_guidance(model, latest, train)
+    accuracy = _readiness_backtest(train, available, min_train=max(8, min_days // 2))
+    confidence = "low"
+    if accuracy["pairs"] >= 20 and (accuracy["mae"] or 99) <= 7:
+        confidence = "high"
+    elif accuracy["pairs"] >= 8:
+        confidence = "medium"
+    status = "ready" if accuracy["pairs"] >= 5 else "learning"
+    feature_rows = []
+    for spec in feature_specs:
+        key = spec["key"]
+        if key not in available:
+            continue
+        feature_rows.append({
+            "key": key,
+            "label": spec["label"],
+            "value": _round_or_none(latest.get(key), spec["digits"]),
+            "baseline": _round_or_none(model["means"].get(key), spec["digits"]),
+            "unit": spec["unit"],
+            "coef_ms_per_sd": _round_or_none(model["coefs"].get(key), 2),
+        })
+    message = (
+        f"Forecasting tomorrow's HRV from {int(len(train))} paired days; "
+        f"backtest MAE {_round_or_none(accuracy['mae'], 1)} ms, RMSE {_round_or_none(accuracy['rmse'], 1)} ms."
+        if accuracy["mae"] is not None else
+        f"Forecasting tomorrow's HRV from {int(len(train))} paired days; accuracy will unlock after more backtest pairs."
+    )
+    return {
+        "status": status,
+        "model": "personal_next_day_hrv_ridge_v1",
+        "target_date": (pd.Timestamp(latest["date"]) + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+        "training_days": int(len(train)),
+        "confidence": confidence,
+        "scenarios": scenarios,
+        "load_guidance": load_guidance,
+        "accuracy": accuracy,
+        "features_used": feature_rows,
+        "message": message,
+        "missing": [],
+    }
+
+
+def _fit_readiness_hrv_model(train: pd.DataFrame, feature_keys: list[str]) -> dict:
+    x = train[feature_keys].apply(pd.to_numeric, errors="coerce")
+    medians = x.median(axis=0)
+    x = x.fillna(medians)
+    means = x.mean(axis=0)
+    stds = x.std(axis=0, ddof=0).replace(0, np.nan)
+    usable = [key for key in feature_keys if pd.notna(stds[key]) and stds[key] > 0]
+    y = pd.to_numeric(train["target_hrv"], errors="coerce").astype(float).to_numpy()
+    if not usable:
+        return {"keys": [], "means": {}, "stds": {}, "coefs": {}, "beta": np.array([float(np.nanmean(y))])}
+    x_std = ((x[usable] - means[usable]) / stds[usable]).to_numpy()
+    design = np.column_stack([np.ones(len(x_std)), x_std])
+    alpha = 3.0 + len(usable)
+    penalty = np.diag([0.0] + [alpha] * len(usable))
+    beta = np.linalg.pinv(design.T @ design + penalty) @ design.T @ y
+    return {
+        "keys": usable,
+        "means": means[usable].to_dict(),
+        "stds": stds[usable].to_dict(),
+        "coefs": dict(zip(usable, beta[1:])),
+        "beta": beta,
+    }
+
+
+def _predict_readiness_scenarios(model: dict, latest: pd.Series, train: pd.DataFrame, specs: list[dict]) -> list[dict]:
+    recent_load = pd.to_numeric(train["training_load_today"], errors="coerce").dropna()
+    hard_load = _first_number(recent_load.quantile(0.85), recent_load.mean(), 85.0) or 85.0
+    easy_load = _first_number(recent_load[recent_load > 0].quantile(0.25), 20.0) or 20.0
+    easy_load = min(easy_load, hard_load)
+    base = {key: _first_number(latest.get(key), model["means"].get(key)) for key in model.get("keys", [])}
+    scenarios = [
+        ("Hard sparring tonight", hard_load, "High-load session similar to your upper recent load days."),
+        ("Technique-only", easy_load, "Low-load skill work with minimal conditioning stress."),
+    ]
+    out = []
+    for label, load, note in scenarios:
+        values = {**base, "training_load_today": load}
+        pred = _predict_readiness_hrv(model, values)
+        out.append({
+            "label": label,
+            "predicted_hrv": _round_or_none(pred, 0),
+            "zone": _predicted_hrv_zone(pred, train),
+            "training_load": _round_or_none(load, 0),
+            "note": note,
+        })
+    return out
+
+
+def _readiness_load_guidance(model: dict, latest: pd.Series, train: pd.DataFrame) -> dict:
+    recent_load = pd.to_numeric(train["training_load_today"], errors="coerce").dropna()
+    hrv = pd.to_numeric(train["target_hrv"], errors="coerce").dropna()
+    baseline = _first_number(hrv.tail(28).mean(), hrv.mean())
+    if baseline is None or recent_load.empty or "training_load_today" not in (model.get("keys") or []):
+        return {"status": "learning", "message": "Learning the load level that preserves next-day HRV."}
+
+    suppress_floor = 0.90 * baseline
+    high = _first_number(recent_load.quantile(0.95), recent_load.max(), 100.0) or 100.0
+    high = max(float(high), 20.0)
+    base = {key: _first_number(latest.get(key), model["means"].get(key)) for key in model.get("keys", [])}
+    grid = np.linspace(0.0, high, 81)
+    preds = []
+    for load in grid:
+        preds.append(_predict_readiness_hrv(model, {**base, "training_load_today": float(load)}))
+    valid = [(float(load), float(pred)) for load, pred in zip(grid, preds) if not pd.isna(pred)]
+    if not valid:
+        return {"status": "learning", "message": "Learning the load level that preserves next-day HRV."}
+
+    safe = [load for load, pred in valid if pred >= suppress_floor]
+    threshold = max(safe) if safe else 0.0
+    latest_load = _first_number(latest.get("training_load_today"), 0.0) or 0.0
+    if threshold <= 0:
+        zone = "red"
+        message = "Model expects HRV suppression even at very low added load; bias toward rest or recovery work."
+    elif latest_load > threshold:
+        zone = "red"
+        message = "Today's load is already above the model's HRV-safe line; avoid adding hard work."
+    elif latest_load > threshold * 0.75:
+        zone = "yellow"
+        message = "You are close to the model's HRV-safe line; keep any extra training easy."
+    else:
+        zone = "green"
+        message = "Model sees room for training before tomorrow's HRV suppression line."
+    return {
+        "status": "ready",
+        "zone": zone,
+        "safe_load": _round_or_none(threshold, 0),
+        "current_load": _round_or_none(latest_load, 0),
+        "suppression_floor": _round_or_none(suppress_floor, 0),
+        "baseline_hrv": _round_or_none(baseline, 0),
+        "message": message,
+    }
+
+
+def _predict_readiness_hrv(model: dict, values: dict) -> float:
+    keys = model.get("keys") or []
+    beta = model.get("beta")
+    if beta is None or len(beta) == 0:
+        return np.nan
+    z = []
+    for key in keys:
+        value = _first_number(values.get(key), model["means"].get(key))
+        sd = model["stds"].get(key)
+        z.append(0.0 if sd in (None, 0) or pd.isna(sd) else (value - model["means"][key]) / sd)
+    return float(beta[0] + np.array(z) @ beta[1:])
+
+
+def _readiness_backtest(train: pd.DataFrame, feature_keys: list[str], min_train: int = 8) -> dict:
+    preds = []
+    actuals = []
+    ordered = train.sort_values("date").copy()
+    for i in range(min_train, len(ordered)):
+        hist = ordered.iloc[:i].copy()
+        row = ordered.iloc[i]
+        usable = [key for key in feature_keys if hist[key].notna().sum() >= 5 and hist[key].nunique(dropna=True) > 1]
+        if len(usable) < 2:
+            continue
+        model = _fit_readiness_hrv_model(hist, usable)
+        pred = _predict_readiness_hrv(model, {key: row.get(key) for key in usable})
+        actual = _first_number(row.get("target_hrv"))
+        if actual is None or pd.isna(pred):
+            continue
+        preds.append(pred)
+        actuals.append(actual)
+    if not preds:
+        return {"pairs": 0, "mae": None, "rmse": None}
+    residuals = np.array(actuals, dtype=float) - np.array(preds, dtype=float)
+    return {
+        "pairs": int(len(preds)),
+        "mae": _round_or_none(np.mean(np.abs(residuals)), 1),
+        "rmse": _round_or_none(np.sqrt(np.mean(residuals ** 2)), 1),
+    }
+
+
+def _predicted_hrv_zone(prediction: float, train: pd.DataFrame) -> str:
+    if prediction is None or pd.isna(prediction):
+        return "unknown"
+    hrv = pd.to_numeric(train["target_hrv"], errors="coerce").dropna()
+    baseline = _first_number(hrv.tail(28).mean(), hrv.mean())
+    if baseline is None:
+        return "unknown"
+    if prediction < 0.90 * baseline:
+        return "suppressed"
+    if prediction > 1.10 * baseline:
+        return "elevated"
+    return "balanced"
+
+
+def _readiness_scenarios_from_baseline(latest_hrv: float | None, df: pd.DataFrame) -> list[dict]:
+    if latest_hrv is None:
+        return []
+    recent_load = pd.to_numeric(df.get("cardio_load"), errors="coerce").dropna()
+    hard_load = _first_number(recent_load.quantile(0.85), 85.0) or 85.0
+    easy_load = _first_number(recent_load[recent_load > 0].quantile(0.25), 20.0) or 20.0
+    return [
+        {"label": "Hard sparring tonight", "predicted_hrv": _round_or_none(latest_hrv * 0.92, 0), "zone": "learning", "training_load": _round_or_none(hard_load, 0), "note": "Baseline estimate until enough paired history is available."},
+        {"label": "Technique-only", "predicted_hrv": _round_or_none(latest_hrv * 1.01, 0), "zone": "learning", "training_load": _round_or_none(easy_load, 0), "note": "Baseline estimate until enough paired history is available."},
+    ]
 
 
 def _add_prebed_prediction_features(df: pd.DataFrame, sleep_need_h: float) -> pd.DataFrame:

@@ -52,6 +52,11 @@ def load(local_timezone: str):
         sleep_need_h=personal_sleep_need.get("sleep_need_h"),
     )
     health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
+    predictive_readiness = analysis.compute_predictive_readiness(
+        daily,
+        acts,
+        sleep_need_h=personal_sleep_need.get("sleep_need_h"),
+    )
     strength_sessions = db.load_strength_sessions_df()
     strength_sets = db.load_strength_sets_df()
     exercises = db.load_exercises_df()
@@ -67,12 +72,12 @@ def load(local_timezone: str):
         formula=config.ONE_RM_FORMULA)
     return (daily, acts, checkins, body_battery, stress,
             stress_leaks, prebed_discovery, personal_sleep_need, early_waking,
-            health_research, strength_summary)
+            health_research, predictive_readiness, strength_summary)
 
 
 (daily, acts, checkins, body_battery, stress, stress_leaks,
  prebed_discovery, personal_sleep_need, early_waking, health_research,
- strength_summary) = load(config.LOCAL_TIMEZONE)
+ predictive_readiness, strength_summary) = load(config.LOCAL_TIMEZONE)
 
 coach_memory_df = db.load_memory_df()                       # fresh: not cached
 coach_memory_digest = analysis.build_coach_memory_digest(coach_memory_df)
@@ -427,6 +432,7 @@ question_payload = {
     "personal_sleep_need": {k: v for k, v in personal_sleep_need.items() if k != "rows"},
     "early_waking": compact_early_waking(early_waking),
     "health_research": {k: v for k, v in health_research.items() if k != "rows"},
+    "predictive_readiness": predictive_readiness,
     "strength_profile": strength_summary,
     "selected_day": selected_day,
 }
@@ -474,6 +480,7 @@ if pending_prompt:
                 personal_sleep_need=question_payload["personal_sleep_need"],
                 early_waking=question_payload["early_waking"],
                 health_research=question_payload["health_research"],
+                predictive_readiness=predictive_readiness,
                 coach_memory=coach_memory_digest,
                 active_experiments=active_experiments,
             )
@@ -495,66 +502,14 @@ def chart_card(title, unit, fig):
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
 
-def render_prebed_discovery():
-    st.markdown(cockpit.discovery_card(prebed_discovery), unsafe_allow_html=True)
-    rels = prebed_discovery.get("relationships", [])
-
-    def rel_for(x_col, y_col):
-        return next((r for r in rels if r.get("x_col") == x_col and r.get("y_col") == y_col), None)
-
-    sleep_rel = next(
-        (r for r in rels if r.get("x_col") == "hr_bedtime" and r.get("y_col") in ("sleep_score", "sleep_hours")),
-        None,
-    )
-    stress_sleep_rel = next(
-        (r for r in rels if r.get("x_col") == "stress_avg" and r.get("y_col") in ("next_day_sleep_score", "next_day_sleep_hours")),
-        None,
-    )
-    chart_specs = [
-        ("Pre-sleep HR median vs sleep quality", sleep_rel.get("y_label", "") if sleep_rel else "", "hr_bedtime", sleep_rel.get("y_col") if sleep_rel else "sleep_score"),
-        ("Pre-sleep HR median vs early-for-recovery", "min", "hr_bedtime", "early_for_recovery_min"),
-        ("Pre-sleep HR median vs next-day stress", "avg stress", "hr_bedtime", "next_day_stress"),
-        ("Pre-sleep HR median deviation vs sleep quality", "sleep score", "bedtime_hr_delta", "sleep_score"),
-        ("Pre-sleep HR median deviation vs overnight HRV", "ms", "bedtime_hr_delta", "hrv_overnight_avg"),
-        ("Pre-sleep HR median deviation vs resting HR", "bpm", "bedtime_hr_delta", "resting_hr"),
-        ("Early-for-recovery vs next overnight HRV", "ms", "early_for_recovery_min", "next_day_hrv"),
-        ("Early-for-recovery vs next Body Battery", "score", "early_for_recovery_min", "next_day_body_battery_start"),
-        ("Body Battery recharge vs early-for-recovery", "min", "body_battery_recharge", "early_for_recovery_min"),
-        ("Overnight HRV vs next-day stress", "avg stress", "hrv_overnight_avg", "next_day_stress"),
-        ("Daily avg stress vs next early-for-recovery", "min", "stress_avg", "next_day_early_for_recovery_min"),
-        ("Daily avg stress vs next overnight HRV", "ms", "stress_avg", "next_day_hrv"),
-        ("Daily avg stress vs following-night sleep quality", stress_sleep_rel.get("y_label", "") if stress_sleep_rel else "", "stress_avg", stress_sleep_rel.get("y_col") if stress_sleep_rel else "next_day_sleep_score"),
-        ("Sleep midpoint variability vs next-day stress", "avg stress", "sleep_midpoint_variability_7d", "next_day_stress"),
-        ("Sleep midpoint variability vs overnight HRV", "ms", "sleep_midpoint_variability_7d", "hrv_overnight_avg"),
-        ("Cardiovascular load vs next-day stress", "avg stress", "cardio_load", "next_day_stress"),
-        ("Activity sweet spot vs next-day stress", "avg stress", "activity_bucket_code", "next_day_stress"),
-        ("Activity sweet spot vs next-day HRV", "ms", "activity_bucket_code", "next_day_hrv"),
-        ("Activity sweet spot vs Body Battery recharge", "score", "activity_bucket_code", "next_day_body_battery_recharge"),
-    ]
-
-    for i in range(0, len(chart_specs), 2):
-        cols = st.columns(2)
-        for col, (title, unit, x_col, y_col) in zip(cols, chart_specs[i:i + 2]):
-            with col:
-                rel = rel_for(x_col, y_col)
-                if rel:
-                    chart_card(
-                        title,
-                        unit,
-                        cockpit.chart_prebed_relationship(prebed_discovery, y_col, x_col),
-                    )
-                else:
-                    st.caption(f"No paired data yet for {title.lower()}.")
-
-
 st.markdown('<div class="section-label">Trends</div>', unsafe_allow_html=True)
 if not daily.empty:
     st.markdown(cockpit.day_rail(view, acts, selected_day), unsafe_allow_html=True)
     if selected_day and selected_day != default_day:
         st.caption(f"Daily graphs are focused on `{selected_day}`. Click the latest day card to return to today.")
 
-recovery_tab, health_tab, training_tab, discovery_tab, experimental_tab = st.tabs(
-    ["Recovery", "Health Lab", "Training", "Correlations", "Experimental"]
+recovery_tab, health_tab, training_tab, experimental_tab = st.tabs(
+    ["Recovery", "Health Lab", "Training", "Experimental"]
 )
 
 with recovery_tab:
@@ -654,11 +609,8 @@ with training_tab:
         else:
             st.caption("No VO₂max estimates stored for this window.")
 
-with discovery_tab:
-    render_prebed_discovery()
-
-
 with experimental_tab:
+    st.markdown(cockpit.predictive_readiness_card(predictive_readiness), unsafe_allow_html=True)
     render_capacity_experimental()
 
 

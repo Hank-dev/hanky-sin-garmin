@@ -1,12 +1,11 @@
-"""Strength logger — Strong-style live workout logging on its own page.
+"""Strength analytics page.
 
-Live state lives in st.session_state["active"] until you press Finish, which
-persists the session + sets and stamps the readiness snapshot for the day.
+Strength logging happens outside this app. This page focuses on imported
+sessions, recovery context, trends, standards, and history.
 """
 import html
-import uuid
 import importlib
-from datetime import datetime, date
+from datetime import date
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,15 +15,11 @@ import config
 import db
 import analysis
 import cockpit
-import strength_catalog
-import ai
 
 config = importlib.reload(config)
 db = importlib.reload(db)
 analysis = importlib.reload(analysis)
 cockpit = importlib.reload(cockpit)
-strength_catalog = importlib.reload(strength_catalog)
-ai = importlib.reload(ai)
 
 st.markdown("""
 <style>
@@ -102,34 +97,6 @@ st.markdown("""
 .strength-pr-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:750;font-size:14.5px;}
 .strength-pr-value{white-space:nowrap;color:var(--text);font-size:14px;font-variant-numeric:tabular-nums;}
 .strength-pr-date{grid-column:1/-1;color:var(--text-faint);font-size:11.5px;font-variant-numeric:tabular-nums;}
-.strength-ai-title{font-family:var(--font-serif);font-size:22px;font-weight:400;color:var(--text);line-height:1.05;}
-.strength-ai-meta{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-top:4px;}
-.strength-feedback-empty{color:var(--text-dim);font-size:13.5px;line-height:1.45;margin-top:4px;}
-.strength-feedback-preview{color:var(--text);line-height:1.55;margin-top:8px;max-width:92ch;}
-.strength-feedback{color:var(--text);line-height:1.55;}
-.st-key-strength_ai_feedback{container-type:inline-size;margin-top:12px!important;}
-.st-key-strength_ai_feedback [data-testid="stVerticalBlockBorderWrapper"]{padding:16px 18px 18px!important;}
-.st-key-strength_ai_feedback [data-testid="stVerticalBlock"]{gap:.28rem!important;}
-.st-key-strength_ai_header [data-testid="stHorizontalBlock"]{
-  display:grid!important;grid-template-columns:minmax(0,1fr) max-content max-content!important;
-  gap:12px!important;align-items:center!important;
-}
-.st-key-strength_ai_header [data-testid="column"]{width:auto!important;min-width:0!important;}
-.st-key-strength_ai_header [data-testid="stButton"]{display:flex!important;justify-content:flex-end!important;}
-.st-key-strength_ai_header div.stButton>button{
-  width:104px!important;min-width:104px!important;max-width:104px!important;
-  min-height:36px!important;height:36px!important;padding:7px 10px!important;
-  border-radius:8px!important;font-size:12.5px!important;line-height:1!important;
-  background:var(--surface-2)!important;color:var(--text)!important;
-  border:1px solid var(--border-2)!important;box-shadow:inset 0 1px 0 var(--inset-hi)!important;
-  filter:none!important;
-}
-.st-key-strength_ai_header div.stButton>button:hover{
-  background:color-mix(in srgb,var(--accent) 10%,var(--surface-2))!important;
-  border-color:color-mix(in srgb,var(--accent) 38%,transparent)!important;color:var(--text)!important;
-}
-.st-key-strength_ai_header div.stButton>button p{margin:0!important;line-height:1!important;white-space:nowrap!important;}
-.st-key-strength_ai_header div.stButton>button [data-testid="stIconMaterial"]{font-size:16px!important;margin-right:5px!important;color:var(--accent)!important;}
 @container (max-width:900px){
   .strength-hero{grid-template-columns:1fr;}
 }
@@ -156,134 +123,6 @@ st.markdown("""
   .strength-leaderboard-row{font-size:11px;padding:7px 8px;}
   .strength-leaderboard-row .num,.strength-leaderboard-row .rank{font-size:10px;}
 }
-.st-key-strong_logger{
-  max-width:720px;margin:0 auto 22px!important;padding:0 22px 18px!important;background:var(--surface);
-  border:1px solid rgba(255,255,255,.06);border-radius:8px;overflow:hidden;
-  box-shadow:0 22px 70px -36px rgba(0,0,0,.9);
-}
-.st-key-strong_logger [data-testid="stVerticalBlock"]{gap:.45rem;}
-.st-key-strong_topbar{
-  position:sticky;top:0;z-index:10;margin:0 -22px 8px!important;
-  padding:10px 18px!important;background:var(--surface-2);
-  border-bottom:1px solid rgba(255,255,255,.04);
-}
-.strong-top{
-  position:sticky;top:0;z-index:10;display:grid;grid-template-columns:64px 64px 1fr 104px;
-  align-items:center;gap:8px;padding:10px 18px;background:var(--surface-2);
-  border-bottom:1px solid rgba(255,255,255,.04);
-}
-.strong-top-cell{
-  min-height:44px;display:flex;align-items:center;justify-content:center;
-  background:var(--surface-2);color:var(--text);
-}
-.strong-top .icon{
-  min-height:44px;display:grid;place-items:center;color:var(--text);font-size:28px;line-height:1;
-}
-.strong-top-cell.icon{font-size:28px;line-height:1;}
-.strong-top .timer,.strong-top-cell.timer{
-  text-align:center;color:var(--text-dim);font-size:22px;font-variant-numeric:tabular-nums;
-}
-.strong-finish{
-  color:var(--accent);text-align:right;font-size:20px;font-weight:700;letter-spacing:.16em;
-}
-.strong-head{padding:26px 22px 16px;}
-.strong-title{font-size:28px;line-height:1.08;font-weight:800;color:var(--text);letter-spacing:-.01em;}
-.strong-duration{margin-top:14px;color:var(--text-dim);font-size:24px;font-variant-numeric:tabular-nums;}
-.strong-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 22px 18px;}
-.strong-stat{background:var(--surface-2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:9px 11px;}
-.strong-stat .lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-faint);}
-.strong-stat .val{margin-top:3px;font-size:18px;color:var(--text);font-weight:750;font-variant-numeric:tabular-nums;}
-.strong-section{padding:0 22px 18px;}
-.strong-ex-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;margin-top:18px;}
-.strong-ex-title{color:var(--accent);font-size:22px;font-weight:800;letter-spacing:.01em;}
-.strong-ex-tools{display:flex;align-items:center;gap:8px;color:var(--accent);font-weight:800;}
-.strong-note{
-  margin:12px 0 10px;padding:11px 14px;background:rgba(232,194,106,.14);color:var(--text);
-  font-size:17px;line-height:1.25;border-radius:0;
-}
-.strong-col-head{
-  display:grid;grid-template-columns:.72fr 1.55fr 1fr 1fr .72fr;gap:10px;
-  padding:8px 2px 6px;font-family:var(--font-mono);font-size:12px;font-weight:800;
-  letter-spacing:.22em;color:var(--text);text-transform:uppercase;
-}
-.strong-row-label{
-  display:flex;align-items:center;min-height:42px;font-size:20px;font-weight:800;
-}
-.strong-row-label.warm{color:var(--amber);}
-.strong-row-label.done{color:var(--text);}
-.strong-prev{
-  min-height:42px;display:flex;align-items:center;color:var(--text-faint);font-size:18px;
-  font-variant-numeric:tabular-nums;white-space:nowrap;
-}
-.st-key-strong_logger [class*="st-key-strong_setrow_"]{
-  padding:2px 0!important;
-}
-.st-key-strong_logger [class*="st-key-strong_setrow_"] [data-testid="stHorizontalBlock"]{
-  flex-wrap:nowrap!important;align-items:center!important;
-}
-.st-key-strong_logger [class*="st-key-strong_setrow_"] [data-testid="stHorizontalBlock"] > div{
-  flex:0 0 auto!important;width:auto!important;min-width:0!important;
-}
-.st-key-strong_logger [class*="st-key-strong_setrow_"] .strong-prev{
-  min-width:86px;
-}
-.st-key-strong_logger [class*="st-key-strong_setrow_"] div[data-testid="stTextInput"]{
-  width:74px!important;min-width:58px!important;
-}
-.st-key-strong_logger [class*="st-key-kg_txt_"],
-.st-key-strong_logger [class*="st-key-reps_txt_"]{
-  width:74px!important;min-width:58px!important;flex:0 0 74px!important;
-}
-.st-key-strong_logger [class*="st-key-strong_setrow_"] div.stButton > button{
-  min-width:40px!important;padding-left:0!important;padding-right:0!important;
-}
-.strong-done-strip{
-  height:5px;margin:-2px 0 6px;border-radius:999px;background:rgba(128,203,196,.45);
-}
-.strong-rest{
-  display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
-  align-items:center;gap:12px;margin:4px 0 10px;color:var(--accent);
-  font-size:20px;font-variant-numeric:tabular-nums;
-}
-.strong-rest::before,.strong-rest::after{
-  content:"";height:4px;border-radius:999px;background:rgba(128,203,196,.20);
-}
-.strong-rest.active::before{background:var(--accent);}
-.strong-help{color:var(--text-faint);font-size:12px;margin-top:4px;}
-.strong-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 22px 22px;}
-.st-key-strong_logger div[data-testid="stNumberInput"] input{
-  background:var(--surface-3);color:var(--text);border:0;border-radius:8px;min-height:42px;
-  text-align:center;font-size:22px;font-weight:650;font-variant-numeric:tabular-nums;
-}
-.st-key-strong_logger div[data-testid="stTextInput"] input{
-  background:var(--surface-3);color:var(--text);border:1px solid rgba(255,255,255,.08);border-radius:8px;
-}
-.st-key-strong_logger div.stButton > button{
-  min-height:42px;border-radius:10px;border-color:rgba(255,255,255,.08);
-  background:var(--surface-3);color:var(--accent);font-weight:800;
-}
-.st-key-strong_logger div.stButton > button[kind="primary"]{
-  background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
-}
-@media (max-width:640px){
-  .block-container{padding-left:.45rem;padding-right:.45rem;}
-  .st-key-strong_logger{border-left:0;border-right:0;border-radius:0;margin-left:-.45rem!important;margin-right:-.45rem!important;padding-left:14px!important;padding-right:14px!important;}
-  .st-key-strong_topbar{margin-left:-14px!important;margin-right:-14px!important;padding:8px 12px!important;}
-  .strong-top{grid-template-columns:42px 48px 1fr 92px;padding:8px 12px;}
-  .strong-top .timer{font-size:18px}.strong-finish{font-size:17px}
-  .strong-head,.strong-section{padding-left:14px;padding-right:14px;}
-  .strong-stats{padding-left:14px;padding-right:14px;}
-  .strong-title{font-size:25px}.strong-duration{font-size:22px}
-  .strong-ex-title{font-size:20px}
-  .strong-col-head{grid-template-columns:.62fr 1.4fr .86fr .86fr .62fr;gap:6px;font-size:10px;}
-  .strong-prev{font-size:15px}.strong-row-label{font-size:18px}
-  .st-key-strong_logger div[data-testid="stNumberInput"] input{font-size:19px;min-height:40px;}
-  .st-key-strong_logger [class*="st-key-strong_setrow_"] .strong-prev{min-width:28px;font-size:13px;}
-  .st-key-strong_logger [class*="st-key-strong_setrow_"] div[data-testid="stTextInput"]{width:44px!important;min-width:44px!important;}
-  .st-key-strong_logger [class*="st-key-kg_txt_"],
-  .st-key-strong_logger [class*="st-key-reps_txt_"]{width:44px!important;min-width:44px!important;flex-basis:44px!important;}
-  .st-key-strong_logger [class*="st-key-strong_setrow_"] div.stButton > button{min-width:36px!important;width:36px!important;}
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -295,171 +134,8 @@ def load_catalog():
     return db.load_exercises_df()
 
 
-def coach_memory_digest():
-    return analysis.build_coach_memory_digest(db.load_memory_df())
-
-
 def today_str():
     return date.today().isoformat()
-
-
-def parse_dt(value):
-    try:
-        return datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return datetime.now()
-
-
-def duration_label(started_at: str) -> str:
-    seconds = max(0, int((datetime.now() - parse_dt(started_at)).total_seconds()))
-    minutes, sec = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}:{minutes:02d}:{sec:02d}"
-    return f"{minutes}:{sec:02d}"
-
-
-def render_live_timer_js():
-    """Tick every `[data-stopwatch]` element in the main document once a second,
-    entirely client-side, so the workout clock stays live without server reruns.
-    Runs in a 0-height component iframe but updates the parent DOM (same origin)."""
-    st.components.v1.html(
-        """
-        <script>
-        (function(){
-          const doc = window.parent.document;
-          const pad = n => String(n).padStart(2, '0');
-          function fmt(s){
-            s = Math.max(0, Math.floor(s));
-            const h = Math.floor(s / 3600);
-            const m = Math.floor((s % 3600) / 60);
-            const sec = s % 60;
-            return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
-          }
-          function tick(){
-            doc.querySelectorAll('[data-stopwatch]').forEach(el => {
-              const start = parseInt(el.getAttribute('data-start'), 10);
-              if (!start) return;
-              el.textContent = fmt((Date.now() - start) / 1000);
-            });
-          }
-          // Clear any interval from a prior rerun so they don't stack.
-          if (window.parent.__strongTimer) clearInterval(window.parent.__strongTimer);
-          window.parent.__strongTimer = setInterval(tick, 1000);
-          tick();
-        })();
-        </script>
-        """,
-        height=0,
-    )
-
-
-def set_previous_label(prev: list[dict], index: int) -> str:
-    if index >= len(prev):
-        return "—"
-    p = prev[index]
-    try:
-        weight = float(p["weight_kg"])
-        reps = int(p["reps"])
-    except (KeyError, TypeError, ValueError):
-        return "—"
-    return f"{weight:g} kg × {reps}"
-
-
-def ensure_active_shape(active: dict):
-    """Backfill active workout state as the UI evolves across reruns."""
-    active.setdefault("started_at", datetime.now().isoformat(timespec="seconds"))
-    active.setdefault("source", "app")
-    active.setdefault("workout_type", "strength")
-    active.setdefault("session_rpe", None)
-    active.setdefault("exercises", [])
-    for pos, ex in enumerate(active["exercises"]):
-        ex.setdefault("position", pos)
-        ex.setdefault("sets", [])
-        ex.setdefault("note", "")
-        for idx, stt in enumerate(ex["sets"]):
-            stt.setdefault("set_id", str(uuid.uuid4()))
-            stt.setdefault("set_index", idx + 1)
-            stt.setdefault("side", "left" if ex.get("is_unilateral") else "both")
-            stt.setdefault("reps", 5)
-            stt.setdefault("weight_kg", 20.0)
-            stt.setdefault("rpe", None)
-            stt.setdefault("is_warmup", 0)
-            stt.setdefault("completed", 0)
-
-
-def mark_rest_started(active: dict, set_id: str):
-    st.session_state["strong_rest"] = {
-        "session_id": active["session_id"],
-        "set_id": set_id,
-        "started_at": datetime.now().isoformat(timespec="seconds"),
-        "target_s": 120,
-    }
-
-
-def rest_state(active: dict) -> dict | None:
-    rest = st.session_state.get("strong_rest")
-    if not rest or rest.get("session_id") != active.get("session_id"):
-        return None
-    elapsed = max(0, int((datetime.now() - parse_dt(rest.get("started_at"))).total_seconds()))
-    target = int(rest.get("target_s") or 120)
-    remaining = max(0, target - elapsed)
-    rest["elapsed_s"] = elapsed
-    rest["remaining_s"] = remaining
-    rest["progress"] = min(1.0, elapsed / target) if target else 0.0
-    return rest
-
-
-def rest_label(seconds: int) -> str:
-    minutes, sec = divmod(max(0, int(seconds)), 60)
-    return f"{minutes}:{sec:02d}"
-
-
-def finish_active_workout(active: dict):
-    snap = todays_readiness_snapshot(active["date"])
-    _verdict, _readiness = todays_recovery_verdict(active["date"])
-    db.upsert_strength_session({
-        "session_id": active["session_id"], "date": active["date"],
-        "started_at": active["started_at"],
-        "ended_at": datetime.now().isoformat(timespec="seconds"),
-        "name": active["name"], "bodyweight_kg": active.get("bodyweight_kg"),
-        "routine_id": active.get("routine_id"),
-        "source": active.get("source") or "app",
-        "workout_type": active.get("workout_type") or "strength",
-        "session_rpe": active.get("session_rpe"),
-        "recovery_score": _readiness.get("value"),
-        "recovery_zone": _readiness.get("zone"),
-        **snap,
-        "garmin_readiness_score": snap.get("garmin_readiness_score") or snap.get("readiness_score"),
-    })
-    for ex in active["exercises"]:
-        for stt in ex["sets"]:
-            db.upsert_strength_set({
-                "set_id": stt["set_id"], "session_id": active["session_id"],
-                "exercise_id": ex["exercise_id"], "position": ex["position"],
-                "set_index": stt["set_index"], "side": stt["side"],
-                "reps": stt["reps"], "weight_kg": stt["weight_kg"],
-                "rpe": stt.get("rpe"), "is_warmup": stt["is_warmup"],
-                "completed": stt["completed"],
-            })
-    st.session_state.pop("active", None)
-    st.session_state.pop("strong_rest", None)
-
-
-def workout_completion_status(active: dict) -> dict:
-    working = 0
-    completed = 0
-    for ex in active.get("exercises", []):
-        for stt in ex.get("sets", []):
-            if stt.get("is_warmup"):
-                continue
-            working += 1
-            completed += int(bool(int(stt.get("completed") or 0)))
-    return {
-        "working_sets": working,
-        "completed_working_sets": completed,
-        "pending_working_sets": max(0, working - completed),
-    }
 
 
 def resolve_bodyweight(day: str):
@@ -475,18 +151,6 @@ def resolve_bodyweight(day: str):
         return None
     val = bm.iloc[-1]["weight_kg"]
     return None if pd.isna(val) else float(val)
-
-
-def todays_readiness_snapshot(day: str) -> dict:
-    daily = analysis.enrich_daily(db.load_daily_df())
-    if not daily.empty:
-        daily = analysis.compute_acwr(db.load_activities_df(), daily)
-    if daily.empty:
-        return analysis.readiness_snapshot_from_daily(None)
-    daily["date"] = pd.to_datetime(daily["date"], errors="coerce")
-    match = daily[daily["date"].dt.strftime("%Y-%m-%d") == day]
-    row = match.iloc[-1] if not match.empty else None
-    return analysis.readiness_snapshot_from_daily(row)
 
 
 def todays_recovery_verdict(day: str) -> tuple[dict, dict]:
@@ -559,95 +223,6 @@ def persist_strength_session_context(original, merged):
             record[col] = value.item() if hasattr(value, "item") else value
         if len(record) > 1:
             db.upsert_strength_session(record)
-
-
-@st.cache_data(ttl=30)
-def hist_sessions_for_note():
-    return load_strength_sessions_with_context()
-
-
-@st.cache_data(ttl=30)
-def hist_sets_for_note():
-    return db.load_strength_sets_df()
-
-
-def active_to_frames(active: dict):
-    """Build (sessions_df, sets_df) from in-memory active state for live totals."""
-    sessions = pd.DataFrame([{
-        "session_id": active["session_id"], "date": active["date"],
-        "bodyweight_kg": active.get("bodyweight_kg") or 0.0,
-    }])
-    rows = []
-    for ex in active["exercises"]:
-        for s in ex["sets"]:
-            rows.append({
-                "set_id": s["set_id"], "session_id": active["session_id"],
-                "exercise_id": ex["exercise_id"], "position": ex["position"],
-                "set_index": s["set_index"], "side": s["side"],
-                "reps": s["reps"], "weight_kg": s["weight_kg"],
-                "rpe": s.get("rpe"), "is_warmup": s["is_warmup"],
-                "completed": s["completed"],
-            })
-    sets = pd.DataFrame(rows)
-    return sessions, sets
-
-
-def routine_to_exercises(routine_id: str):
-    """Build active-state exercise entries from a saved routine."""
-    rex = db.load_routine_exercises_df()
-    rex = rex[rex["routine_id"] == routine_id].sort_values("position")
-    cat = db.load_exercises_df()
-    out = []
-    for pos, (_, r) in enumerate(rex.iterrows()):
-        m = cat[cat["exercise_id"] == r["exercise_id"]]
-        if m.empty:
-            continue
-        ex = m.iloc[0]
-        sets = []
-        target_sets = r.get("target_sets")
-        try:
-            target_sets = int(target_sets) if pd.notna(target_sets) else 0
-        except (TypeError, ValueError):
-            target_sets = 0
-        target_reps = r.get("target_reps")
-        target_weight = r.get("target_weight")
-        for idx in range(max(0, target_sets)):
-            sets.append({
-                "set_id": str(uuid.uuid4()),
-                "set_index": idx + 1,
-                "side": "left" if int(ex["is_unilateral"]) else "both",
-                "reps": int(target_reps) if pd.notna(target_reps) else 5,
-                "weight_kg": float(target_weight) if pd.notna(target_weight) else 20.0,
-                "rpe": None,
-                "is_warmup": 0,
-                "completed": 0,
-            })
-        out.append({
-            "position": pos,
-            "exercise_id": ex["exercise_id"],
-            "name": ex["name"],
-            "is_unilateral": int(ex["is_unilateral"]),
-            "is_bodyweight": int(ex["is_bodyweight"]),
-            "sets": sets,
-        })
-    return out
-
-
-def save_active_as_routine(active: dict, routine_name: str) -> str:
-    """Persist the active workout's exercises as a reusable routine."""
-    rid = str(uuid.uuid4())
-    db.upsert_routine({"routine_id": rid, "name": routine_name})
-    for pos, ex in enumerate(active["exercises"]):
-        work = [s for s in ex["sets"] if not s["is_warmup"]]
-        first = work[0] if work else (ex["sets"][0] if ex["sets"] else None)
-        db.upsert_routine_exercise({
-            "routine_id": rid, "position": pos,
-            "exercise_id": ex["exercise_id"],
-            "target_sets": (len(work) or len(ex["sets"]) or None),
-            "target_reps": (first["reps"] if first else None),
-            "target_weight": (first["weight_kg"] if first else None),
-        })
-    return rid
 
 
 def fmt_num(value, digits: int = 0, suffix: str = "") -> str:
@@ -809,229 +384,9 @@ def weekly_strength_load_chart(rows, metric: str = "total_volume_kg") -> go.Figu
     return fig
 
 
-def strength_feedback_context(overview: dict, strength_summary: dict) -> dict:
-    latest = dict((overview or {}).get("latest_session") or {})
-    latest.pop("session_id", None)
-    latest.pop("garmin_activity_id", None)
-    latest_summary = dict((overview or {}).get("latest_summary") or {})
-    latest_summary.pop("session_id", None)
-    exercise_rows = []
-    for row in (overview or {}).get("exercise_rows") or []:
-        item = dict(row)
-        item.pop("exercise_id", None)
-        exercise_rows.append(item)
-    trend_rows = []
-    for row in (overview or {}).get("trend_rows") or []:
-        item = dict(row)
-        item.pop("session_id", None)
-        trend_rows.append(item)
-    return {
-        "latest_session": latest,
-        "latest_summary": latest_summary,
-        "latest_exercises": exercise_rows,
-        "trend": (overview or {}).get("trend") or {},
-        "trend_rows": trend_rows,
-        "recent_prs": (overview or {}).get("recent_prs") or [],
-        "strength_summary": strength_summary or {},
-    }
-
-
-def strength_memory_context(
-    sessions,
-    sets,
-    catalog,
-    bodyweight,
-    verdict=None,
-    overview: dict | None = None,
-    strength_summary: dict | None = None,
-) -> dict:
-    overview = overview or analysis.compute_strength_recent_overview(
-        sessions, sets, catalog, config.ONE_RM_FORMULA
-    )
-    strength_summary = strength_summary or analysis.summarize_strength(
-        sessions,
-        sets,
-        catalog,
-        db.load_profile(),
-        bodyweight,
-        formula=config.ONE_RM_FORMULA,
-        verdict=verdict,
-    )
-    momentum = analysis.compute_strength_momentum_flags(
-        sessions, sets, catalog, formula=config.ONE_RM_FORMULA
-    )
-    leaderboard = analysis.compute_strength_best_set_leaderboard(
-        sessions, sets, catalog, formula=config.ONE_RM_FORMULA
-    )
-    weekly = analysis.compute_weekly_strength_load(
-        sessions, sets, catalog, formula=config.ONE_RM_FORMULA, weeks=8
-    )
-    leaders = []
-    if not leaderboard.empty:
-        for row in leaderboard.head(8).to_dict("records"):
-            item = dict(row)
-            item.pop("exercise_id", None)
-            leaders.append(item)
-    return {
-        "strength_summary": strength_summary or {},
-        "recent_session": strength_feedback_context(overview, strength_summary),
-        "momentum": _compact_strength_momentum(momentum),
-        "best_set_leaders": leaders,
-        "weekly_load": weekly.to_dict("records") if not weekly.empty else [],
-    }
-
-
-def _compact_strength_momentum(momentum: dict) -> dict:
-    out = {
-        "status": (momentum or {}).get("status"),
-        "as_of": (momentum or {}).get("as_of"),
-        "summary": (momentum or {}).get("summary") or {},
-        "categories": {},
-    }
-    for key, rows in ((momentum or {}).get("categories") or {}).items():
-        compact = []
-        for row in (rows or [])[:6]:
-            item = dict(row)
-            item.pop("exercise_id", None)
-            compact.append(item)
-        out["categories"][key] = compact
-    return out
-
-
-def strength_feedback_preview(feedback: str, max_chars: int = 420) -> str:
-    text = str(feedback or "").strip()
-    if not text:
-        return ""
-    lines = [line.strip() for line in text.splitlines()]
-    body = []
-    for line in lines:
-        if not line:
-            if body:
-                break
-            continue
-        if line.startswith("## "):
-            if body:
-                break
-            continue
-        body.append(line.lstrip("- ").strip())
-        if len(" ".join(body)) >= max_chars:
-            break
-    preview = " ".join(body).strip() or text
-    if len(preview) > max_chars:
-        preview = preview[: max_chars - 1].rstrip() + "..."
-    return preview
-
-
-def render_strength_ai_feedback(overview: dict, strength_summary: dict, coach_memory: dict | None = None):
-    latest = (overview or {}).get("latest_session") or {}
-    feedback_key = f"strength_feedback_{latest.get('session_id')}"
-    with st.container(key="strength_ai_feedback", border=True):
-        with st.container(key="strength_ai_header"):
-            head, action_1, action_2 = st.columns([6, 1.15, 1.15], vertical_alignment="center")
-            with head:
-                st.markdown(
-                    "<div class='strength-ai-title'>AI strength feedback</div>"
-                    "<div class='strength-ai-meta'>latest session overview</div>",
-                    unsafe_allow_html=True,
-                )
-            generate = action_1.button(
-                "Generate",
-                icon=":material/auto_awesome:",
-                disabled=not bool(config.ANTHROPIC_API_KEY),
-                key=f"{feedback_key}_generate",
-                width="content",
-            )
-            refresh = action_2.button(
-                "Refresh",
-                icon=":material/refresh:",
-                disabled=not bool(config.ANTHROPIC_API_KEY),
-                key=f"{feedback_key}_refresh",
-                width="content",
-            )
-        if refresh:
-            st.session_state.pop(feedback_key, None)
-            generate = True
-        if not config.ANTHROPIC_API_KEY:
-            st.caption("Set `ANTHROPIC_API_KEY` in .env to generate strength feedback.")
-        elif generate:
-            with st.spinner("Generating strength feedback..."):
-                st.session_state[feedback_key] = ai.strength_overview_feedback(
-                    strength_feedback_context(overview, strength_summary),
-                    coach_memory=coach_memory,
-                )
-        feedback = st.session_state.get(feedback_key)
-        if feedback:
-            preview = html.escape(strength_feedback_preview(feedback))
-            st.markdown(
-                f"<div class='strength-feedback-preview'>{preview}</div>",
-                unsafe_allow_html=True,
-            )
-            with st.expander("Read full AI feedback"):
-                st.markdown(feedback)
-        elif config.ANTHROPIC_API_KEY:
-            st.markdown(
-                "<div class='strength-feedback-empty'>Click Generate to create feedback for this session.</div>",
-                unsafe_allow_html=True,
-            )
-
-
-def render_strength_memory_panel(strength_context: dict, existing_memory: dict | None = None):
-    with st.container(border=True):
-        head, action = st.columns([5, 1.4], vertical_alignment="center")
-        with head:
-            st.markdown(
-                "<div class='strength-ai-title'>Coach memory</div>"
-                "<div class='strength-ai-meta'>strength patterns worth remembering</div>",
-                unsafe_allow_html=True,
-            )
-        suggest = action.button(
-            "Suggest",
-            disabled=not bool(config.ANTHROPIC_API_KEY),
-            key="strength_memory_suggest",
-            width="stretch",
-        )
-        if not config.ANTHROPIC_API_KEY:
-            st.caption("Set `ANTHROPIC_API_KEY` in .env to suggest strength memories.")
-            return
-        if suggest:
-            with st.spinner("Looking for durable strength memories..."):
-                st.session_state["strength_mem_candidates"] = ai.suggest_memories(
-                    {},
-                    strength_context,
-                    existing_memory or {},
-                )
-        candidates = st.session_state.get("strength_mem_candidates", [])
-        if not candidates:
-            st.caption("Click Suggest to find strength facts the coach should remember.")
-            return
-        for idx, cand in enumerate(candidates):
-            with st.container(border=True):
-                st.markdown(f"**{cand['category']}** - {cand['text']}")
-                if cand.get("rationale"):
-                    st.caption(cand["rationale"])
-                cols = st.columns([1, 1, 4])
-                with cols[0]:
-                    if st.button("Approve", key=f"strength_mem_approve_{idx}", width="stretch"):
-                        rec = {"category": cand["category"], "text": cand["text"], "source": "ai"}
-                        for key in ("confidence", "target_date", "body_part"):
-                            if cand.get(key):
-                                rec[key] = cand[key]
-                        db.add_memory(rec)
-                        st.session_state["strength_mem_candidates"] = [
-                            c for j, c in enumerate(candidates) if j != idx
-                        ]
-                        st.rerun()
-                with cols[1]:
-                    if st.button("Reject", key=f"strength_mem_reject_{idx}", width="stretch"):
-                        st.session_state["strength_mem_candidates"] = [
-                            c for j, c in enumerate(candidates) if j != idx
-                        ]
-                        st.rerun()
-
-
-def render_strength_overview(overview: dict, strength_summary: dict, coach_memory: dict | None = None):
+def render_strength_overview(overview: dict, strength_summary: dict):
     if (overview or {}).get("status") != "ok":
-        st.info("Log a strength workout to build the recent-session cockpit.")
+        st.info("Import strength workouts to build the recent-session cockpit.")
         return
 
     latest = overview["latest_session"]
@@ -1068,8 +423,6 @@ def render_strength_overview(overview: dict, strength_summary: dict, coach_memor
         unsafe_allow_html=True,
     )
 
-    render_strength_ai_feedback(overview, strength_summary, coach_memory=coach_memory)
-
     left, right = st.columns([1, 1], gap="medium")
     with left:
         with st.container(key="strength_trend_card", border=True):
@@ -1081,7 +434,7 @@ def render_strength_overview(overview: dict, strength_summary: dict, coach_memor
                 if basis:
                     st.caption(basis)
             else:
-                st.caption("Log a few sessions to see volume and top-estimated-1RM trends.")
+                st.caption("Import a few sessions to see volume and top-estimated-1RM trends.")
 
         with st.container(border=True):
             st.markdown("#### Latest exercises")
@@ -1166,7 +519,7 @@ def render_history_exercise_rollup(rows):
 def render_strength_momentum_panel(momentum: dict):
     momentum = momentum or {}
     if momentum.get("status") in (None, "no_data"):
-        st.caption("Log completed working sets to classify exercise momentum.")
+        st.caption("Import completed working sets to classify exercise momentum.")
         return
     categories = momentum.get("categories") or {}
     summary = momentum.get("summary") or {}
@@ -1225,7 +578,7 @@ def render_strength_momentum_panel(momentum: dict):
 
 def render_best_set_leaderboard(rows, limit: int = 12):
     if rows is None or len(rows) == 0:
-        st.caption("Log completed working sets to build the best-set leaderboard.")
+        st.caption("Import completed working sets to build the best-set leaderboard.")
         return
     visible = list(rows)[:max(1, int(limit or 12))]
     table_rows = [
@@ -1254,14 +607,14 @@ def render_best_set_leaderboard(rows, limit: int = 12):
 # ── page ──────────────────────────────────────────────────────────────────────
 st.markdown(
     "<div class='strength-page-head'><div><div class='strength-page-title'>Strength</div>"
-    "<div class='strength-page-sub'>Recent session, trends, recovery context, and coach feedback.</div></div></div>",
+    "<div class='strength-page-sub'>Imported sessions, trends, recovery context, and performance flags.</div></div></div>",
     unsafe_allow_html=True,
 )
 
 catalog = load_catalog()
 
-tab_overview, tab_log, tab_history, tab_insights, tab_body = st.tabs(
-    ["Overview", "Log workout", "History", "Insights", "Bodyweight"])
+tab_overview, tab_history, tab_insights, tab_body = st.tabs(
+    ["Overview", "History", "Insights", "Bodyweight"])
 
 with tab_overview:
     sessions = load_strength_sessions_with_context()
@@ -1276,23 +629,9 @@ with tab_overview:
             sessions, sets, catalog, db.load_profile(), bodyweight,
             formula=config.ONE_RM_FORMULA, verdict=verdict,
         )
-        memory_digest = coach_memory_digest()
-        render_strength_overview(
-            overview, strength_summary, coach_memory=memory_digest)
-        render_strength_memory_panel(
-            strength_memory_context(
-                sessions,
-                sets,
-                catalog,
-                bodyweight,
-                verdict=verdict,
-                overview=overview,
-                strength_summary=strength_summary,
-            ),
-            existing_memory=memory_digest,
-        )
+        render_strength_overview(overview, strength_summary)
     else:
-        st.info("No completed strength sessions yet. Start a workout from the Log workout tab.")
+        st.info("No completed strength sessions yet. Import strength history to build analytics.")
 
 with tab_history:
     st.subheader("History")
@@ -1607,401 +946,3 @@ with tab_body:
                                    "source": "manual"})
             st.success(f"Saved {manual:.1f} kg for {day}.")
             st.rerun()
-
-with tab_log:
-    active = st.session_state.get("active")
-
-    if active is None:
-        st.subheader("Start a workout")
-        name = st.text_input("Workout name", value="Workout")
-        routines = db.load_routines_df()
-        routine_names = routines["name"].tolist() if not routines.empty else []
-        chosen = st.selectbox("From routine (optional)",
-                              ["— blank —"] + routine_names)
-        if st.button("▶ Start", type="primary"):
-            exercises, routine_id, start_name = [], None, (name or "Workout")
-            if chosen != "— blank —" and not routines.empty:
-                rrow = routines[routines["name"] == chosen].iloc[0]
-                routine_id = rrow["routine_id"]
-                start_name = chosen
-                exercises = routine_to_exercises(routine_id)
-            st.session_state["active"] = {
-                "session_id": str(uuid.uuid4()),
-                "name": start_name,
-                "date": today_str(),
-                "started_at": datetime.now().isoformat(timespec="seconds"),
-                "source": "app",
-                "workout_type": "strength",
-                "session_rpe": None,
-                "bodyweight_kg": resolve_bodyweight(today_str()),
-                "routine_id": routine_id,
-                "exercises": exercises,
-            }
-            st.rerun()
-        st.stop()
-
-    # ── active workout ──
-    ensure_active_shape(active)
-    elapsed = duration_label(active["started_at"])
-    start_epoch_ms = int(parse_dt(active["started_at"]).timestamp() * 1000)
-    rest = rest_state(active)
-    finish_requested = False
-
-    with st.container(key="strong_logger"):
-        with st.container(
-            key="strong_topbar",
-            horizontal=True,
-            horizontal_alignment="center",
-            vertical_alignment="center",
-            gap="small",
-        ):
-            st.markdown("<div class='strong-top-cell icon'>⌄</div>",
-                        unsafe_allow_html=True)
-            if st.button("↻", key="strong_rest_reset", help="Restart rest timer"):
-                st.session_state["strong_rest"] = {
-                    "session_id": active["session_id"],
-                    "set_id": None,
-                    "started_at": datetime.now().isoformat(timespec="seconds"),
-                    "target_s": 120,
-                }
-                st.rerun()
-            st.markdown(
-                f"<div class='strong-top-cell timer'>"
-                f"<span data-stopwatch data-start='{start_epoch_ms}'>{elapsed}</span></div>",
-                unsafe_allow_html=True)
-            if st.button("FINISH", key="finish_top", help="Finish and save workout"):
-                finish_requested = True
-
-        sessions_df, sets_df = active_to_frames(active)
-        summary = analysis.summarize_sessions(sessions_df, sets_df, catalog,
-                                              config.ONE_RM_FORMULA)
-        s = summary.iloc[0] if not summary.empty else {}
-        top_1rm = s.get("top_est_1rm_kg")
-        workout_name_html = html.escape(str(active.get("name") or "Workout"))
-        volume_html = f"{(s.get('total_volume_kg') or 0):,.0f} kg"
-        sets_html = str(int(s.get("working_sets") or 0))
-        top_html = f"{top_1rm:,.0f} kg" if top_1rm else "—"
-        st.markdown(
-            f"""
-            <div class='strong-head'>
-              <div class='strong-title'>{workout_name_html}</div>
-              <div class='strong-duration'><span data-stopwatch data-start='{start_epoch_ms}'>{elapsed}</span></div>
-            </div>
-            <div class='strong-stats'>
-              <div class='strong-stat'><div class='lab'>Volume</div><div class='val'>{volume_html}</div></div>
-              <div class='strong-stat'><div class='lab'>Sets</div><div class='val'>{sets_html}</div></div>
-              <div class='strong-stat'><div class='lab'>Top 1RM</div><div class='val'>{top_html}</div></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        render_live_timer_js()
-
-        verdict, _readiness = todays_recovery_verdict(active["date"])
-        st.markdown(cockpit.strength_recovery_chip(verdict), unsafe_allow_html=True)
-
-        note_key = f"coach_note_{active['session_id']}"
-        cols = st.columns([6, 1], vertical_alignment="center")
-        if cols[1].button("↻", key="coach_note_refresh", help="Refresh coach note"):
-            st.session_state.pop(note_key, None)
-        if note_key not in st.session_state:
-            plan = []
-            for ex in active["exercises"]:
-                sug = analysis.compute_progression_suggestion(
-                    ex["exercise_id"], hist_sessions_for_note(), hist_sets_for_note(),
-                    catalog, config.ONE_RM_FORMULA)
-                if sug:
-                    plan.append({"exercise": ex["name"], **sug})
-            strength_summary = analysis.summarize_strength(
-                load_strength_sessions_with_context(), db.load_strength_sets_df(), catalog,
-                db.load_profile(), resolve_bodyweight(active["date"]),
-                formula=config.ONE_RM_FORMULA, verdict=verdict)
-            st.session_state[note_key] = ai.coach_session_note(
-                strength_summary,
-                verdict,
-                plan,
-                coach_memory=coach_memory_digest(),
-            )
-        if st.session_state.get(note_key):
-            cols[0].caption("🧠 " + st.session_state[note_key])
-
-        names = catalog["name"].tolist() if not catalog.empty else []
-        pick = st.selectbox("Add exercise", [""] + names)
-        if st.button("➕ Add to workout") and pick:
-            ex_row = catalog[catalog["name"] == pick].iloc[0]
-            sug = analysis.compute_progression_suggestion(
-                ex_row["exercise_id"], load_strength_sessions_with_context(),
-                db.load_strength_sets_df(), catalog, config.ONE_RM_FORMULA)
-            seed_sets = []
-            if sug:
-                seed_sets = [{
-                    "set_id": str(uuid.uuid4()), "set_index": 1,
-                    "side": "left" if int(ex_row["is_unilateral"]) else "both",
-                    "reps": int(sug["target_reps"]), "weight_kg": float(sug["suggested_weight_kg"]),
-                    "rpe": None, "is_warmup": 0, "completed": 0,
-                }]
-            active["exercises"].append({
-                "position": len(active["exercises"]),
-                "exercise_id": ex_row["exercise_id"],
-                "name": ex_row["name"],
-                "is_unilateral": int(ex_row["is_unilateral"]),
-                "is_bodyweight": int(ex_row["is_bodyweight"]),
-                "sets": seed_sets,
-            })
-            st.rerun()
-
-        with st.expander("➕ New custom exercise"):
-            cx_name = st.text_input("Name", key="cx_name")
-            cx_cat = st.selectbox(
-                "Category",
-                ["barbell", "dumbbell", "machine", "cable", "bodyweight"],
-                key="cx_cat")
-            cx_pat = st.selectbox("Movement pattern",
-                                  list(strength_catalog.MOVEMENT_PATTERNS),
-                                  key="cx_pat")
-            cx_muscle = st.text_input("Primary muscle", key="cx_muscle")
-            cx_uni = st.checkbox("Unilateral (log left/right)", key="cx_uni")
-            cx_bw = st.checkbox("Bodyweight exercise", key="cx_bw")
-            if st.button("Create exercise") and cx_name.strip():
-                slug = "custom-" + "".join(
-                    c if c.isalnum() else "-" for c in cx_name.strip().lower()
-                ).strip("-")
-                db.upsert_exercise({
-                    "exercise_id": slug, "name": cx_name.strip(),
-                    "category": cx_cat, "movement_pattern": cx_pat,
-                    "primary_muscle": cx_muscle.strip(),
-                    "is_unilateral": int(cx_uni),
-                    "is_bodyweight": int(cx_bw),
-                    "is_main_lift": 0, "is_custom": 1,
-                })
-                load_catalog.clear()
-                st.success(f"Added {cx_name.strip()}.")
-                st.rerun()
-
-        hist_sessions = load_strength_sessions_with_context()
-        hist_sets = db.load_strength_sets_df()
-
-        for ei, ex in enumerate(active["exercises"]):
-            ex_name_html = html.escape(str(ex.get("name") or "Exercise"))
-            st.markdown(
-                f"""
-                <div class='strong-ex-head'>
-                  <div class='strong-ex-title'>{ex_name_html}</div>
-                  <div class='strong-ex-tools'>•••</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            suggestion = analysis.compute_progression_suggestion(
-                ex["exercise_id"], hist_sessions, hist_sets, catalog, config.ONE_RM_FORMULA)
-            if suggestion:
-                hcols = st.columns([6, 1])
-                hcols[0].markdown(cockpit.strength_suggestion_hint(suggestion),
-                                  unsafe_allow_html=True)
-                if hcols[1].button("Apply", key=f"apply_sug_{ei}"):
-                    w = float(suggestion["suggested_weight_kg"])
-                    r = int(suggestion["target_reps"])
-                    if not ex["sets"]:
-                        ex["sets"] = [{
-                            "set_id": str(uuid.uuid4()), "set_index": 1,
-                            "side": "left" if ex["is_unilateral"] else "both",
-                            "reps": r, "weight_kg": w, "rpe": None,
-                            "is_warmup": 0, "completed": 0,
-                        }]
-                    else:
-                        for stt in ex["sets"]:
-                            if not stt["is_warmup"]:
-                                stt["weight_kg"] = w
-                                stt["reps"] = r
-                    st.rerun()
-
-            note_key = f"note_{active['session_id']}_{ex['exercise_id']}_{ei}"
-            ex["note"] = st.text_input(
-                "Exercise note",
-                value=str(ex.get("note") or ""),
-                key=note_key,
-                placeholder="Exercise note",
-                label_visibility="collapsed",
-            )
-            if str(ex.get("note") or "").strip():
-                note_html = html.escape(str(ex.get("note") or ""))
-                st.markdown(f"<div class='strong-note'>{note_html}</div>",
-                            unsafe_allow_html=True)
-
-            uni = bool(ex["is_unilateral"])
-            prev = analysis.last_session_sets(
-                ex["exercise_id"], hist_sessions, hist_sets)
-            st.markdown(
-                "<div class='strong-col-head'><span>Set</span><span>Previous</span>"
-                "<span>Kg</span><span>Reps</span><span>✓</span></div>",
-                unsafe_allow_html=True,
-            )
-
-            work_n = 0
-            for si, stt in enumerate(ex["sets"]):
-                completed = bool(int(stt.get("completed") or 0))
-                if stt["is_warmup"]:
-                    badge = "W"
-                    badge_class = "warm"
-                    prev_label = "—"
-                else:
-                    work_n += 1
-                    badge = str(work_n)
-                    badge_class = "done" if completed else "work"
-                    prev_label = set_previous_label(prev, work_n - 1)
-                with st.container(
-                    key=f"strong_setrow_{stt['set_id']}",
-                    horizontal=True,
-                    vertical_alignment="center",
-                    gap="small",
-                ):
-                    if st.button(badge, key=f"badge_{stt['set_id']}",
-                                 help="Tap to toggle warmup"):
-                        stt["is_warmup"] = 0 if stt["is_warmup"] else 1
-                        st.rerun()
-                    st.markdown(f"<div class='strong-prev'>{prev_label}</div>",
-                                unsafe_allow_html=True)
-                    kg_raw = st.text_input(
-                        "kg", value=f"{float(stt['weight_kg']):g}",
-                        key=f"kg_txt_{stt['set_id']}",
-                        label_visibility="collapsed")
-                    reps_raw = st.text_input(
-                        "reps", value=str(int(stt["reps"])),
-                        key=f"reps_txt_{stt['set_id']}",
-                        label_visibility="collapsed")
-                    try:
-                        stt["weight_kg"] = max(
-                            0.0, float(kg_raw.replace(",", ".")))
-                    except (TypeError, ValueError):
-                        pass
-                    try:
-                        stt["reps"] = max(
-                            0, int(float(reps_raw.replace(",", "."))))
-                    except (TypeError, ValueError):
-                        pass
-                    check_label = "✓" if completed else "○"
-                    check_type = "primary" if completed else "secondary"
-                    if st.button(check_label, key=f"done_{stt['set_id']}",
-                                 type=check_type, help="Toggle completed"):
-                        stt["completed"] = 0 if completed else 1
-                        if stt["completed"]:
-                            mark_rest_started(active, stt["set_id"])
-                        st.rerun()
-                if completed:
-                    st.markdown("<div class='strong-done-strip'></div>",
-                                unsafe_allow_html=True)
-                if rest and rest.get("set_id") == stt["set_id"]:
-                    st.markdown(
-                        f"<div class='strong-rest active'><span>{rest_label(rest['remaining_s'])}</span></div>",
-                        unsafe_allow_html=True,
-                    )
-
-            if st.button("➕ Add Set", key=f"addset_{ei}"):
-                last = ex["sets"][-1] if ex["sets"] else None
-                work_count = len(
-                    [s for s in ex["sets"] if not s.get("is_warmup")])
-                next_prev = prev[work_count] if len(prev) > work_count else None
-                reps = 5
-                weight = 20.0
-                if last:
-                    reps = int(last["reps"])
-                    weight = float(last["weight_kg"])
-                elif next_prev:
-                    reps = int(next_prev["reps"])
-                    weight = float(next_prev["weight_kg"])
-                ex["sets"].append({
-                    "set_id": str(uuid.uuid4()),
-                    "set_index": len(ex["sets"]) + 1,
-                    "side": (last["side"] if last else ("left" if uni else "both")),
-                    "reps": reps,
-                    "weight_kg": weight,
-                    "rpe": None, "is_warmup": 0, "completed": 0,
-                })
-                st.rerun()
-
-            with st.expander("Set details"):
-                for si, stt in enumerate(ex["sets"]):
-                    drow = st.columns([0.7, 1.0, 1.0, 0.7])
-                    drow[0].caption(f"Set {si + 1}")
-                    rpe_val = drow[1].number_input(
-                        "RPE", min_value=0.0, max_value=10.0, step=0.5,
-                        value=float(stt.get("rpe") or 0.0),
-                        key=f"rpe_{stt['set_id']}")
-                    stt["rpe"] = rpe_val or None
-                    if uni:
-                        stt["side"] = drow[2].selectbox(
-                            "Side", ["left", "right"],
-                            index=(1 if stt.get("side") == "right" else 0),
-                            key=f"side_{stt['set_id']}")
-                    else:
-                        drow[2].caption("Both sides")
-                    if drow[3].button("Remove", key=f"del_{stt['set_id']}"):
-                        ex["sets"].pop(si)
-                        for j, t in enumerate(ex["sets"]):
-                            t["set_index"] = j + 1
-                        st.rerun()
-
-        st.divider()
-        with st.expander("💾 Save this workout as a routine"):
-            rname = st.text_input("Routine name", value=active["name"],
-                                  key="save_rt")
-            if st.button("Save routine") and active["exercises"] and rname.strip():
-                save_active_as_routine(active, rname.strip())
-                st.success(f"Saved routine '{rname.strip()}'.")
-
-        with st.expander("Session details"):
-            workout_types = [
-                "strength", "hypertrophy", "heavy", "deload",
-                "rehab", "bjj_support",
-            ]
-            current_type = str(active.get("workout_type") or "strength")
-            type_index = workout_types.index(current_type) if current_type in workout_types else 0
-            active["workout_type"] = st.selectbox(
-                "Workout type",
-                workout_types,
-                index=type_index,
-                format_func=lambda value: str(value).replace("_", " ").title(),
-                key=f"session_workout_type_{active['session_id']}",
-            )
-            session_rpe = st.number_input(
-                "Session RPE",
-                min_value=0.0,
-                max_value=10.0,
-                step=0.5,
-                value=float(active.get("session_rpe") or 0.0),
-                key=f"session_rpe_{active['session_id']}",
-            )
-            active["session_rpe"] = session_rpe or None
-
-        completion = workout_completion_status(active)
-        confirm_pending = True
-        if completion["pending_working_sets"]:
-            st.warning(
-                f"{completion['pending_working_sets']} working set(s) are still "
-                "unchecked. They will save as incomplete and will not count in "
-                "volume or PR analytics."
-            )
-            confirm_pending = st.checkbox(
-                "Save unchecked sets as incomplete",
-                key="confirm_finish_pending",
-            )
-
-        fcol1, fcol2 = st.columns(2)
-        if fcol1.button("✅ Finish & save", type="primary"):
-            finish_requested = True
-        has_content = any(ex.get("sets") for ex in active["exercises"])
-        discard_ok = True
-        if has_content:
-            discard_ok = st.checkbox("Confirm discard",
-                                     key="confirm_discard_active")
-        if fcol2.button("🗑 Discard", disabled=has_content and not discard_ok):
-            del st.session_state["active"]
-            st.session_state.pop("strong_rest", None)
-            st.rerun()
-        if finish_requested:
-            if confirm_pending:
-                finish_active_workout(active)
-                st.success("Workout saved.")
-                st.rerun()
-            else:
-                st.warning("Check off the pending sets or confirm incomplete save.")

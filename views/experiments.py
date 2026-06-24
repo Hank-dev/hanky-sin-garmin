@@ -1,8 +1,10 @@
 """Experiment lab — run N-of-1 before/after self-experiments and see whether a
 habit or supplement actually moved your recovery metrics."""
 import importlib
+import html
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 
 import config
@@ -22,6 +24,12 @@ db.init_db()
 _daily_raw = db.load_daily_df()
 daily = analysis.enrich_daily(_daily_raw) if not _daily_raw.empty else _daily_raw
 checkins = db.load_checkins_df()
+acts = db.load_activities_df()
+sleep_timing = db.load_sleep_timing_df()
+body_battery = db.load_body_battery_df()
+prebed_discovery = analysis.compute_prebed_discovery(
+    daily, acts, sleep_timing, body_battery=body_battery
+)
 
 METRIC_LABELS = {m["key"]: m["label"] for m in analysis.EXPERIMENT_METRICS}
 METRIC_KEYS = [m["key"] for m in analysis.EXPERIMENT_METRICS]
@@ -35,12 +43,109 @@ st.markdown(
     .experiments-page-sub{margin-top:7px;color:var(--text-dim);font-size:14px;line-height:1.45;}
     </style>
     <div class="experiments-page-head">
-      <div class="experiments-page-title">Experiments</div>
-      <div class="experiments-page-sub">Track N-of-1 interventions against recovery, sleep, and training metrics.</div>
+      <div class="experiments-page-title">Lab</div>
+      <div class="experiments-page-sub">Test interventions and inspect recovery correlations.</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+
+def _rel_stats_line(rel):
+    if not rel:
+        return []
+    bits = []
+    corr = rel.get("correlation")
+    spearman = rel.get("spearman")
+    if corr is not None:
+        bits.append(f"r {float(corr):+.2f}")
+    if spearman is not None:
+        bits.append(f"rho {float(spearman):+.2f}")
+    if rel.get("corr_ci_low") is not None and rel.get("corr_ci_high") is not None:
+        bits.append(f"95% CI {float(rel['corr_ci_low']):+.2f} to {float(rel['corr_ci_high']):+.2f}")
+    if rel.get("p_adjusted") is not None:
+        bits.append(f"FDR p {float(rel['p_adjusted']):.3f}")
+    if rel.get("evidence"):
+        bits.append(str(rel["evidence"]))
+    sensitivity = rel.get("outlier_sensitivity")
+    if sensitivity and sensitivity != "unknown":
+        bits.append(str(sensitivity))
+    return bits
+
+
+def chart_card(title, unit, fig, rel=None):
+    stats = _rel_stats_line(rel)
+    rank = rel.get("rank") if rel else None
+    evidence = str(rel.get("evidence") or "").title() if rel else ""
+    fig.update_layout(height=220, margin=dict(t=10, b=28, l=46, r=12))
+    with st.container(border=True):
+        rank_html = (
+            f'<span style="display:inline-flex;align-items:center;justify-content:center;'
+            f'min-width:34px;height:22px;border-radius:5px;background:color-mix(in srgb,{cockpit.ACCENT} 14%,transparent);'
+            f'border:1px solid color-mix(in srgb,{cockpit.ACCENT} 34%,transparent);'
+            f'color:{cockpit.ACCENT};font-family:\'JetBrains Mono\',ui-monospace,monospace;'
+            f'font-size:11px;font-weight:700">#{int(rank)}</span>'
+            if rank is not None else ""
+        )
+        evidence_html = (
+            f'<span style="display:inline-flex;align-items:center;height:22px;border-radius:999px;'
+            f'padding:0 8px;border:1px solid {cockpit.GRID};color:{cockpit.TEXT_DIM};'
+            f'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;'
+            f'text-transform:uppercase;letter-spacing:.08em">{html.escape(evidence)}</span>'
+            if evidence else ""
+        )
+        st.markdown(
+            f'<div style="display:flex;align-items:flex-start;gap:9px;margin:0 0 7px;min-width:0">'
+            f'{rank_html}<div style="min-width:0;flex:1">'
+            f'<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:4px">'
+            f'{evidence_html}'
+            f'<span style="font-family:\'JetBrains Mono\',ui-monospace,monospace;'
+            f'font-size:10px;color:{cockpit.TEXT_FAINT};letter-spacing:.08em;text-transform:uppercase">'
+            f'{html.escape(unit)}</span></div>'
+            f'<div style="font-family:\'Archivo\',system-ui,sans-serif;font-size:16px;'
+            f'line-height:1.25;font-weight:700;color:{cockpit.TEXT};letter-spacing:0">'
+            f'{html.escape(title)}</div></div></div>',
+            unsafe_allow_html=True,
+        )
+        if stats:
+            chips = "".join(
+                f'<span style="display:inline-flex;align-items:center;border:1px solid {cockpit.GRID};'
+                f'border-radius:5px;padding:3px 6px;color:{cockpit.TEXT_DIM};'
+                f'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;line-height:1.1">'
+                f'{html.escape(bit)}</span>'
+                for bit in stats
+            )
+            st.markdown(
+                f'<div style="display:flex;flex-wrap:wrap;gap:5px;margin:0 0 4px">{chips}</div>',
+                unsafe_allow_html=True,
+            )
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+
+
+def render_correlations():
+    st.markdown(cockpit.section_label("Correlations"), unsafe_allow_html=True)
+    with st.expander("Correlation summary", expanded=False):
+        st.markdown(cockpit.discovery_card(prebed_discovery), unsafe_allow_html=True)
+    rels = prebed_discovery.get("relationships", [])
+    if not rels:
+        st.caption("No paired correlation data yet.")
+        return
+    st.caption("Charts are sorted by evidence label, then FDR-adjusted p-value, absolute correlation strength, and paired-day count.")
+    ranked_rels = [{**rel, "rank": idx} for idx, rel in enumerate(rels, start=1)]
+
+    for i in range(0, len(ranked_rels), 2):
+        cols = st.columns(2)
+        for col, rel in zip(cols, ranked_rels[i:i + 2]):
+            with col:
+                chart_card(
+                    rel.get("label") or f"{rel.get('x_label', 'Metric')} vs {rel.get('y_label', 'outcome')}",
+                    rel.get("y_unit") or rel.get("y_label") or "",
+                    cockpit.chart_prebed_relationship(prebed_discovery, rel.get("y_col"), rel.get("x_col")),
+                    rel,
+                )
+
+
+render_correlations()
 
 st.markdown(cockpit.section_label("Experiment lab"), unsafe_allow_html=True)
 

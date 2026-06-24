@@ -40,6 +40,15 @@ def test_question_payload_includes_personal_sleep_need_summary():
     assert payload["personal_sleep_need"] == {"status": "ready", "sleep_need_h": 7.6}
 
 
+def test_question_payload_includes_predictive_readiness_summary():
+    payload = ai._question_payload(
+        "q", {}, None, None, None, None, None,
+        predictive_readiness={"status": "ready", "accuracy": {"mae": 4.2}},
+    )
+
+    assert payload["predictive_readiness"] == {"status": "ready", "accuracy": {"mae": 4.2}}
+
+
 def test_answer_question_accepts_strength_kwarg_without_key(monkeypatch):
     monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
     out = ai.answer_question("q", {"a": 1}, strength={"x": 1})

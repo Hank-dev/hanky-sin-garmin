@@ -32,6 +32,11 @@ class PrebedDiscoveryTest(unittest.TestCase):
         self.assertLess(by_pair[("hr_bedtime", "sleep_score")]["correlation"], 0)
         self.assertGreater(by_pair[("hr_bedtime", "next_day_stress")]["correlation"], 0)
         self.assertEqual(by_pair[("hr_bedtime", "next_day_stress")]["pairs"], 7)
+        rel = by_pair[("hr_bedtime", "sleep_score")]
+        self.assertIn("spearman", rel)
+        self.assertIn("corr_ci_low", rel)
+        self.assertIn("p_adjusted", rel)
+        self.assertIn(rel["evidence"], {"strong", "suggestive", "exploratory", "learning"})
         self.assertIn("Strongest correlation pattern", model["message"])
 
     def test_overnight_hrv_links_to_next_day_stress(self):
@@ -56,6 +61,33 @@ class PrebedDiscoveryTest(unittest.TestCase):
         rel = by_pair[("hrv_overnight_avg", "next_day_stress")]
         self.assertLess(rel["correlation"], 0)
         self.assertEqual(rel["pairs"], 7)
+
+    def test_sleep_score_links_to_following_day_avg_stress(self):
+        start = pd.Timestamp("2026-05-01")
+        sleep_scores = [90, 88, 86, 84, 62, 60, 58, 56]
+        rows = []
+        for i, score in enumerate(sleep_scores):
+            previous_score = sleep_scores[i - 1] if i > 0 else 90
+            rows.append({
+                "date": start + pd.Timedelta(days=i),
+                "sleep_score": score,
+                "stress_avg": 62 if previous_score <= 65 else 24,
+                "sleep_seconds": 8 * 3600,
+                "resting_hr": 55,
+                "hrv_overnight_avg": 45,
+                "hrv_baseline_low": None,
+                "hrv_baseline_high": None,
+            })
+        daily = analysis.enrich_daily(pd.DataFrame(rows))
+
+        model = analysis.compute_prebed_discovery(daily, min_pairs=5)
+
+        by_pair = {(r["x_col"], r["y_col"]): r for r in model["relationships"]}
+        rel = by_pair[("sleep_score", "next_day_stress")]
+        self.assertLess(rel["correlation"], 0)
+        self.assertEqual(rel["pairs"], 7)
+        self.assertEqual(rel["label"], "Sleep score vs following-day avg stress")
+        self.assertEqual(rel["y_label"], "Following-day avg stress")
 
     def test_daily_stress_links_to_next_overnight_hrv_and_sleep_quality(self):
         start = pd.Timestamp("2026-05-01")
@@ -321,6 +353,59 @@ class PrebedDiscoveryTest(unittest.TestCase):
 
         self.assertIn("markers", [trace.mode for trace in fig.data])
         self.assertEqual(fig.layout.xaxis.title.text, "Pre-sleep HR median bpm")
+
+    def test_relationships_are_ranked_by_adjusted_evidence(self):
+        start = pd.Timestamp("2026-05-01")
+        rows = []
+        for i in range(30):
+            high = i >= 15
+            rows.append({
+                "date": start + pd.Timedelta(days=i),
+                "hr_bedtime": 72 if high else 58,
+                "sleep_score": 60 if high else 88,
+                "stress_avg": 64 if high else 24,
+                "hrv_overnight_avg": 36 if high else 62,
+                "sleep_seconds": (6.4 if high else 8.0) * 3600,
+                "resting_hr": 64 if high else 52,
+                "hrv_baseline_low": None,
+                "hrv_baseline_high": None,
+            })
+        daily = analysis.enrich_daily(pd.DataFrame(rows))
+
+        model = analysis.compute_prebed_discovery(daily, min_pairs=5)
+
+        self.assertGreaterEqual(len(model["relationships"]), 3)
+        top = model["relationships"][0]
+        self.assertIn(top["evidence"], {"strong", "suggestive"})
+        self.assertIsNotNone(top["p_adjusted"])
+        self.assertLessEqual(top["p_adjusted"], 0.10)
+        self.assertIn("95% CI", top["summary"])
+
+    def test_outlier_sensitive_correlation_is_flagged(self):
+        start = pd.Timestamp("2026-05-01")
+        rows = []
+        for i in range(20):
+            rows.append({
+                "date": start + pd.Timedelta(days=i),
+                "hr_bedtime": 60 + (i % 2),
+                "sleep_score": 80 + (i % 2),
+                "stress_avg": 30,
+                "hrv_overnight_avg": 50,
+                "sleep_seconds": 8 * 3600,
+                "resting_hr": 55,
+                "hrv_baseline_low": None,
+                "hrv_baseline_high": None,
+            })
+        rows[-1]["hr_bedtime"] = 95
+        rows[-1]["sleep_score"] = 30
+        daily = analysis.enrich_daily(pd.DataFrame(rows))
+
+        model = analysis.compute_prebed_discovery(daily, min_pairs=5)
+
+        by_pair = {(r["x_col"], r["y_col"]): r for r in model["relationships"]}
+        rel = by_pair[("hr_bedtime", "sleep_score")]
+        self.assertEqual(rel["outlier_sensitivity"], "outlier-sensitive")
+        self.assertNotEqual(rel["evidence"], "strong")
 
 
 if __name__ == "__main__":
