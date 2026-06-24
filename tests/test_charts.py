@@ -173,6 +173,18 @@ class ChartRenderingTest(unittest.TestCase):
         self.assertGreater(pd.Timestamp(x0), pd.Timestamp("2026-06-02"))
         self.assertLess(pd.Timestamp(x0), pd.Timestamp("2026-06-03 12:00"))
 
+    def test_daily_hr_chart_renders_daily_average_and_rolling_line(self):
+        view = pd.DataFrame({
+            "date": pd.date_range("2026-06-01", periods=4, freq="D"),
+            "avg_hr": [72.0, 74.0, 76.0, 78.0],
+            "samples": [200, 210, 205, 220],
+        })
+
+        fig = cockpit.chart_daily_hr(view)
+
+        self.assertIn("Daily avg HR", [trace.name for trace in fig.data])
+        self.assertIn("7-day", [trace.name for trace in fig.data])
+
     def test_recovery_deviation_chart_trims_leading_no_data_days(self):
         # z-scores only populate once enough baseline history exists, so the
         # early days in the window are NaN. The x-axis should clamp to where
@@ -243,20 +255,21 @@ class ChartRenderingTest(unittest.TestCase):
     def test_streamlit_header_does_not_intercept_topbar_controls(self):
         self.assertIn('header[data-testid="stHeader"]{background:transparent;pointer-events:none;}', cockpit.CSS)
 
-    def test_body_battery_and_sleep_score_tiles_are_number_only(self):
+    def test_daily_stress_tile_has_trend_and_sleep_score_is_number_only(self):
         html = cockpit.tiles(
-            {"hrv": 43, "rhr": 59, "sleep_h": 7.1, "acwr": 1.0, "batt": 72, "sleep_score": 86},
-            {"hrv": [40, 43], "rhr": [61, 59], "sleep_h": [6.8, 7.1], "acwr": [1.0, 1.0], "batt": [50, 72]},
-            {"hrv": 42, "rhr": 60, "sleep_h": 7.0, "batt": 60},
+            {"hrv": 43, "rhr": 59, "sleep_h": 7.1, "acwr": 1.0, "stress": 32, "sleep_score": 86},
+            {"hrv": [40, 43], "rhr": [61, 59], "sleep_h": [6.8, 7.1], "acwr": [1.0, 1.0], "stress": [40, 32]},
+            {"hrv": 42, "rhr": 60, "sleep_h": 7.0, "stress": 38},
             sparse=False,
         )
 
-        start = html.index("Body Battery")
+        start = html.index("Daily Stress")
         end = html.index("Sleep Score", start)
-        battery_block = html[start:end]
-        self.assertIn(">72<", battery_block)
-        self.assertNotIn("spark", battery_block)
-        self.assertNotIn("vs 28d", battery_block)
+        stress_block = html[start:end]
+        self.assertIn(">32<", stress_block)
+        self.assertIn("spark", stress_block)
+        self.assertIn("vs 28d", stress_block)
+        self.assertNotIn("Body Battery", html)
 
         score_block = html[html.index("Sleep Score"):]
         self.assertIn(">86<", score_block)

@@ -813,6 +813,42 @@ def load_stress_df(date: str | None = None):
     return df.drop_duplicates(["date", "timestamp", "value"]).sort_values(["date", "timestamp"])
 
 
+def load_daily_hr_df(date: str | None = None):
+    """Return daily average heart rate derived from raw Garmin HR samples."""
+    import pandas as pd
+
+    sql = "SELECT date, payload FROM raw_json WHERE endpoint='heart_rates'"
+    params = []
+    if date is not None:
+        sql += " AND date=?"
+        params.append(date)
+    sql += " ORDER BY date"
+
+    records = []
+    with connect() as conn:
+        for row in conn.execute(sql, params):
+            try:
+                payload = json.loads(row["payload"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            values = _heart_rate_points(payload, row["date"])
+            if not values:
+                continue
+            records.append({
+                "date": str(row["date"]),
+                "avg_hr": sum(values) / len(values),
+                "samples": len(values),
+            })
+
+    if not records:
+        return pd.DataFrame(columns=["date", "avg_hr", "samples"])
+    df = pd.DataFrame(records)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["avg_hr"] = pd.to_numeric(df["avg_hr"], errors="coerce")
+    df["samples"] = pd.to_numeric(df["samples"], errors="coerce")
+    return df.dropna(subset=["date", "avg_hr"]).sort_values("date")
+
+
 def load_sleep_timing_df():
     """Return local sleep start/end/midpoint timestamps parsed from raw sleep JSON."""
     import pandas as pd
@@ -874,6 +910,43 @@ def load_activity_raw_payloads(prefix: str) -> dict[str, dict]:
             except (IndexError, TypeError, json.JSONDecodeError):
                 continue
     return out
+
+
+def _heart_rate_points(payload, fallback_date: str) -> list[float]:
+    values = []
+
+    def add_value(value):
+        if value is None:
+            return
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return
+        if 25 <= v <= 240:
+            values.append(v)
+
+    def walk(node):
+        if isinstance(node, dict):
+            series = node.get("heartRateValues")
+            if isinstance(series, list):
+                for sample in series:
+                    if isinstance(sample, (list, tuple)) and len(sample) >= 2:
+                        add_value(sample[1])
+                    elif isinstance(sample, dict):
+                        add_value(_first_present(
+                            sample, "heartRate", "heartRateValue", "heartRateBpm",
+                            "bpm", "value",
+                        ))
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, (dict, list)):
+                    walk(item)
+
+    walk(payload)
+    return values
 
 
 def _stress_points(payload, fallback_date: str):

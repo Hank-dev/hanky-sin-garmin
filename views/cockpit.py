@@ -33,6 +33,7 @@ def load(local_timezone: str):
     checkins = db.load_checkins_df()
     sleep_timing = db.load_sleep_timing_df()
     body_battery = db.load_body_battery_df()
+    daily_hr = db.load_daily_hr_df()
     stress_loader = getattr(db, "load_stress_df", None)
     stress = (
         stress_loader()
@@ -70,12 +71,12 @@ def load(local_timezone: str):
     strength_summary = analysis.summarize_strength(
         strength_sessions, strength_sets, exercises, profile, bodyweight,
         formula=config.ONE_RM_FORMULA)
-    return (daily, acts, checkins, body_battery, stress,
+    return (daily, acts, checkins, body_battery, daily_hr, stress,
             stress_leaks, prebed_discovery, personal_sleep_need, early_waking,
             health_research, predictive_readiness, strength_summary)
 
 
-(daily, acts, checkins, body_battery, stress, stress_leaks,
+(daily, acts, checkins, body_battery, daily_hr, stress, stress_leaks,
  prebed_discovery, personal_sleep_need, early_waking, health_research,
  predictive_readiness, strength_summary) = load(config.LOCAL_TIMEZONE)
 
@@ -315,29 +316,23 @@ st.markdown(cockpit.section_label("Today's signals"), unsafe_allow_html=True)
 if sparse:
     st.markdown(cockpit.tiles({}, {}, {}, sparse=True), unsafe_allow_html=True)
 else:
-    # Body Battery: prefer the *current* value (matches Garmin Connect's
-    # headline); fall back to the day's peak for older rows synced before the
-    # body_battery_current column existed.
-    bb_col = ("body_battery_current"
-              if "body_battery_current" in daily and daily["body_battery_current"].notna().any()
-              else "body_battery_high")
     today = {
         "hrv": val(latest, "hrv_overnight_avg"), "rhr": val(latest, "resting_hr"),
         "sleep_h": val(latest, "sleep_hours"), "acwr": val(latest, "acwr"),
-        "batt": val(latest, bb_col), "sleep_score": val(latest, "sleep_score"),
+        "stress": val(latest, "stress_avg"), "sleep_score": val(latest, "sleep_score"),
     }
     sparks = {
         "hrv": list(view.get("hrv_overnight_avg", [])),
         "rhr": list(view.get("resting_hr", [])),
         "sleep_h": list(view.get("sleep_hours", [])),
         "acwr": list(view.get("acwr", [])),
-        "batt": list(view.get(bb_col, [])),
+        "stress": list(view.get("stress_avg", [])),
     }
     base = {
         "hrv": base28["hrv_overnight_avg"].mean() if "hrv_overnight_avg" in base28 else None,
         "rhr": base28["resting_hr"].mean() if "resting_hr" in base28 else None,
         "sleep_h": base28["sleep_hours"].mean() if "sleep_hours" in base28 else None,
-        "batt": base28[bb_col].mean() if bb_col in base28 else None,
+        "stress": base28["stress_avg"].mean() if "stress_avg" in base28 else None,
     }
     base = {k: (None if v is None or pd.isna(v) else float(v)) for k, v in base.items()}
     st.markdown(cockpit.tiles(today, sparks, base, sparse=False), unsafe_allow_html=True)
@@ -538,6 +533,18 @@ with recovery_tab:
         if hrv_points < 2:
             st.caption("Only one overnight HRV value is synced in this window, so the chart shows it as a single point until more nights are available.")
         chart_card("Resting heart rate", "bpm", cockpit.chart_rhr(view))
+        if daily_hr is not None and not daily_hr.empty:
+            hr_view = daily_hr.copy()
+            hr_view["date"] = pd.to_datetime(hr_view["date"], errors="coerce")
+            start = pd.to_datetime(view["date"], errors="coerce").min()
+            end = pd.to_datetime(view["date"], errors="coerce").max()
+            hr_view = hr_view[(hr_view["date"] >= start) & (hr_view["date"] <= end)]
+            if not hr_view.empty:
+                chart_card("Daily average heart rate", "bpm", cockpit.chart_daily_hr(hr_view))
+            else:
+                st.caption("No raw daily heart-rate samples are synced for this window.")
+        else:
+            st.caption("No raw daily heart-rate samples stored yet. Run a fresh Garmin sync to pull heart-rate samples.")
         intraday_days = set()
         if body_battery is not None and not body_battery.empty and "date" in body_battery:
             intraday_days.update(body_battery["date"].astype(str).unique())

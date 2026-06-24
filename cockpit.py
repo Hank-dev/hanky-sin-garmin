@@ -847,7 +847,7 @@ def _delta(today, base, direction, fmt, unit=""):
 
 def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
     if sparse:
-        cfg = [("HRV", "ms"), ("Resting HR", "bpm"), ("Sleep", "h"), ("ACWR", ""), ("Body Battery", ""), ("Sleep Score", "")]
+        cfg = [("HRV", "ms"), ("Resting HR", "bpm"), ("Sleep", "h"), ("ACWR", ""), ("Daily Stress", ""), ("Sleep Score", "")]
         cells = [_tile(l, '<span class="dash">—</span>', u, '<div class="spark-empty"></div>',
                        '<span class="delta flat"><span class="lbl">—</span></span>') for l, u in cfg]
         return f'<div class="tiles">{"".join(cells)}</div>'
@@ -856,8 +856,8 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
         v = today.get(k)
         return None if v is None or pd.isna(v) else float(v)
 
-    hrv, rhr, slp, acwr, batt, sleep_score = (
-        g("hrv"), g("rhr"), g("sleep_h"), g("acwr"), g("batt"), g("sleep_score")
+    hrv, rhr, slp, acwr, stress, sleep_score = (
+        g("hrv"), g("rhr"), g("sleep_h"), g("acwr"), g("stress"), g("sleep_score")
     )
     r0 = lambda v: f"{v:.0f}"
     r1 = lambda v: f"{v:.1f}"
@@ -885,7 +885,9 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
               _delta(slp, base.get("sleep_h"), 1, r1, "h")),
         _tile("ACWR", "—" if acwr is None else f"{acwr:.2f}", "",
               _sparkline(sparks.get("acwr", []), acwr_color), acwr_delta),
-        _simple_tile("Body Battery", "—" if batt is None else f"{batt:.0f}"),
+        _tile("Daily Stress", "—" if stress is None else f"{stress:.0f}", "",
+              _sparkline(sparks.get("stress", []), AMBER),
+              _delta(stress, base.get("stress"), -1, r0)),
         _simple_tile("Sleep Score", "—" if sleep_score is None else f"{sleep_score:.0f}"),
     ]
     return f'<div class="tiles">{"".join(cells)}</div>'
@@ -2077,6 +2079,21 @@ def chart_rhr(view: pd.DataFrame) -> go.Figure:
     _glow_line(fig, x, view["resting_hr"], SERIES2, "RHR")
     fig = _dark(fig, 230)
     _clamp_x_to_data(fig, view, ["resting_hr"])
+    return fig
+
+
+def chart_daily_hr(view: pd.DataFrame) -> go.Figure:
+    x = view["date"]
+    fig = go.Figure()
+    rows = view.copy()
+    rows["avg_hr"] = pd.to_numeric(rows.get("avg_hr"), errors="coerce")
+    rows["avg_hr_7d"] = rows["avg_hr"].rolling(7, min_periods=3).mean()
+    if rows["avg_hr_7d"].notna().any():
+        fig.add_trace(go.Scatter(x=x, y=rows["avg_hr_7d"], name="7-day", mode="lines",
+                                 line=dict(color=TEXT_DIM, width=1.5, dash="dot")))
+    _glow_line(fig, x, rows["avg_hr"], ACCENT2, "Daily avg HR")
+    fig = _dark(fig, 230)
+    _clamp_x_to_data(fig, rows, ["avg_hr"])
     return fig
 
 
