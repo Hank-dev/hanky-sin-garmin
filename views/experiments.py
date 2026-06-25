@@ -83,14 +83,14 @@ def chart_card(title, unit, fig, rel=None):
             f'<span style="display:inline-flex;align-items:center;justify-content:center;'
             f'min-width:34px;height:22px;border-radius:5px;background:color-mix(in srgb,{cockpit.ACCENT} 14%,transparent);'
             f'border:1px solid color-mix(in srgb,{cockpit.ACCENT} 34%,transparent);'
-            f'color:{cockpit.ACCENT};font-family:\'JetBrains Mono\',ui-monospace,monospace;'
+            f'color:{cockpit.ACCENT};font-family:\'Geist Mono\',ui-monospace,monospace;'
             f'font-size:11px;font-weight:700">#{int(rank)}</span>'
             if rank is not None else ""
         )
         evidence_html = (
             f'<span style="display:inline-flex;align-items:center;height:22px;border-radius:999px;'
             f'padding:0 8px;border:1px solid {cockpit.GRID};color:{cockpit.TEXT_DIM};'
-            f'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;'
+            f'font-family:\'Geist Mono\',ui-monospace,monospace;font-size:10px;'
             f'text-transform:uppercase;letter-spacing:.08em">{html.escape(evidence)}</span>'
             if evidence else ""
         )
@@ -99,10 +99,10 @@ def chart_card(title, unit, fig, rel=None):
             f'{rank_html}<div style="min-width:0;flex:1">'
             f'<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:4px">'
             f'{evidence_html}'
-            f'<span style="font-family:\'JetBrains Mono\',ui-monospace,monospace;'
+            f'<span style="font-family:\'Geist Mono\',ui-monospace,monospace;'
             f'font-size:10px;color:{cockpit.TEXT_FAINT};letter-spacing:.08em;text-transform:uppercase">'
             f'{html.escape(unit)}</span></div>'
-            f'<div style="font-family:\'Archivo\',system-ui,sans-serif;font-size:16px;'
+            f'<div style="font-family:\'Geist\',system-ui,sans-serif;font-size:16px;'
             f'line-height:1.25;font-weight:700;color:{cockpit.TEXT};letter-spacing:0">'
             f'{html.escape(title)}</div></div></div>',
             unsafe_allow_html=True,
@@ -111,7 +111,7 @@ def chart_card(title, unit, fig, rel=None):
             chips = "".join(
                 f'<span style="display:inline-flex;align-items:center;border:1px solid {cockpit.GRID};'
                 f'border-radius:5px;padding:3px 6px;color:{cockpit.TEXT_DIM};'
-                f'font-family:\'JetBrains Mono\',ui-monospace,monospace;font-size:10px;line-height:1.1">'
+                f'font-family:\'Geist Mono\',ui-monospace,monospace;font-size:10px;line-height:1.1">'
                 f'{html.escape(bit)}</span>'
                 for bit in stats
             )

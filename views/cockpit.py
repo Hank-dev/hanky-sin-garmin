@@ -311,11 +311,20 @@ def render_weekly_summary():
         st.markdown(cockpit.weekly_summary_content(summary_md), unsafe_allow_html=True)
 
 
-# ── key-stat tiles ───────────────────────────────────────────────────────────
+# ── readiness ring + signal tiles ─────────────────────────────────────────────
 st.markdown(cockpit.section_label("Today's signals"), unsafe_allow_html=True)
 if sparse:
-    st.markdown(cockpit.tiles({}, {}, {}, sparse=True), unsafe_allow_html=True)
+    ring_html = cockpit.readiness_ring(None)
+    tiles_html = cockpit.tiles({}, {}, {}, sparse=True)
 else:
+    readiness_now = val(latest, "training_readiness_score")
+    base_readiness = base28["training_readiness_score"].mean() if "training_readiness_score" in base28 else None
+    if base_readiness is not None and pd.isna(base_readiness):
+        base_readiness = None
+    ring_delta = None
+    if readiness_now is not None and base_readiness is not None:
+        ring_delta = f"{readiness_now - float(base_readiness):+.0f} vs 28D"
+    ring_html = cockpit.readiness_ring(readiness_now, ring_delta)
     today = {
         "hrv": val(latest, "hrv_overnight_avg"), "rhr": val(latest, "resting_hr"),
         "sleep_h": val(latest, "sleep_hours"), "acwr": val(latest, "acwr"),
@@ -335,7 +344,8 @@ else:
         "stress": base28["stress_avg"].mean() if "stress_avg" in base28 else None,
     }
     base = {k: (None if v is None or pd.isna(v) else float(v)) for k, v in base.items()}
-    st.markdown(cockpit.tiles(today, sparks, base, sparse=False), unsafe_allow_html=True)
+    tiles_html = cockpit.tiles(today, sparks, base, sparse=False)
+st.markdown(f'<div class="readiness-row">{ring_html}{tiles_html}</div>', unsafe_allow_html=True)
 
 render_weekly_summary()
 
@@ -489,10 +499,11 @@ if pending_prompt:
 def chart_card(title, unit, fig):
     with st.container(border=True):
         st.markdown(
-            f'<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
-            f'font-weight:400;font-size:21px;margin:2px 0 -4px">'
-            f'{title} <em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
-            f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">{unit}</em></div>',
+            '<div style="display:flex;align-items:center;justify-content:space-between;'
+            'gap:10px;margin:2px 0 2px">'
+            f'<span class="chart-title">{title}</span>'
+            f'<span style="font-family:\'Geist Mono\',monospace;color:{cockpit.TEXT_FAINT};'
+            f'font-size:10px;letter-spacing:.04em">{unit}</span></div>',
             unsafe_allow_html=True)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
@@ -619,6 +630,18 @@ with training_tab:
 with experimental_tab:
     st.markdown(cockpit.predictive_readiness_card(predictive_readiness), unsafe_allow_html=True)
     render_capacity_experimental()
+
+
+# ── recent activities ─────────────────────────────────────────────────────────
+n_acts = 0 if acts is None or acts.empty else len(acts.tail(win))
+st.markdown(
+    cockpit.section_label(f"Recent activities · {n_acts} in {win}d" if n_acts else "Recent activities"),
+    unsafe_allow_html=True)
+acts_window = acts[pd.to_datetime(acts["date"], errors="coerce") >= pd.to_datetime(view["date"]).min()] \
+    if (acts is not None and not acts.empty and not view.empty) else acts
+st.markdown(
+    cockpit.activities_table(acts_window, sparse=acts is None or acts.empty, limit=8),
+    unsafe_allow_html=True)
 
 
 # ── stress leak map ──────────────────────────────────────────────────────────

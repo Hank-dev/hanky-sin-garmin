@@ -4,23 +4,23 @@ Pure rendering helpers — they take plain Python values (or a windowed
 DataFrame for charts) and return HTML strings / Plotly figures. No Streamlit
 imports, no DB, no network, so the visual language stays separable from app.py.
 
-Ported from the Claude Design "Graphite Voltage" handoff
-(`Recovery Cockpit - Graphite Voltage.dc.html`), re-skinned to a Material
-Design 3 dark direction: M3 neutral surfaces (#141218 surface-dim base) with
-machined bevels, a teal accent (#80CBC4) for the
-readiness ring + brand + positive signals, cyan (#9ECAFF) as the cool
-secondary, amber (#E8C26A) for caution, red (#F28B82) for alarm, and a Spectral
-serif display face for the big readiness numeral and headings (Archivo body,
-JetBrains Mono micro-labels). The serif numeric hero + sparklines and the design
-tokens mirror the handoff's token panel; the trend charts are re-implemented as
-dark Plotly per the bundle's colorway (["#80CBC4","#9ECAFF","#E8C26A"], paper
-#141218, grid rgba(255,255,255,.08)).
+Ported from the Claude Design "Vercel" handoff
+(`Recovery Cockpit - Vercel.dc.html`): a pure-black canvas (#000) with a soft
+blue radial glow, flat #0a0a0a cards on hairline borders (rgba(255,255,255,.1)),
+a Vercel-blue accent (#0070f3) for the readiness ring + accent, mint (#50e3c2)
+for positive signals, amber (#f5a623) caution, red (#ff5c5c) alarm, and the
+Geist / Geist Mono type system (heavy Geist for the big readiness numeral and
+headings, Geist Mono for micro-labels). The trend charts are dark Plotly per the
+colorway (["#0070f3","#50e3c2","#f5a623"], transparent paper,
+grid rgba(255,255,255,.07)).
 """
 from __future__ import annotations
+import base64
 import html
 import json
 import re
 import itertools
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -32,21 +32,21 @@ import plotly.graph_objects as go
 #  ring + brand + positive signals, cyan (#9ECAFF) as the cool secondary,
 #  amber (#E8C26A) caution, red (#F28B82) alarm. High-contrast
 #  sport/performance on the M3 dark neutral scale.
-BG        = "#141218"   # surface-dim base
-BG2       = "#0F0D11"   # deepest recess (code blocks, token footer)
-SURFACE   = "#1B1B1F"   # card surface (M3 surface)
-SURFACE2  = "#211F26"   # elevated surface (M3 surface container)
-SURFACE3  = "#2B2930"   # highest surface (M3 surface container high)
-TEXT      = "#E6E1E5"   # M3 on-surface
-TEXT_DIM  = "#CAC4D0"   # M3 on-surface variant
-TEXT_FAINT = "#938F99"  # M3 outline
-ACCENT    = "#80CBC4"   # teal           (ring + brand + positive)
-ACCENT2   = "#4DB6AC"   # deeper teal
-GOOD      = "#80CBC4"   # teal           (positive = accent)
-SERIES2   = "#9ECAFF"   # cyan           (secondary series)
-AMBER     = "#E8C26A"   # amber          (caution)
-RED       = "#F28B82"   # red            (alarm)
-GRID      = "rgba(255,255,255,0.08)"
+BG        = "#000000"   # pure black canvas (Vercel)
+BG2       = "#000000"   # deepest recess (code blocks, token footer)
+SURFACE   = "#0a0a0a"   # card surface (flat)
+SURFACE2  = "#0a0a0a"   # elevated surface (flat in Vercel)
+SURFACE3  = "#161616"   # highest surface (icon chips)
+TEXT      = "#ededed"   # primary on-surface
+TEXT_DIM  = "#a1a1a1"   # muted
+TEXT_FAINT = "#8f8f8f"  # faint label
+ACCENT    = "#0070f3"   # Vercel blue    (ring + brand + accent)
+ACCENT2   = "#3291ff"   # lighter blue
+GOOD      = "#50e3c2"   # mint           (positive)
+SERIES2   = "#50e3c2"   # mint           (secondary series)
+AMBER     = "#f5a623"   # amber          (caution)
+RED       = "#ff5c5c"   # red            (alarm)
+GRID      = "rgba(255,255,255,0.07)"
 
 _ids = itertools.count(1)
 def _uid() -> str:
@@ -58,43 +58,32 @@ def _uid() -> str:
 # ════════════════════════════════════════════════════════════════════════════
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap');
 
 :root{
-  --bg:#141218; --bg-2:#0F0D11; --surface:#1B1B1F; --surface-2:#211F26; --surface-3:#2B2930;
-  --border:rgba(255,255,255,.08); --border-2:rgba(255,255,255,.16);
-  --hairline:rgba(255,255,255,.06); --inset-hi:rgba(255,255,255,.05);
-  --brass:rgba(255,255,255,.10);
-  --text:#E6E1E5; --text-dim:#CAC4D0; --text-faint:#938F99;
-  --accent:#80CBC4; --accent-2:#4DB6AC; --accent-ink:#0F0D11;
-  --good:#80CBC4; --series-2:#9ECAFF; --amber:#E8C26A; --red:#F28B82;
+  --bg:#000; --bg-2:#000; --surface:#0a0a0a; --surface-2:#0a0a0a; --surface-3:#161616;
+  --border:rgba(255,255,255,.1); --border-2:rgba(255,255,255,.22);
+  --hairline:rgba(255,255,255,.08); --inset-hi:rgba(255,255,255,.04);
+  --brass:rgba(255,255,255,.1);
+  --text:#ededed; --text-dim:#a1a1a1; --text-faint:#8f8f8f;
+  --accent:#0070f3; --accent-2:#3291ff; --accent-ink:#fff;
+  --good:#50e3c2; --series-2:#50e3c2; --amber:#f5a623; --red:#ff5c5c;
   --ring-track:rgba(255,255,255,.08);
-  --font-sans:"Archivo",system-ui,sans-serif;
-  --font-display:"Archivo",system-ui,sans-serif;
-  --font-serif:"Spectral",Georgia,serif;
-  --font-mono:"JetBrains Mono",ui-monospace,monospace;
-  --r-sm:4px; --r-md:8px; --r-lg:14px; --r-xl:18px;
+  --font-sans:"Geist",system-ui,-apple-system,sans-serif;
+  --font-display:"Geist",system-ui,sans-serif;
+  --font-serif:"Geist",system-ui,sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,monospace;
+  --r-sm:4px; --r-md:8px; --r-lg:12px; --r-xl:16px;
   --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
-  --sh-card:inset 0 1px 0 var(--inset-hi),0 16px 40px -20px rgba(0,0,0,.8);
-  /* fine machine-noise veil for the whole stage (feTurbulence .85, overlay) */
-  --noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --sh-card:0 1px 0 rgba(255,255,255,.02);
 }
 
 /* ── Streamlit chrome → cockpit canvas ─────────────────────────────── */
 .stApp{
-  background-color:var(--bg);
-  background-image:
-    radial-gradient(900px 480px at 16% -4%, rgba(128,203,196,.10), transparent 62%),
-    radial-gradient(120% 80% at 50% 0%, #1B1B1F 0%, #141218 46%, #0F0D11 100%);
-  background-size:100% 100%, 100% 100%;
+  background-color:#000;
   color:var(--text);
   font-family:var(--font-sans);
-}
-/* fine machine-noise veil over the whole stage (overlay, very low opacity) */
-.stApp::after{
-  content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;
-  background-image:var(--noise);background-size:180px 180px;
-  mix-blend-mode:overlay;opacity:.04;
+  -webkit-font-smoothing:antialiased;
 }
 header[data-testid="stHeader"]{background:transparent;pointer-events:none;}
 #MainMenu, footer, [data-testid="stToolbar"]{visibility:hidden;}
@@ -146,12 +135,12 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── card primitive + bordered Streamlit containers become cards ───── */
 /* machined panels: surface gradient + machined top bevel */
 .card{
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border);border-top-color:var(--brass);
   border-radius:var(--r-lg);box-shadow:var(--sh-card);}
 [data-testid="stVerticalBlockBorderWrapper"]{
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border)!important;border-top-color:var(--brass)!important;
   border-radius:var(--r-lg);box-shadow:var(--sh-card); padding:6px 18px 10px;}
@@ -159,38 +148,32 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   font-size:10px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;
   color:var(--text-faint);margin:var(--s5) 0 var(--s3);}
 .section-label::after{content:"";flex:1;height:1px;background:var(--hairline);}
-
-/* ── hero (serif numeric — the volt signature) ─────────────────────── */
-.hero{padding:var(--s6);margin-top:18px;}
-.hero.hero-numeric{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
-  gap:var(--s6);align-items:center;
-  background:linear-gradient(180deg,#211F26,#1B1B1F 66%,#0F0D11);
-  background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
-.hero.hero-empty{grid-template-columns:minmax(220px,.58fr) minmax(0,1fr);
-  gap:var(--s5);padding:28px 64px 32px;align-items:end;}
-.hero.hero-empty .num-block{gap:10px;}
-.hero.hero-empty .bignum .score{font-size:clamp(52px,6vw,82px);}
-.hero.hero-empty .bignum .den{font-size:16px;}
-.hero.hero-empty .verdict{gap:var(--s3);}
-.hero.hero-empty .verdict .vbig{font-size:clamp(42px,4.8vw,58px);}
-.hero.hero-empty .verdict .vsub{font-size:20px;max-width:42ch;}
-.num-block{display:flex;flex-direction:column;gap:14px;min-width:0;}
 .kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-faint);}
-.bignum{font-family:var(--font-serif);font-weight:400;line-height:.82;letter-spacing:-.02em;
-  color:var(--ring-color,var(--accent));display:flex;align-items:baseline;gap:12px;}
-.bignum .score{font-size:clamp(96px,12.5vw,170px);font-variant-numeric:tabular-nums;
-  text-shadow:0 0 40px color-mix(in oklab,var(--ring-color,var(--accent)) 30%,transparent);}
-.bignum.no-score .score{color:var(--text-faint);text-shadow:none;font-size:clamp(64px,8vw,108px);}
-.bignum .den{font-family:var(--font-mono);font-size:17px;color:var(--text-faint);letter-spacing:.02em;}
-.num-track{height:3px;border-radius:999px;background:var(--ring-track);overflow:hidden;}
-.num-fill{display:block;height:100%;border-radius:999px;
-  background:linear-gradient(90deg,var(--ring-color,var(--accent)),var(--series-2));}
-.verdict{display:flex;flex-direction:column;gap:var(--s4);min-width:0;}
-.verdict .vbig{font-family:var(--font-serif);font-weight:400;font-size:clamp(40px,5vw,64px);
-  line-height:.98;letter-spacing:0;color:var(--ring-color,var(--accent));
-  text-shadow:0 0 28px color-mix(in oklab,var(--ring-color,var(--accent)) 24%,transparent);}
-.verdict .vsub{font-family:var(--font-serif);font-style:italic;font-size:21px;line-height:1.34;
-  color:var(--text-dim);max-width:36ch;}
+
+/* ── hero (centered readiness verdict — Vercel) ────────────────────── */
+.hero-c{text-align:center;max-width:840px;margin:14px auto 44px;}
+.hero-kicker{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;
+  border:1px solid var(--border-2);border-radius:999px;margin-bottom:26px;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-dim);}
+.hero-kicker .hk-dot{width:6px;height:6px;border-radius:50%;background:var(--ring-color,var(--accent));}
+.hero-verdict{margin:0;font-family:var(--font-display);font-size:clamp(46px,8vw,84px);font-weight:800;
+  letter-spacing:-.04em;line-height:.94;color:#fff;}
+.hero-tagline{margin:20px auto 0;font-size:18px;line-height:1.55;color:var(--text-dim);max-width:560px;}
+.hero-chips{display:flex;justify-content:center;flex-wrap:wrap;gap:var(--s2);margin-top:28px;}
+
+/* ── readiness ring + signal grid row ──────────────────────────────── */
+.readiness-row{display:grid;grid-template-columns:300px minmax(0,1fr);gap:var(--s4);align-items:stretch;}
+.ring-card{display:flex;align-items:center;justify-content:center;padding:24px;}
+.ring-wrap{position:relative;width:200px;height:200px;}
+.ring-svg{display:block;transform:rotate(-90deg);}
+.ring-track{fill:none;stroke:var(--ring-track);stroke-width:12;}
+.ring-arc{fill:none;stroke-width:12;stroke-linecap:round;transition:stroke-dasharray .6s ease;}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.ring-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+.ring-score{font-weight:800;font-size:64px;line-height:.86;letter-spacing:-.03em;color:#fff;}
+.ring-score.no-score{color:var(--text-faint);font-size:48px;}
+.ring-delta{font-family:var(--font-mono);font-size:11px;color:var(--good);margin-top:6px;}
+@media (max-width:760px){ .readiness-row{grid-template-columns:1fr;} .ring-card{padding:18px;} }
 .chips{display:flex;flex-wrap:wrap;gap:var(--s2);}
 .chip{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:999px;font-size:13px;
   font-weight:500;background:var(--surface-2);border:1px solid var(--border);}
@@ -215,20 +198,22 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   color:color-mix(in srgb,var(--amber) 66%,var(--text));}
 .ribbon .ico{font-size:15px;}
 
-/* ── key-stat tiles ────────────────────────────────────────────────── */
-.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--s4);}
-.tile{padding:var(--s4) var(--s4) var(--s3);display:flex;flex-direction:column;gap:var(--s2);
+/* ── key-stat tiles (label+delta top · value · sparkline bottom) ────── */
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4);}
+.tile{padding:18px 18px 16px;display:flex;flex-direction:column;gap:10px;min-height:128px;
   transition:border-color .18s,transform .18s;}
 .tile:hover{border-color:var(--border-2);transform:translateY(-2px);}
-.tile .tl{font-family:var(--font-mono);font-size:9.5px;font-weight:500;letter-spacing:.16em;
+.tile-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.tile .tl{font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.04em;
   text-transform:uppercase;color:var(--text-faint);}
-.tile .tv{font-family:var(--font-serif);font-weight:400;font-size:38px;line-height:1;
-  font-variant-numeric:tabular-nums;letter-spacing:0;display:flex;align-items:baseline;gap:5px;}
-.tile .tv u{font-family:var(--font-sans);font-size:13px;font-weight:500;color:var(--text-dim);text-decoration:none;}
-.tile .spark{width:100%;height:36px;display:block;}
-.tile .spark-empty{height:36px;border-bottom:1px dashed var(--border-2);opacity:.5;}
-.delta{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;
-  font-variant-numeric:tabular-nums;} .delta .lbl{color:var(--text-faint);font-weight:500;}
+.tile .tv{font-family:var(--font-display);font-weight:700;font-size:32px;line-height:.9;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;display:flex;align-items:baseline;gap:5px;color:#fff;}
+.tile .tv u{font-family:var(--font-mono);font-size:11px;font-weight:500;color:var(--text-faint);text-decoration:none;}
+.tile .spark{width:100%;height:30px;display:block;margin-top:auto;}
+.tile .spark-empty{height:30px;margin-top:auto;border-bottom:1px dashed var(--border-2);opacity:.5;}
+.tile-sub{font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-top:auto;}
+.delta{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;font-weight:600;
+  font-variant-numeric:tabular-nums;white-space:nowrap;} .delta .lbl{color:var(--text-faint);font-weight:500;}
 .delta.good{color:var(--good);} .delta.bad{color:var(--red);} .delta.flat{color:var(--text-dim);}
 
 /* ── horizontal day rail ───────────────────────────────────────────── */
@@ -267,7 +252,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 /* ── AI coach readout ──────────────────────────────────────────────── */
 .coach{padding:var(--s6);position:relative;overflow:hidden;
   border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:linear-gradient(180deg,#211F26,#1B1B1F 66%,#0F0D11);
+  background:linear-gradient(180deg,#0a0a0a,#0a0a0a 66%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .coach::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--series-2);opacity:.9;}
@@ -275,6 +260,10 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .coach-head .glyph{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;
   background:color-mix(in srgb,var(--good) 12%,var(--surface));
   border:1px solid color-mix(in srgb,var(--good) 30%,transparent);color:var(--good);}
+.coach-head .coach-avatar{width:40px;height:40px;border-radius:50%;flex:0 0 auto;overflow:hidden;
+  display:grid;place-items:center;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent);}
+.coach-head .coach-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
 .coach-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0;}
 .coach-head .meta{font-size:12px;color:var(--text-faint);}
 .coach-body{display:grid;gap:var(--s4);}
@@ -295,45 +284,45 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── weekly summary ───────────────────────────────────────────────── */
 .weekly-summary{padding:var(--s5);border-color:var(--border);
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0F0D11);}
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0a0a0a);}
 .weekly-summary-head{display:flex;align-items:center;justify-content:space-between;
   gap:var(--s3);margin-bottom:var(--s4);padding-bottom:var(--s3);border-bottom:1px solid var(--hairline);}
-.weekly-summary-meta{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;
+.weekly-summary-meta{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.06em;
   text-transform:uppercase;color:var(--text-faint);}
 .weekly-summary .coach-body,.weekly-summary-content .coach-body{gap:var(--s3);}
 .weekly-summary .coach-sec h4,.weekly-summary-content .coach-sec h4{margin-bottom:8px;}
 .weekly-summary .coach-sec p,.weekly-summary-content .coach-sec p{line-height:1.56;}
 .st-key-weekly_summary_card [data-testid="stVerticalBlockBorderWrapper"]{
-  padding:14px 18px 28px!important;border-color:var(--border)!important;
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0F0D11)!important;}
+  padding:12px 18px 18px!important;border-color:var(--border)!important;
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0a0a0a)!important;}
 .st-key-weekly_summary_card [data-testid="stVerticalBlock"]{gap:0!important;}
 .st-key-weekly_summary_card [data-testid="stElementContainer"]{margin:0!important;}
-.st-key-weekly_summary_header{padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--hairline);}
-.st-key-weekly_summary_header [data-testid="stHorizontalBlock"]{align-items:center!important;}
+.st-key-weekly_summary_header{padding-bottom:8px;margin-bottom:14px;border-bottom:1px solid var(--hairline);}
+.st-key-weekly_summary_header [data-testid="stHorizontalBlock"]{align-items:center!important;gap:4px!important;}
+.st-key-weekly_summary_header [data-testid="stColumn"]:has([data-testid="stButton"]){
+  flex:0 0 auto!important;width:auto!important;min-width:0!important;}
 .st-key-weekly_summary_header [data-testid="stMarkdownContainer"] p{margin:0!important;}
 .st-key-weekly_summary_card [data-testid="stButton"]{display:flex!important;justify-content:flex-end!important;}
-.st-key-weekly_summary_card [data-testid="stButton"]>button,
-.st-key-weekly_summary_card div.stButton>button{
-  width:34px!important;min-width:34px!important;max-width:34px!important;
-  height:34px!important;min-height:34px!important;max-height:34px!important;padding:0!important;
-  border-radius:var(--r-md)!important;background:var(--surface)!important;
-  border:1px solid var(--border)!important;color:var(--text-dim)!important;
-  box-shadow:inset 0 1px 0 var(--inset-hi)!important;filter:none!important;}
-.st-key-weekly_summary_card [data-testid="stButton"]>button:hover,
-.st-key-weekly_summary_card div.stButton>button:hover{
-  background:var(--surface-2)!important;border-color:var(--border-2)!important;color:var(--text)!important;}
-.st-key-weekly_summary_card [data-testid="stButton"]>button p,
-.st-key-weekly_summary_card div.stButton>button p{display:none!important;}
-.st-key-weekly_summary_card [data-testid="stButton"]>button [data-testid="stIconMaterial"],
-.st-key-weekly_summary_card div.stButton>button [data-testid="stIconMaterial"]{
-  margin:0!important;font-size:18px!important;}
-.weekly-summary-content{margin-top:0!important;padding-bottom:2px!important;}
-.weekly-summary-content .coach-sec p{margin:0!important;}
+.st-key-weekly_summary_card [data-testid="stButton"] [data-testid="stTooltipHoverTarget"]{width:auto!important;}
+.st-key-weekly_summary_card [data-testid="stButton"] button{
+  width:28px!important;min-width:28px!important;max-width:28px!important;
+  height:28px!important;min-height:28px!important;max-height:28px!important;padding:0!important;
+  border-radius:var(--r-sm)!important;background:transparent!important;
+  border:1px solid transparent!important;color:var(--text-faint)!important;
+  box-shadow:none!important;filter:none!important;
+  transition:background .12s,border-color .12s,color .12s;}
+.st-key-weekly_summary_card [data-testid="stButton"] button:hover{
+  background:var(--surface-3)!important;border-color:var(--hairline)!important;color:var(--text)!important;}
+.st-key-weekly_summary_card [data-testid="stButton"] button p{display:none!important;}
+.st-key-weekly_summary_card [data-testid="stButton"] button [data-testid="stIconMaterial"]{
+  margin:0!important;font-size:16px!important;}
+.weekly-summary-content{margin-top:0!important;padding-bottom:0!important;}
+.weekly-summary-content .coach-sec p{margin:0!important;max-width:66ch;line-height:1.6;color:var(--text);}
 
 /* ── coach memory peek ───────────────────────────────────────────── */
 .memory-peek{padding:var(--s5);position:relative;overflow:hidden;
   border-color:color-mix(in srgb,var(--accent) 16%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 68%,#0F0D11);}
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 68%,#0a0a0a);}
 .memory-peek::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
   background:var(--accent);opacity:.72;}
 .memory-peek-head{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s3);}
@@ -367,7 +356,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── capacity envelope ────────────────────────────────────────────── */
 .capacity{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 16%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .capacity-head{display:flex;align-items:flex-start;gap:var(--s4);justify-content:space-between;margin-bottom:var(--s4);}
 .capacity-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -395,7 +384,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── stress leak map ───────────────────────────────────────────────── */
 .leak{padding:var(--s6);border-color:color-mix(in srgb,var(--red) 16%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .leak-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .leak-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -424,7 +413,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── discovery panel ──────────────────────────────────────────────── */
 .discovery{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .discovery-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .discovery-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -448,7 +437,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── early waking classifier ───────────────────────────────────────── */
 .early-classifier{padding:var(--s6);border-color:color-mix(in srgb,var(--series-2) 18%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .early-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .early-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -493,7 +482,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── research health panels ───────────────────────────────────────── */
 .research{padding:var(--s6) var(--s6) calc(var(--s6) + 18px);border-color:color-mix(in srgb,var(--accent) 18%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .research-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .research-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -523,7 +512,7 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 
 /* ── grappling mode ───────────────────────────────────────────────── */
 .grapple{padding:var(--s6);border-color:color-mix(in srgb,var(--amber) 18%,var(--border));
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   background-size:3px 100%,100% 100%;background-blend-mode:normal,normal;}
 .grapple-head{display:flex;justify-content:space-between;gap:var(--s4);align-items:flex-start;margin-bottom:var(--s4);}
 .grapple-head h3{font-family:var(--font-serif);font-size:24px;font-weight:400;margin:0 0 3px;}
@@ -641,15 +630,10 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 [data-testid="stSidebarNavLink"][aria-current="page"] [data-testid="stIconMaterial"]{color:var(--accent)!important;}
 
 /* ── responsive ────────────────────────────────────────────────────── */
-@media (max-width:1080px){ .tiles{grid-template-columns:repeat(3,1fr);} }
-@media (max-width:920px){
-  .hero.hero-numeric{grid-template-columns:1fr;gap:var(--s4);}
-  .hero.hero-empty{padding:24px;align-items:start;}
-  .bignum{justify-content:flex-start;} .verdict .vsub{max-width:52ch;}
-}
 @media (max-width:680px){
   .tiles{grid-template-columns:repeat(2,1fr);}
-  .hero,.coach,.capacity,.leak,.grapple,.research,.early-classifier{padding:var(--s5);}
+  .hero-verdict{font-size:clamp(40px,11vw,56px);}
+  .coach,.capacity,.leak,.grapple,.research,.early-classifier{padding:var(--s5);}
   .acts thead th,.acts tbody td{padding:10px 6px;font-size:12px;}
   .acts thead th{font-size:8px;letter-spacing:.06em;}
   .acts .act-col-name{width:40%;}
@@ -664,14 +648,42 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   .te-badge{min-width:30px;padding:2px 5px;font-size:11px;}
 }
 @media (max-width:420px){ .tiles{grid-template-columns:1fr;} }
+
+/* ── Vercel: heavy Geist numerals replace the old serif display face ── */
+.bignum,.bignum .score{font-weight:800!important;letter-spacing:-.03em!important;}
+.verdict .vbig{font-weight:800!important;letter-spacing:-.03em!important;}
+.verdict .vsub{font-style:normal!important;font-weight:400!important;}
+.tile .tv{font-weight:700!important;letter-spacing:-.02em!important;}
+.coach-head h3,.capacity-head h3,.leak-head h3,.discovery-head h3,
+.early-head h3,.research-head h3,.grapple-head h3,.research-panel h4{font-weight:700!important;letter-spacing:-.02em!important;}
+.cap-metric .now,.leak-stat .val,.discovery-stat .val,.research-stat .val,
+.grapple-stat .val,.early-stat .val,.early-pattern,.early-score .val{font-weight:700!important;letter-spacing:-.02em!important;}
+.chart-title{font-family:var(--font-mono)!important;font-weight:500!important;letter-spacing:.04em!important;
+  text-transform:uppercase!important;font-size:11px!important;color:var(--text-dim)!important;}
 </style>
 """
 
 # brand mark + coach glyph (small inline SVG icons)
-_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#80CBC4" stroke-width="2" '
+_PULSE = ('<svg viewBox="0 0 24 24" fill="none" stroke="#50e3c2" stroke-width="2" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2.5-7 4 14 3-9 2 2H22"/></svg>')
 _SPARK = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
           'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6m0 0 4-3m-4 3L8 6M5 13a7 7 0 1 0 14 0"/></svg>')
+
+
+def _coach_avatar_uri() -> str:
+    """Base64 data URI for the coach profile image, loaded once. Empty if missing."""
+    f = Path(__file__).with_name("assets_coach_avatar.png")
+    if not f.exists():
+        return ""
+    return "data:image/png;base64," + base64.b64encode(f.read_bytes()).decode("ascii")
+
+
+_COACH_AVATAR_URI = _coach_avatar_uri()
+# Round coach avatar for card heads; falls back to the spark glyph if the file is gone.
+COACH_AVATAR = (
+    f'<span class="coach-avatar"><img src="{_COACH_AVATAR_URI}" alt="coach"/></span>'
+    if _COACH_AVATAR_URI else f'<span class="glyph">{_SPARK}</span>'
+)
 _ACT_ICONS = {
     "run": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="15" cy="5" r="1.6"/><path d="M13 8l-3 3 2 3v5M13 8l3 2 3 .5M10 11l-3 1-2 4"/></svg>',
     "ride": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="3.4"/><circle cx="18" cy="17" r="3.4"/><path d="M6 17l4-7h5l-3 7M10 10l2-3h3"/></svg>',
@@ -712,43 +724,43 @@ def topbar(date_str: str, sparse: bool) -> str:
     </div>""")
 
 
-# ── readiness numeral + progress fill ────────────────────────────────────────
-def _num_fill(pct) -> str:
-    """Slim champagne→teal progress track for `pct` (0–1)."""
-    p = max(0.0, min(1.0, pct)) * 100
-    return f'<div class="num-track"><span class="num-fill" style="width:{p:.1f}%"></span></div>'
-
-
 def hero(readiness, verdict, tagline, chips_html, ribbon_html="", sparse=False) -> str:
-    if sparse:
-        note = ('<div class="empty-note"><span class="ico">⚡</span> Not enough data yet — '
-                'sync more history to unlock today\'s readiness call.</div>')
-        return f"""{note}
-        <div class="card hero hero-numeric" style="--ring-color:var(--text-dim)">
-          <div class="num-block">
-            <div class="kicker">Readiness</div>
-            <div class="bignum no-score"><span class="score">—</span><span class="den">awaiting data</span></div>
-            {_num_fill(0)}
-          </div>
-          <div class="verdict"><div class="vbig">{html.escape(verdict)}</div>
-            <div class="vsub">{html.escape(tagline)}</div>
-            <div class="chips">{chips_html}</div></div>
-        </div>"""
-    z_key, color = zone(readiness)
+    """Centered readiness verdict (Vercel hero). The numeral lives in the
+    separate readiness ring; here the verdict word carries the call."""
+    _z, color = zone(readiness)
+    return _collapse_html(f"""{ribbon_html}
+    <div class="hero-c" style="--ring-color:{color}">
+      <div class="hero-kicker"><span class="hk-dot"></span>Readiness verdict</div>
+      <h1 class="hero-verdict">{html.escape(verdict)}</h1>
+      <p class="hero-tagline">{html.escape(tagline)}</p>
+      <div class="hero-chips">{chips_html}</div>
+    </div>""")
+
+
+def readiness_ring(readiness, delta_text: str | None = None) -> str:
+    """Vercel readiness ring card: SVG arc + centered numeral. None → dash."""
+    _z, color = zone(readiness)
     score = "—" if readiness is None else str(int(round(readiness)))
-    den = "/ 100" if readiness is not None else "no score"
-    empty_cls = " hero-empty" if readiness is None else ""
-    return f"""{ribbon_html}
-    <div class="card hero hero-numeric{empty_cls}" style="--ring-color:{color}">
-      <div class="num-block">
-        <div class="kicker">Readiness</div>
-        <div class="bignum"><span class="score tnum">{score}</span><span class="den">{den}</span></div>
-        {_num_fill((readiness or 0)/100)}
+    no_score = " no-score" if readiness is None else ""
+    pct = 0.0 if readiness is None else max(0.0, min(100.0, float(readiness))) / 100.0
+    circ = 2 * np.pi * 84
+    dash = pct * circ
+    delta_html = (f'<span class="ring-delta">{html.escape(delta_text)}</span>'
+                  if delta_text else "")
+    return _collapse_html(f"""<div class="card ring-card">
+      <div class="ring-wrap">
+        <svg viewBox="0 0 200 200" class="ring-svg" width="200" height="200">
+          <circle cx="100" cy="100" r="84" class="ring-track"></circle>
+          <circle cx="100" cy="100" r="84" class="ring-arc"
+            style="stroke:{color};stroke-dasharray:{dash:.1f} {circ:.1f};filter:drop-shadow(0 0 8px {color});"></circle>
+        </svg>
+        <div class="ring-center">
+          <span class="ring-label">Readiness</span>
+          <span class="ring-score{no_score}">{score}</span>
+          {delta_html}
+        </div>
       </div>
-      <div class="verdict"><div class="vbig">{html.escape(verdict)}</div>
-        <div class="vsub">{html.escape(tagline)}</div>
-        <div class="chips">{chips_html}</div></div>
-    </div>"""
+    </div>""")
 
 
 def _chip(k, arrow, word, cls):
@@ -821,14 +833,17 @@ def _sparkline(values, color) -> str:
 
 def _tile(label, value, unit, spark, delta) -> str:
     unit_html = f"<u>{unit}</u>" if unit else ""
-    return f"""<div class="card tile"><div class="tl">{label}</div>
-      <div class="tv tnum">{value}{unit_html}</div>{spark}{delta}</div>"""
+    return f"""<div class="card tile">
+      <div class="tile-top"><span class="tl">{label}</span>{delta}</div>
+      <div class="tv tnum">{value}{unit_html}</div>{spark}</div>"""
 
 
-def _simple_tile(label, value, unit="") -> str:
+def _simple_tile(label, value, unit="", sub="") -> str:
     unit_html = f"<u>{unit}</u>" if unit else ""
-    return f"""<div class="card tile"><div class="tl">{label}</div>
-      <div class="tv tnum">{value}{unit_html}</div></div>"""
+    sub_html = f'<div class="tile-sub">{sub}</div>' if sub else '<div class="spark-empty"></div>'
+    return f"""<div class="card tile">
+      <div class="tile-top"><span class="tl">{label}</span></div>
+      <div class="tv tnum">{value}{unit_html}</div>{sub_html}</div>"""
 
 
 def _delta(today, base, direction, fmt, unit=""):
@@ -850,7 +865,7 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
         cfg = [("HRV", "ms"), ("Resting HR", "bpm"), ("Sleep", "h"), ("ACWR", ""), ("Daily Stress", ""), ("Sleep Score", "")]
         cells = [_tile(l, '<span class="dash">—</span>', u, '<div class="spark-empty"></div>',
                        '<span class="delta flat"><span class="lbl">—</span></span>') for l, u in cfg]
-        return f'<div class="tiles">{"".join(cells)}</div>'
+        return _collapse_html(f'<div class="tiles">{"".join(cells)}</div>')
 
     def g(k):
         v = today.get(k)
@@ -878,10 +893,10 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
               _sparkline(sparks.get("hrv", []), ACCENT),
               _delta(hrv, base.get("hrv"), 1, r0)),
         _tile("Resting HR", "—" if rhr is None else f"{rhr:.0f}", "bpm",
-              _sparkline(sparks.get("rhr", []), SERIES2),
+              _sparkline(sparks.get("rhr", []), TEXT_FAINT),
               _delta(rhr, base.get("rhr"), -1, r0)),
         _tile("Sleep", "—" if slp is None else f"{slp:.1f}", "h",
-              _sparkline(sparks.get("sleep_h", []), SERIES2),
+              _sparkline(sparks.get("sleep_h", []), TEXT_FAINT),
               _delta(slp, base.get("sleep_h"), 1, r1, "h")),
         _tile("ACWR", "—" if acwr is None else f"{acwr:.2f}", "",
               _sparkline(sparks.get("acwr", []), acwr_color), acwr_delta),
@@ -890,7 +905,7 @@ def tiles(today: dict, sparks: dict, base: dict, sparse: bool) -> str:
               _delta(stress, base.get("stress"), -1, r0)),
         _simple_tile("Sleep Score", "—" if sleep_score is None else f"{sleep_score:.0f}"),
     ]
-    return f'<div class="tiles">{"".join(cells)}</div>'
+    return _collapse_html(f'<div class="tiles">{"".join(cells)}</div>')
 
 
 # ── horizontal day rail ──────────────────────────────────────────────────────
@@ -1088,7 +1103,7 @@ def _md_sections(md: str) -> str:
 
 
 def coach_card(date_str, result, summary, sparse=False) -> str:
-    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
+    head = (f'<div class="coach-head">{COACH_AVATAR}'
             f'<div><h3>AI coach readout</h3><div class="meta">{html.escape(date_str)}</div></div></div>')
     if sparse:
         body = ('<div class="empty-note" style="margin:0"><span class="ico">⚡</span> '
@@ -1133,11 +1148,11 @@ def bedtime_card(model: dict) -> str:
         for r in (model.get("reasons") or [])
     )
 
-    head = ('<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
+    head = ('<div class="chart-title" style="font-family:\'Geist\',Georgia,serif;'
             f'font-weight:400;font-size:21px;margin:2px 0 6px">Recommended bedtime '
-            f'<em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
+            f'<em style="font-style:normal;font-family:\'Geist Mono\',monospace;'
             f'color:{TEXT_FAINT};font-size:10px;letter-spacing:.04em">tonight</em></div>')
-    big = (f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:34px;'
+    big = (f'<div style="font-family:\'Geist Mono\',monospace;font-size:34px;'
            f'font-weight:600;letter-spacing:.01em;color:{GOOD};line-height:1.1">{window}</div>')
     sub_html = (f'<div style="font-size:13px;color:{TEXT_DIM};margin-top:2px">{sub_txt}</div>'
                 if sub_txt else '')
@@ -1432,7 +1447,7 @@ def coach_memory_peek(digest: dict) -> str:
 
 
 def question_card(question: str | None, result: str | None, payload: dict | None = None) -> str:
-    head = (f'<div class="coach-head"><span class="glyph">{_SPARK}</span>'
+    head = (f'<div class="coach-head">{COACH_AVATAR}'
             f'<div><h3>Ask about your health</h3><div class="meta">metrics-grounded answer</div></div></div>')
     if result:
         q = html.escape(question or "")
@@ -1695,7 +1710,7 @@ def predictive_readiness_card(model: dict) -> str:
             f"<div style='font-weight:700;color:{TEXT};line-height:1.25'>{html.escape(str(s.get('label') or 'Scenario'))}</div>"
             f"<div style='font-size:12.5px;color:{TEXT_FAINT};line-height:1.35;margin-top:3px'>{html.escape(str(s.get('note') or ''))}</div>"
             "</div>"
-            f"<div style='text-align:right;color:{tone};font-family:JetBrains Mono,monospace'>"
+            f"<div style='text-align:right;color:{tone};font-family:Geist Mono,monospace'>"
             f"<div style='font-size:22px;font-weight:700'>{_fmt(s.get('predicted_hrv'), ' ms')}</div>"
             f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:.12em'>{html.escape(zone)}</div>"
             "</div></div>"
@@ -1718,8 +1733,8 @@ def predictive_readiness_card(model: dict) -> str:
         f"<div class='card' style='padding:20px 22px;margin-bottom:12px'>"
         f"<div style='display:flex;justify-content:space-between;gap:16px;align-items:start'>"
         f"<div><div class='kicker'>Predictive Readiness</div>"
-        f"<div style='font-family:Spectral,Georgia,serif;font-size:26px;line-height:1.1;color:{TEXT};margin-top:5px'>HRV-safe training load</div></div>"
-        f"<div style='font-family:JetBrains Mono,monospace;color:{TEXT_FAINT};font-size:10px;text-transform:uppercase;letter-spacing:.14em;text-align:right'>{status}<br>{target}</div>"
+        f"<div style='font-family:Geist,Georgia,serif;font-size:26px;line-height:1.1;color:{TEXT};margin-top:5px'>HRV-safe training load</div></div>"
+        f"<div style='font-family:Geist Mono,monospace;color:{TEXT_FAINT};font-size:10px;text-transform:uppercase;letter-spacing:.14em;text-align:right'>{status}<br>{target}</div>"
         f"</div>"
         f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 10px'>"
         f"<div style='border-top:1px solid {GRID};padding-top:8px'><div class='kicker'>Estimated safe load</div><b style='color:{TEXT};font-size:22px'>{safe_load}</b></div>"
@@ -2006,10 +2021,10 @@ def activities_table(acts: pd.DataFrame, sparse=False, limit: int = 12) -> str:
 #  TREND CHARTS  (dark Plotly per the bundle's port notes)
 # ════════════════════════════════════════════════════════════════════════════
 def _dark(fig: go.Figure, height: int, legend=True) -> go.Figure:
-    mono = "JetBrains Mono, monospace"
+    mono = "Geist Mono, monospace"
     fig.update_layout(
         height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Archivo, sans-serif", color=TEXT_FAINT, size=11),
+        font=dict(family="Geist, sans-serif", color=TEXT_FAINT, size=11),
         margin=dict(t=34, b=24, l=44, r=16), hovermode="x unified",
         showlegend=legend,
         legend=dict(orientation="h", y=1.18, x=0, font=dict(family=mono, color=TEXT_DIM, size=10.5),
@@ -2597,7 +2612,7 @@ def strength_readiness_badge(snapshot: dict) -> str:
     return (
         f"<div style='display:flex;gap:14px;align-items:center;"
         f"background:{SURFACE};border-radius:10px;padding:8px 14px;"
-        f"font-family:JetBrains Mono,monospace;color:{TEXT_DIM};font-size:12px'>"
+        f"font-family:Geist Mono,monospace;color:{TEXT_DIM};font-size:12px'>"
         f"<span style='color:{ACCENT};font-size:18px;font-weight:600'>{score}</span>"
         f"<span>{level}</span><span>HRV {hrv}</span><span>RHR {rhr}</span>"
         f"<span>BB {bb}</span></div>"
@@ -2635,7 +2650,7 @@ def strength_session_card(session: dict, summary: dict) -> str:
         metrics.append(f"Load <b style='color:{TEXT}'>{load}</b>")
     return (
         f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
-        f"color:{TEXT};font-family:Archivo,sans-serif'>"
+        f"color:{TEXT};font-family:Geist,sans-serif'>"
         f"<div style='font-size:18px;font-weight:600'>{name}"
         f"<span style='color:{TEXT_DIM};font-weight:400;font-size:13px'> · {day}</span></div>"
         f"<div style='color:{TEXT_DIM};font-size:13px;margin-top:6px'>"
@@ -2677,17 +2692,17 @@ def strength_standards_panel(standards: dict) -> str:
     status = standards.get("status")
     if status == "need_profile":
         miss = ", ".join(standards.get("missing", [])) or "profile data"
-        return (f"<div style='color:{TEXT_DIM};font-family:Archivo,sans-serif;"
+        return (f"<div style='color:{TEXT_DIM};font-family:Geist,sans-serif;"
                 f"font-size:14px'>Set your {html.escape(miss)} to grade your lifts "
                 f"against population standards.</div>")
     if status != "ok" or not standards.get("lifts"):
-        return (f"<div style='color:{TEXT_DIM};font-family:Archivo,sans-serif;"
+        return (f"<div style='color:{TEXT_DIM};font-family:Geist,sans-serif;"
                 f"font-size:14px'>Log the main lifts (squat, bench, deadlift, OHP, row) "
                 f"to see strength standards.</div>")
     ov = standards.get("overall") or {}
     rows = [
         f"<div style='background:{SURFACE};border-radius:12px;padding:14px 18px;"
-        f"color:{TEXT};font-family:Archivo,sans-serif;margin-bottom:10px'>"
+        f"color:{TEXT};font-family:Geist,sans-serif;margin-bottom:10px'>"
         f"<span style='color:{TEXT_DIM};font-size:13px'>Overall</span> "
         f"<b style='color:{ACCENT};font-size:18px'>{_fmt(ov.get('level'))}</b> "
         f"<span style='color:{TEXT_DIM}'>(~{_fmt(ov.get('percentile'))} pct)</span>"
@@ -2697,7 +2712,7 @@ def strength_standards_panel(standards: dict) -> str:
     for l in standards["lifts"]:
         pct = l.get("percentile") or 0
         rows.append(
-            f"<div style='margin:6px 0;font-family:Archivo,sans-serif;color:{TEXT}'>"
+            f"<div style='margin:6px 0;font-family:Geist,sans-serif;color:{TEXT}'>"
             f"<div style='display:flex;justify-content:space-between;font-size:14px'>"
             f"<span>{html.escape(str(l['name']))}</span>"
             f"<span style='color:{SERIES2}'>{_fmt(l['level'])} · {_fmt(l.get('est_1rm_kg'),' kg')}</span></div>"
@@ -2713,7 +2728,7 @@ def strength_balance_panel(balance: dict) -> str:
     ratios = balance.get("ratios", [])
     lr = balance.get("left_right", [])
     if not ratios and not lr:
-        return (f"<div style='color:{TEXT_DIM};font-family:Archivo,sans-serif;"
+        return (f"<div style='color:{TEXT_DIM};font-family:Geist,sans-serif;"
                 f"font-size:14px'>Log more of the main lifts (and unilateral lifts per "
                 f"side) to see balance.</div>")
     chip = {"ok": SERIES2, "under": ACCENT, "over": AMBER}
@@ -2722,7 +2737,7 @@ def strength_balance_panel(balance: dict) -> str:
         color = chip.get(r["status"], TEXT_DIM)
         note = "" if r["status"] == "ok" else f" — weak: {html.escape(str(r.get('weak_side') or ''))}"
         out.append(
-            f"<div style='margin:6px 0;font-family:Archivo,sans-serif;color:{TEXT};font-size:14px'>"
+            f"<div style='margin:6px 0;font-family:Geist,sans-serif;color:{TEXT};font-size:14px'>"
             f"<span>{html.escape(r['label'])}</span> "
             f"<b style='color:{color}'>{_fmt(r['ratio'])}</b> "
             f"<span style='color:{TEXT_DIM};font-size:12px'>(target {r['low']}–{r['high']})</span>"
@@ -2732,7 +2747,7 @@ def strength_balance_panel(balance: dict) -> str:
         for e in lr:
             color = ACCENT if e.get("flagged") else SERIES2
             out.append(
-                f"<div style='margin:4px 0;font-family:Archivo,sans-serif;color:{TEXT};font-size:14px'>"
+                f"<div style='margin:4px 0;font-family:Geist,sans-serif;color:{TEXT};font-size:14px'>"
                 f"{html.escape(str(e['name']))}: L {_fmt(e.get('left_1rm_kg'))} / R {_fmt(e.get('right_1rm_kg'))} "
                 f"<b style='color:{color}'>Δ{_fmt(e.get('diff_pct'))}%</b>"
                 f"{' ⚠' if e.get('flagged') else ''}</div>")

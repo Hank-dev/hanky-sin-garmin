@@ -96,9 +96,9 @@ def _week_label(start: str, end: str) -> str:
 def chart_card(title, unit, fig):
     with st.container(border=True):
         st.markdown(
-            f'<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
+            f'<div class="chart-title" style="font-family:\'Geist\',Georgia,serif;'
             f'font-weight:400;font-size:21px;margin:2px 0 -4px">'
-            f'{title} <em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
+            f'{title} <em style="font-style:normal;font-family:\'Geist Mono\',monospace;'
             f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">{unit}</em></div>',
             unsafe_allow_html=True,
         )
@@ -121,9 +121,9 @@ def sleep_prediction_panel(model: dict):
     target = model.get("target_date") or "tonight"
     with st.container(border=True):
         st.markdown(
-            f'<div class="chart-title" style="font-family:\'Spectral\',Georgia,serif;'
+            f'<div class="chart-title" style="font-family:\'Geist\',Georgia,serif;'
             f'font-weight:400;font-size:21px;margin:2px 0 6px">Tonight sleep score '
-            f'<em style="font-style:normal;font-family:\'JetBrains Mono\',monospace;'
+            f'<em style="font-style:normal;font-family:\'Geist Mono\',monospace;'
             f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">'
             f'{status} / {confidence}</em></div>',
             unsafe_allow_html=True,
@@ -420,7 +420,7 @@ win = st.session_state.get("sleep_win", 30) or 30
 head_l, head_win = st.columns([8, 1.2], vertical_alignment="center")
 with head_l:
     st.markdown(
-        f"<div style=\"font-family:'Spectral',Georgia,serif;font-size:34px;line-height:1.05;\">Sleep</div>"
+        f"<div style=\"font-family:'Geist',Georgia,serif;font-size:34px;line-height:1.05;\">Sleep</div>"
         f"<div style=\"color:{cockpit.TEXT_FAINT};font-size:13px;margin-top:4px\">{date_str}</div>",
         unsafe_allow_html=True,
     )

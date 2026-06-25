@@ -29,7 +29,7 @@ st.markdown("""
 .strength-overview{display:grid;gap:14px;container-type:inline-size;}
 .strength-hero{
   border:1px solid var(--border);border-top-color:var(--brass);border-radius:8px;
-  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0F0D11);
+  background:linear-gradient(180deg,var(--surface-2),var(--surface) 64%,#0a0a0a);
   width:100%;box-sizing:border-box;overflow:hidden;
   padding:18px 20px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
   gap:18px;align-items:stretch;
@@ -314,7 +314,7 @@ def strength_trend_chart(rows: list[dict]) -> go.Figure:
         margin=dict(l=44, r=44, t=44, b=34),
         paper_bgcolor=cockpit.BG,
         plot_bgcolor=cockpit.BG,
-        font=dict(family="Archivo, sans-serif", color=cockpit.TEXT),
+        font=dict(family="Geist, sans-serif", color=cockpit.TEXT),
         showlegend=True,
         legend=dict(
             orientation="h", yanchor="bottom", y=1.04, xanchor="center", x=0.5,
@@ -376,7 +376,7 @@ def weekly_strength_load_chart(rows, metric: str = "total_volume_kg") -> go.Figu
         margin=dict(l=42, r=20, t=18, b=36),
         paper_bgcolor=cockpit.BG,
         plot_bgcolor=cockpit.BG,
-        font=dict(family="Archivo, sans-serif", color=cockpit.TEXT),
+        font=dict(family="Geist, sans-serif", color=cockpit.TEXT),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         xaxis=dict(gridcolor="rgba(255,255,255,.04)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
         yaxis=dict(title=ytitle, gridcolor="rgba(255,255,255,.06)", tickfont=dict(color=cockpit.TEXT_FAINT, size=10)),
@@ -408,18 +408,20 @@ def render_strength_overview(overview: dict, strength_summary: dict):
     ]
 
     st.markdown(
-        f"""
-        <div class='strength-overview'>
-          <div class='strength-hero'>
-            <div>
-              <div class='meta'>Latest completed session</div>
-              <h2>{name}</h2>
-              <div class='sub'>{date_txt} · {html.escape(duration)} · {len(exercises)} exercises tracked</div>
+        cockpit._collapse_html(
+            f"""
+            <div class='strength-overview'>
+              <div class='strength-hero'>
+                <div>
+                  <div class='meta'>Latest completed session</div>
+                  <h2>{name}</h2>
+                  <div class='sub'>{date_txt} · {html.escape(duration)} · {len(exercises)} exercises tracked</div>
+                </div>
+                <div class='strength-kpi-grid'>{''.join(kpis)}</div>
+              </div>
             </div>
-            <div class='strength-kpi-grid'>{''.join(kpis)}</div>
-          </div>
-        </div>
-        """,
+            """
+        ),
         unsafe_allow_html=True,
     )
 

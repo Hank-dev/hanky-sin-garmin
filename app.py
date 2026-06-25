@@ -24,12 +24,11 @@ st.markdown(cockpit.CSS, unsafe_allow_html=True)
 # mark only shows in the sidebar.
 _BRAND = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 184 40" fill="none">'
-    '<rect x="11" y="11" width="18" height="18" rx="4.5" transform="rotate(45 20 20)" '
-    'stroke="#80CBC4" stroke-width="2.5"/>'
-    '<text x="44" y="19" font-family="Archivo,\'Arial Narrow\',Helvetica,Arial,sans-serif" '
-    'font-size="16" font-weight="700" letter-spacing="0.6" fill="#E6E1E5">HANKØ</text>'
-    '<text x="45" y="32" font-family="\'JetBrains Mono\',ui-monospace,monospace" '
-    'font-size="6.5" font-weight="500" letter-spacing="2.4" fill="#938F99">FITNESS HUB</text>'
+    '<path d="M20 6L33 28H7L20 6Z" fill="#ededed"/>'
+    '<text x="44" y="19" font-family="Geist,system-ui,Helvetica,Arial,sans-serif" '
+    'font-size="16" font-weight="700" letter-spacing="0.4" fill="#ededed">HANKØ</text>'
+    '<text x="45" y="32" font-family="\'Geist Mono\',ui-monospace,monospace" '
+    'font-size="6.5" font-weight="500" letter-spacing="2.4" fill="#8f8f8f">FITNESS HUB</text>'
     '</svg>'
 )
 st.logo(_BRAND, size="large")

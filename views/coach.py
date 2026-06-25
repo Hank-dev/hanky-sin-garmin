@@ -38,6 +38,11 @@ st.markdown(
       color:var(--text);font-weight:400;}
     .coach-page-sub{color:var(--text-dim);font-size:14px;line-height:1.45;margin-top:8px;
       max-width:72ch;}
+    .coach-chat-titlebar{display:flex;align-items:center;gap:14px;min-width:0;}
+    .coach-chat-face{width:52px;height:52px;border-radius:50%;flex:0 0 auto;overflow:hidden;
+      border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+      box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 9%,transparent);}
+    .coach-chat-face img{width:100%;height:100%;object-fit:cover;display:block;}
     .coach-chat-title{display:grid;gap:4px;min-width:0;}
     .coach-chat-title .kicker{font-family:var(--font-mono);font-size:10px;font-weight:500;
       letter-spacing:.16em;text-transform:uppercase;color:var(--text-faint);}
@@ -61,7 +66,7 @@ st.markdown(
 
     .st-key-coach_chat_shell [data-testid="stVerticalBlockBorderWrapper"]{
       padding:0!important;overflow:hidden!important;border-color:var(--border)!important;
-      background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0F0D11)!important;}
+      background:linear-gradient(180deg,var(--surface-2),var(--surface) 70%,#0a0a0a)!important;}
     .st-key-coach_chat_shell [data-testid="stVerticalBlock"]{gap:0!important;}
     .st-key-coach_chat_header{padding:18px 20px 14px;border-bottom:1px solid var(--hairline);}
     .st-key-coach_chat_header [data-testid="stHorizontalBlock"]{
@@ -477,12 +482,18 @@ def render_chat_tab(context: dict, memory_digest: dict, memory_count: int):
             with header[0]:
                 day = html.escape(context.get("latest_day") or "no synced day")
                 meta = f"{day} - {memory_count} active memor{'y' if memory_count == 1 else 'ies'}"
+                _face = (
+                    f'<span class="coach-chat-face"><img src="{cockpit._COACH_AVATAR_URI}" alt="coach"/></span>'
+                    if cockpit._COACH_AVATAR_URI else ""
+                )
                 st.markdown(
+                    '<div class="coach-chat-titlebar">'
+                    f'{_face}'
                     '<div class="coach-chat-title">'
                     '<div class="kicker">Coach</div>'
                     '<div class="name">Chat with your health context</div>'
                     f'<div class="meta">{html.escape(meta)}</div>'
-                    '</div>',
+                    '</div></div>',
                     unsafe_allow_html=True,
                 )
             with header[1]:
@@ -524,8 +535,10 @@ def render_chat_tab(context: dict, memory_digest: dict, memory_count: int):
         with st.container(key="coach_messages"):
             if not have_key:
                 st.caption("Set `ANTHROPIC_API_KEY` in .env to enable coach chat.")
+            _coach_av = cockpit._COACH_AVATAR_URI or None
             for msg in st.session_state.coach_chat:
-                with st.chat_message(msg["role"]):
+                _av = _coach_av if msg["role"] == "assistant" else None
+                with st.chat_message(msg["role"], avatar=_av):
                     st.markdown(msg["content"])
 
     typed_prompt = st.chat_input(

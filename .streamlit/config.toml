@@ -1,11 +1,11 @@
-# "Graphite Voltage" base theme. Fine-grained styling lives in cockpit.CSS, but
-# setting the base here avoids a white flash and themes Streamlit's own chrome
-# (sidebar, sliders, segmented controls, focus rings) with the volt-lime accent.
+# "Vercel" base theme. Fine-grained styling lives in cockpit.CSS, but setting the
+# base here avoids a white flash and themes Streamlit's own chrome (sidebar,
+# sliders, segmented controls, focus rings) with the blue accent.
 # Mirrors cockpit.py ACCENT / BG / SURFACE / TEXT.
 [theme]
 base = "dark"
-primaryColor = "#C6F23B"
-backgroundColor = "#121316"
-secondaryBackgroundColor = "#1C1F24"
-textColor = "#E8ECEF"
+primaryColor = "#0070f3"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#0a0a0a"
+textColor = "#ededed"
 font = "sans serif"
