@@ -102,7 +102,7 @@ def chart_card(title, unit, fig):
             f'color:{cockpit.TEXT_FAINT};font-size:10px;letter-spacing:.04em">{unit}</em></div>',
             unsafe_allow_html=True,
         )
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "scrollZoom": False})
 
 
 def metric_panel(label: str, value: str, sub: str = ""):

@@ -72,6 +72,18 @@ CREATE TABLE IF NOT EXISTS daily_checkins (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS daily_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    value REAL,
+    text TEXT,
+    severity INTEGER,
+    metadata TEXT,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS weekly_summaries (
     week_start TEXT PRIMARY KEY,
     generated_at TEXT,
@@ -223,6 +235,10 @@ ACTIVITY_COLS = [
 ]
 
 CHECKIN_COLS = ["date", "pain", "fatigue", "energy", "note"]
+DAILY_EVENT_COLS = [
+    "id", "date", "event_type", "value", "text", "severity", "metadata",
+    "source", "created_at",
+]
 
 WEEKLY_SUMMARY_COLS = ["week_start", "generated_at", "model", "summary_md"]
 
@@ -532,6 +548,115 @@ def load_checkins_df():
     return df
 
 
+def add_daily_event(record: dict) -> int:
+    """Insert one timestamped lifestyle/context event and return its id."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fields = {
+        "date": record["date"],
+        "event_type": record["event_type"],
+        "value": record.get("value"),
+        "text": record.get("text"),
+        "severity": record.get("severity"),
+        "metadata": json.dumps(record.get("metadata") or {}),
+        "source": record.get("source", "user"),
+        "created_at": record.get("created_at", now),
+    }
+    cols = list(fields)
+    with connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO daily_events ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' for _ in cols)})",
+            [fields[c] for c in cols],
+        )
+        return int(cur.lastrowid or 0)
+
+
+def load_daily_events_df(start: str | None = None, end: str | None = None):
+    """Load lifestyle/context events ordered by date/id. Dates are YYYY-MM-DD."""
+    import pandas as pd
+    where = []
+    params = []
+    if start:
+        where.append("date >= ?")
+        params.append(start)
+    if end:
+        where.append("date <= ?")
+        params.append(end)
+    clause = " WHERE " + " AND ".join(where) if where else ""
+    with connect() as conn:
+        df = pd.read_sql_query(
+            "SELECT * FROM daily_events" + clause + " ORDER BY date, id",
+            conn,
+            params=params,
+            parse_dates=["date"],
+        )
+    if not df.empty:
+        df["metadata"] = df["metadata"].apply(
+            lambda s: json.loads(s) if isinstance(s, str) and s else {}
+        )
+    return df
+
+
+def delete_daily_event(event_id: int) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM daily_events WHERE id=?", (event_id,))
+        return cur.rowcount > 0
+
+
+EARLY_WAKE_COLS = [
+    "id", "date", "wake_time", "sleep_seconds", "hrv_overnight_avg",
+    "resting_hr", "hr_bedtime", "stress_prev_day", "sleep_score",
+    "body_battery_start", "note", "created_at",
+]
+
+
+def add_early_wake(record: dict) -> int:
+    """Insert an early wake event with context from daily_metrics."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fields = {
+        "date": record["date"],
+        "wake_time": record["wake_time"],
+        "sleep_seconds": record.get("sleep_seconds"),
+        "hrv_overnight_avg": record.get("hrv_overnight_avg"),
+        "resting_hr": record.get("resting_hr"),
+        "hr_bedtime": record.get("hr_bedtime"),
+        "stress_prev_day": record.get("stress_prev_day"),
+        "sleep_score": record.get("sleep_score"),
+        "body_battery_start": record.get("body_battery_start"),
+        "note": record.get("note"),
+        "created_at": record.get("created_at", now),
+    }
+    cols = [c for c in fields if fields[c] is not None]
+    with connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO early_wakes ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+            [fields[c] for c in cols],
+        )
+        return int(cur.lastrowid or 0)
+
+
+def load_early_wakes_df(start: str | None = None, end: str | None = None):
+    """Load early wake events as DataFrame."""
+    import pandas as pd
+    where = []
+    params = []
+    if start:
+        where.append("date >= ?")
+        params.append(start)
+    if end:
+        where.append("date <= ?")
+        params.append(end)
+    clause = " WHERE " + " AND ".join(where) if where else ""
+    with connect() as conn:
+        df = pd.read_sql_query(
+            "SELECT * FROM early_wakes" + clause + " ORDER BY date, id",
+            conn,
+            params=params,
+            parse_dates=["date", "created_at"],
+        )
+    return df
+
+
 def save_weekly_summary(week_start: str, model: str, summary_md: str):
     """Upsert one weekly summary keyed by ISO-week Monday. Overwrites on
     conflict so the Regenerate button replaces the cached text."""
@@ -630,7 +755,7 @@ def add_memory(record: dict) -> int:
             f"VALUES ({', '.join('?' for _ in cols)})",
             [fields[c] for c in cols],
         )
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
 
 def update_memory(memory_id: int, fields: dict):
@@ -692,7 +817,7 @@ def add_experiment(record: dict) -> int:
             f"VALUES ({', '.join('?' for _ in cols)})",
             [fields[c] for c in cols],
         )
-        return int(cur.lastrowid)
+        return int(cur.lastrowid or 0)
 
 
 def update_experiment(experiment_id: int, fields: dict):

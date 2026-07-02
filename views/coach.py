@@ -12,6 +12,7 @@ import db
 import analysis
 import ai
 import cockpit
+import fitness_agent
 
 config = importlib.reload(config)
 db = importlib.reload(db)
@@ -806,6 +807,95 @@ def render_memory_tab(memory: pd.DataFrame, context: dict, memory_digest: dict):
     render_memory_suggestions(memory, context, memory_digest)
 
 
+def render_session_tab():
+    st.markdown(cockpit.section_label("Session generator"), unsafe_allow_html=True)
+    st.caption("Deterministic workout suggestions from readiness, capacity, recent strength work, injury memory, and lifestyle context.")
+
+    options = ["best", "upper", "push", "pull", "lower", "rehab", "bjj", "conditioning"]
+    goal = st.segmented_control(
+        "Goal",
+        options,
+        default="best",
+        key="coach_session_goal",
+    ) or "best"
+    if st.button("Generate session", key="coach_generate_session", width="stretch"):
+        with st.spinner("Reading readiness and strength context..."):
+            st.session_state["coach_generated_session"] = fitness_agent.format_session(
+                fitness_agent.build_context(),
+                goal,
+            )
+    generated = st.session_state.get("coach_generated_session")
+    if generated:
+        st.markdown(generated)
+    else:
+        st.caption("Equivalent Telegram command: `/fitness session upper` or `/fitness session bjj`.")
+
+    st.divider()
+    st.markdown(cockpit.section_label("Response and recovery learning"), unsafe_allow_html=True)
+    cols = st.columns(2)
+    with cols[0]:
+        if st.button("Analyze last response", key="coach_session_response", width="stretch"):
+            with st.spinner("Comparing next-morning metrics to baseline..."):
+                st.session_state["coach_session_response_text"] = fitness_agent.handle_response("")
+    with cols[1]:
+        if st.button("Learn recovery speed", key="coach_recovery_speed", width="stretch"):
+            with st.spinner("Estimating personal recovery speed..."):
+                st.session_state["coach_recovery_speed_text"] = fitness_agent.handle_recovery("")
+    if st.session_state.get("coach_session_response_text"):
+        st.markdown(st.session_state["coach_session_response_text"])
+    if st.session_state.get("coach_recovery_speed_text"):
+        st.markdown(st.session_state["coach_recovery_speed_text"])
+
+
+
+def render_context_tab():
+    st.markdown(cockpit.section_label("Lifestyle context"), unsafe_allow_html=True)
+    st.caption("Timestamped notes for things Garmin cannot know: late dinner, alcohol, travel, hotel sleep, illness, stress, caffeine, supplements, sauna, breathwork.")
+
+    with st.form("add_lifestyle_event", clear_on_submit=True):
+        cols = st.columns([0.28, 1])
+        with cols[0]:
+            event_date = st.date_input("Date", value=_local_now().date())
+        with cols[1]:
+            event_text = st.text_input(
+                "Note",
+                placeholder="late dinner 22:30, alcohol 2 beers, travel flight Oslo, caffeine 17:00",
+            )
+        if st.form_submit_button("Save context note", width="stretch"):
+            clean = event_text.strip()
+            if not clean:
+                st.warning("Write a note first.")
+            else:
+                rec = fitness_agent.parse_lifestyle_event(clean)
+                rec["date"] = event_date.isoformat()
+                rec["source"] = "app"
+                db.add_daily_event(rec)
+                st.rerun()
+
+    start = (_local_now().date() - pd.Timedelta(days=13)).isoformat()
+    events = db.load_daily_events_df(start=start)
+    if events.empty:
+        st.caption("No lifestyle context notes yet.")
+        return
+
+    st.markdown(cockpit.section_label("Recent notes"), unsafe_allow_html=True)
+    for _, r in events.sort_values(["date", "id"], ascending=[False, False]).head(30).iterrows():
+        event_id = int(r["id"])
+        with st.container(border=True):
+            cols = st.columns([1, 0.16], vertical_alignment="center")
+            with cols[0]:
+                st.markdown(
+                    f"**{html.escape(fitness_agent._fmt_event_type(r.get('event_type')))}** · "
+                    f"{str(r.get('date'))[:10]}  \n"
+                    f"{html.escape(_clean_text(r.get('text')))}",
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                if st.button("Delete", key=f"delete_event_{event_id}", width="stretch"):
+                    db.delete_daily_event(event_id)
+                    st.rerun()
+
+
 context = load_coach_context(config.LOCAL_TIMEZONE)
 memory = db.load_memory_df()
 memory_digest = analysis.build_coach_memory_digest(memory)
@@ -820,10 +910,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-chat_tab, memory_tab = st.tabs(["Chat", "Memories"])
+chat_tab, session_tab, context_tab, memory_tab = st.tabs(["Chat", "Session", "Context", "Memories"])
 
 with chat_tab:
     render_chat_tab(context, memory_digest, len(memory))
+
+with session_tab:
+    render_session_tab()
+
+with context_tab:
+    render_context_tab()
 
 with memory_tab:
     render_memory_tab(memory, context, memory_digest)
