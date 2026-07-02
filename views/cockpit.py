@@ -17,12 +17,14 @@ import ai
 import config
 import cockpit
 import ingest
+import fitness_agent
 
 config = importlib.reload(config)
 db = importlib.reload(db)
 analysis = importlib.reload(analysis)
 ai = importlib.reload(ai)
 cockpit = importlib.reload(cockpit)
+fitness_agent = importlib.reload(fitness_agent)
 
 
 @st.cache_data(ttl=300)
@@ -218,6 +220,15 @@ selected_day = query_day(default_day, valid_days)
 
 
 # ── hero ─────────────────────────────────────────────────────────────────────
+# Compute custom readiness when Garmin's training_readiness_score is absent.
+garmin_readiness = val(latest, "training_readiness_score") if not sparse else None
+custom_readiness = None
+if not sparse and garmin_readiness is None:
+    try:
+        custom_readiness = fitness_agent.compute_custom_readiness(daily, acts)
+    except Exception:
+        custom_readiness = None
+
 if sparse:
     chips_html = cockpit.chips(None, None, None, None)
     st.markdown(
@@ -227,8 +238,28 @@ if sparse:
                      chips_html, sparse=True),
         unsafe_allow_html=True)
 else:
-    readiness = val(latest, "training_readiness_score")
-    verdict, tagline = verdict_for(readiness, suppressed, rhr_elevated)
+    if garmin_readiness is not None:
+        readiness = garmin_readiness
+        verdict, tagline = verdict_for(readiness, suppressed, rhr_elevated)
+    elif custom_readiness is not None and custom_readiness.get("score") is not None:
+        readiness = custom_readiness["score"]
+        label_map = {
+            "PRIMED": ("TRAIN HARD", "The body looks primed to absorb a quality session."),
+            "READY": ("TRAIN MODERATE", "Solid recovery — a steady session fits."),
+            "MODERATE": ("TRAIN EASY", "Partial recovery — keep it controlled, no max efforts."),
+            "LOW": ("REST", "Recovery is lagging — prioritise rest and sleep."),
+            "CRITICAL": ("REST", "System is depleted — full rest day."),
+        }
+        verdict, tagline = label_map.get(
+            custom_readiness["label"],
+            ("TRAIN TO FEEL", "Recovery state unclear — train to feel."),
+        )
+        if custom_readiness.get("drivers"):
+            tagline += " · " + "; ".join(custom_readiness["drivers"][:2])
+    else:
+        readiness = None
+        verdict, tagline = verdict_for(None, suppressed, rhr_elevated)
+
     chips_html = cockpit.chips(
         val(latest, "hrv_flag"), val(latest, "resting_hr"),
         val(latest, "rhr_28d"), val(latest, "sleep_hours"))
@@ -311,20 +342,100 @@ def render_weekly_summary():
         st.markdown(cockpit.weekly_summary_content(summary_md), unsafe_allow_html=True)
 
 
+def render_recovery_learner_card():
+    """Always-visible recovery state using the deterministic response/recovery learner."""
+    if daily.empty:
+        return
+    try:
+        events = db.load_daily_events_df(start=fitness_agent._iso_days_ago(120))
+        response = fitness_agent.compute_session_response(
+            daily,
+            acts,
+            db.load_strength_sessions_df(),
+            events,
+        )
+        speed = fitness_agent.compute_recovery_speed_model(
+            daily,
+            acts,
+            db.load_strength_sessions_df(),
+            events,
+        )
+    except Exception as e:
+        st.caption(f"Recovery learner unavailable: {e}")
+        return
+
+    verdict = str(response.get("verdict") or response.get("status") or "learning")
+    verdict_label = {
+        "good_response": "Recovered / absorbing",
+        "acceptable_load": "Partly recovered",
+        "hard_hit": "Not recovered",
+        "confounded": "Confounded",
+        "pending": "Pending next metrics",
+        "learning": "Learning",
+    }.get(verdict, verdict.replace("_", " ").title())
+    speed_label = str(speed.get("speed") or speed.get("status") or "learning").upper()
+    recovery_score = fitness_agent.compute_recovery_score(response, capacity)
+    score_value = recovery_score.get("score")
+    score_label = f"{score_value}/100" if score_value is not None else "learning"
+    avg_days = fitness_agent._fmt(speed.get("avg_days"), "d", 1)
+    response_metrics = response.get("metrics") or {}
+    hrv_delta = (response_metrics.get("hrv_overnight_avg") or {}).get("delta")
+    rhr_delta = (response_metrics.get("resting_hr") or {}).get("delta")
+    bb_delta = (response_metrics.get("body_battery_high") or {}).get("delta")
+    action = "Hold/recovery today" if verdict in {"hard_hit", "acceptable_load"} else "Normal caution"
+    if capacity.get("zone") == "red":
+        action = "Recovery / rehab only"
+
+    detail = []
+    if response.get("status") == "ready":
+        detail.append(f"last stimulus {response.get('session_date')} → {response.get('next_date')}")
+    if hrv_delta is not None or rhr_delta is not None or bb_delta is not None:
+        detail.append(
+            f"HRV {fitness_agent._fmt(hrv_delta, ' ms', 1)}, "
+            f"RHR {fitness_agent._fmt(rhr_delta, ' bpm', 1)}, "
+            f"BB {fitness_agent._fmt(bb_delta, '', 1)} vs baseline"
+        )
+    if speed.get("by_bucket"):
+        buckets = ", ".join(f"{k} {fitness_agent._fmt(v, 'd', 1)}" for k, v in speed["by_bucket"].items())
+        detail.append(f"dose recovery: {buckets}")
+    if recovery_score.get("drivers"):
+        detail.append("drivers: " + "; ".join(str(d) for d in recovery_score["drivers"][:3]))
+    if response.get("confounders"):
+        detail.append("confounded by " + ", ".join(fitness_agent._fmt_event_type(e.get("event_type")) for e in response["confounders"][:3]))
+
+    with st.container(border=True):
+        cols = st.columns([0.22, 0.30, 0.48], vertical_alignment="center")
+        cols[0].metric("Recovery", score_label, str(recovery_score.get("zone") or ""))
+        cols[1].caption(f"**{verdict_label}** · {speed_label} {avg_days if avg_days != '-' else ''}")
+        cols[2].caption(
+            f"**{action}** · HRV {fitness_agent._fmt(hrv_delta, ' ms', 1)}"
+        )
+        with st.expander("Recovery details", expanded=False):
+            st.caption(" · ".join(detail) if detail else "Learns from training days and next-morning HRV/RHR return to baseline.")
+
+
 # ── readiness ring + signal tiles ─────────────────────────────────────────────
 st.markdown(cockpit.section_label("Today's signals"), unsafe_allow_html=True)
 if sparse:
     ring_html = cockpit.readiness_ring(None)
     tiles_html = cockpit.tiles({}, {}, {}, sparse=True)
 else:
-    readiness_now = val(latest, "training_readiness_score")
+    if garmin_readiness is not None:
+        readiness_now = garmin_readiness
+        ring_label = "Readiness"
+    elif custom_readiness is not None and custom_readiness.get("score") is not None:
+        readiness_now = custom_readiness["score"]
+        ring_label = f"{custom_readiness['label']}"
+    else:
+        readiness_now = None
+        ring_label = "Readiness"
     base_readiness = base28["training_readiness_score"].mean() if "training_readiness_score" in base28 else None
     if base_readiness is not None and pd.isna(base_readiness):
         base_readiness = None
     ring_delta = None
     if readiness_now is not None and base_readiness is not None:
         ring_delta = f"{readiness_now - float(base_readiness):+.0f} vs 28D"
-    ring_html = cockpit.readiness_ring(readiness_now, ring_delta)
+    ring_html = cockpit.readiness_ring(readiness_now, ring_delta, label=ring_label)
     today = {
         "hrv": val(latest, "hrv_overnight_avg"), "rhr": val(latest, "resting_hr"),
         "sleep_h": val(latest, "sleep_hours"), "acwr": val(latest, "acwr"),
@@ -346,6 +457,8 @@ else:
     base = {k: (None if v is None or pd.isna(v) else float(v)) for k, v in base.items()}
     tiles_html = cockpit.tiles(today, sparks, base, sparse=False)
 st.markdown(f'<div class="readiness-row">{ring_html}{tiles_html}</div>', unsafe_allow_html=True)
+
+render_recovery_learner_card()
 
 render_weekly_summary()
 
@@ -505,7 +618,7 @@ def chart_card(title, unit, fig):
             f'<span style="font-family:\'Geist Mono\',monospace;color:{cockpit.TEXT_FAINT};'
             f'font-size:10px;letter-spacing:.04em">{unit}</span></div>',
             unsafe_allow_html=True)
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "scrollZoom": False})
 
 
 st.markdown('<div class="section-label">Trends</div>', unsafe_allow_html=True)
@@ -514,8 +627,8 @@ if not daily.empty:
     if selected_day and selected_day != default_day:
         st.caption(f"Daily graphs are focused on `{selected_day}`. Click the latest day card to return to today.")
 
-recovery_tab, health_tab, training_tab, experimental_tab = st.tabs(
-    ["Recovery", "Health Lab", "Training", "Experimental"]
+recovery_tab, training_tab, experimental_tab = st.tabs(
+    ["Recovery", "Training", "Experimental"]
 )
 
 with recovery_tab:
@@ -590,32 +703,6 @@ with recovery_tab:
                     st.caption(f"No stress-level graph stored for `{graph_day}`.")
             else:
                 st.caption("No stress-level graph stored yet. Click Sync once to pull Garmin's all-day stress curve.")
-with health_tab:
-    if daily.empty:
-        st.info("Sync Garmin history to build the Health Lab panels.")
-    else:
-        st.markdown(cockpit.health_research_card(health_research), unsafe_allow_html=True)
-        health_rows = pd.DataFrame(health_research.get("rows") or [])
-        if not health_rows.empty and "date" in health_rows:
-            health_rows["date"] = pd.to_datetime(health_rows["date"], errors="coerce")
-            health_view = health_rows.dropna(subset=["date"]).tail(win)
-        else:
-            health_view = pd.DataFrame()
-
-        chart_card("Primitive baseline deviations", "z-score", cockpit.chart_recovery_deviation(health_view))
-        if not health_view.empty and any(
-            col in health_view and health_view[col].notna().any()
-            for col in ("spo2_avg", "respiration_avg")
-        ):
-            chart_card("Respiratory watchlist", "SpO₂ / respiration", cockpit.chart_respiratory_watchlist(health_view))
-        else:
-            st.caption("Respiratory watchlist needs SpO₂ or respiration summaries.")
-
-        if ((health_research.get("fitness") or {}).get("activity") or {}).get("rows"):
-            chart_card("Run/walk adaptation", "pace + HR", cockpit.chart_foot_pace(health_research))
-        else:
-            st.caption("Run/walk adaptation unlocks after Garmin activities include distance and duration.")
-
 with training_tab:
     if sparse:
         st.info("Sync more history (`python sync.py --days 90`) to plot your training trends.")
@@ -642,8 +729,3 @@ acts_window = acts[pd.to_datetime(acts["date"], errors="coerce") >= pd.to_dateti
 st.markdown(
     cockpit.activities_table(acts_window, sparse=acts is None or acts.empty, limit=8),
     unsafe_allow_html=True)
-
-
-# ── stress leak map ──────────────────────────────────────────────────────────
-st.markdown(cockpit.section_label("Stress leak map"), unsafe_allow_html=True)
-st.markdown(cockpit.stress_leak_card(stress_leaks), unsafe_allow_html=True)

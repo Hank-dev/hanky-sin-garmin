@@ -26,8 +26,9 @@ from typing import Any
 
 import ai
 import analysis
-import config  # noqa: F401 - imports .env via load_dotenv()
+import config
 import db
+import fitness_agent
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -304,6 +305,9 @@ Save a timestamped injury note.
 
 /ask question
 Ask the AI coach using your local Garmin, strength, notes, and experiment context.
+
+/fitness status|plan|simulate|log|experiment|why
+Run the deterministic Hermes fitness command center.
 """
 
 
@@ -349,6 +353,12 @@ def handle_authorized_command(command: str, arg: str, chat_id: int) -> str | Non
             "source": "telegram",
         })
         return f"Saved injury #{memory_id}."
+
+    if command == "/fitness":
+        if not arg:
+            return fitness_agent.help_text()
+        send_chat_action(chat_id)
+        return fitness_agent.handle_fitness_command(arg)
 
     if command == "/ask":
         if not arg:

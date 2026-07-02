@@ -27,9 +27,17 @@ checkins = db.load_checkins_df()
 acts = db.load_activities_df()
 sleep_timing = db.load_sleep_timing_df()
 body_battery = db.load_body_battery_df()
+stress_loader = getattr(db, "load_stress_df", None)
+stress = (
+    stress_loader()
+    if stress_loader is not None
+    else pd.DataFrame(columns=["date", "timestamp", "value"])
+)
 prebed_discovery = analysis.compute_prebed_discovery(
     daily, acts, sleep_timing, body_battery=body_battery
 )
+health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
+stress_leaks = analysis.compute_stress_leak_map(daily, stress)
 
 METRIC_LABELS = {m["key"]: m["label"] for m in analysis.EXPERIMENT_METRICS}
 METRIC_KEYS = [m["key"] for m in analysis.EXPERIMENT_METRICS]
@@ -119,7 +127,42 @@ def chart_card(title, unit, fig, rel=None):
                 f'<div style="display:flex;flex-wrap:wrap;gap:5px;margin:0 0 4px">{chips}</div>',
                 unsafe_allow_html=True,
             )
-        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "scrollZoom": False})
+
+
+# ── render functions ─────────────────────────────────────────────────────────
+
+def render_health_lab():
+    st.markdown(cockpit.section_label("Health Lab"), unsafe_allow_html=True)
+    if daily.empty:
+        st.info("Sync Garmin history to build the Health Lab panels.")
+        return
+    st.markdown(cockpit.health_research_card(health_research), unsafe_allow_html=True)
+    health_rows = pd.DataFrame(health_research.get("rows") or [])
+    if not health_rows.empty and "date" in health_rows:
+        health_rows["date"] = pd.to_datetime(health_rows["date"], errors="coerce")
+        health_view = health_rows.dropna(subset=["date"]).tail(30)
+    else:
+        health_view = pd.DataFrame()
+
+    chart_card("Primitive baseline deviations", "z-score", cockpit.chart_recovery_deviation(health_view))
+    if not health_view.empty and any(
+        col in health_view and health_view[col].notna().any()
+        for col in ("spo2_avg", "respiration_avg")
+    ):
+        chart_card("Respiratory watchlist", "SpO₂ / respiration", cockpit.chart_respiratory_watchlist(health_view))
+    else:
+        st.caption("Respiratory watchlist needs SpO₂ or respiration summaries.")
+
+    if ((health_research.get("fitness") or {}).get("activity") or {}).get("rows"):
+        chart_card("Run/walk adaptation", "pace + HR", cockpit.chart_foot_pace(health_research))
+    else:
+        st.caption("Run/walk adaptation unlocks after Garmin activities include distance and duration.")
+
+
+def render_stress_leak_map():
+    st.markdown(cockpit.section_label("Stress leak map"), unsafe_allow_html=True)
+    st.markdown(cockpit.stress_leak_card(stress_leaks), unsafe_allow_html=True)
 
 
 def render_correlations():
@@ -145,39 +188,7 @@ def render_correlations():
                 )
 
 
-render_correlations()
-
-st.markdown(cockpit.section_label("Experiment lab"), unsafe_allow_html=True)
-
-# ── create ───────────────────────────────────────────────────────────────────
-with st.expander("➕ New experiment", expanded=db.load_experiments_df().empty):
-    with st.form("new_experiment", clear_on_submit=True):
-        name = st.text_input("Name", placeholder="Magnesium before bed")
-        hypothesis = st.text_input("Hypothesis (optional)",
-                                   placeholder="expect higher HRV, better sleep")
-        metric_keys = st.multiselect("Metrics to watch", METRIC_KEYS,
-                                     format_func=lambda k: METRIC_LABELS[k],
-                                     default=["hrv_overnight_avg", "sleep_hours"])
-        c = st.columns(3)
-        with c[0]:
-            start_date = st.date_input("Intervention start", value=date.today())
-        with c[1]:
-            baseline_days = st.number_input("Baseline days", min_value=3,
-                                            max_value=90, value=14)
-        with c[2]:
-            use_end = st.checkbox("Set end date")
-            end_date = st.date_input("End", value=date.today()) if use_end else None
-        if st.form_submit_button("Start experiment") and name.strip() and metric_keys:
-            db.add_experiment({
-                "name": name.strip(), "hypothesis": hypothesis.strip() or None,
-                "metrics": metric_keys, "baseline_days": int(baseline_days),
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat() if end_date else None,
-            })
-            st.rerun()
-
-
-def _render(exp_row, completed=False):
+def _render_experiment(exp_row, completed=False):
     exp = exp_row.to_dict()
     eid = int(exp["id"])
     result = analysis.compute_experiment_result(exp, daily, checkins)
@@ -222,15 +233,60 @@ def _render(exp_row, completed=False):
                     st.rerun()
 
 
-active = db.load_experiments_df(status="active")
-if active.empty:
-    st.caption("No active experiments. Create one above to start testing.")
-else:
-    for _, row in active.iterrows():
-        _render(row)
+# ── page layout with tabs ────────────────────────────────────────────────────
 
-completed = db.load_experiments_df(status="complete")
-if not completed.empty:
-    st.markdown(cockpit.section_label("Completed"), unsafe_allow_html=True)
-    for _, row in completed.iterrows():
-        _render(row, completed=True)
+lab_tab, stress_tab, corr_tab, exp_tab = st.tabs(
+    ["Health Lab", "Stress", "Correlations", "Experiments"]
+)
+
+with lab_tab:
+    render_health_lab()
+
+with stress_tab:
+    render_stress_leak_map()
+
+with corr_tab:
+    render_correlations()
+
+with exp_tab:
+    st.markdown(cockpit.section_label("Experiment lab"), unsafe_allow_html=True)
+
+    # ── create ───────────────────────────────────────────────────────────────
+    with st.expander("➕ New experiment", expanded=db.load_experiments_df().empty):
+        with st.form("new_experiment", clear_on_submit=True):
+            name = st.text_input("Name", placeholder="Magnesium before bed")
+            hypothesis = st.text_input("Hypothesis (optional)",
+                                       placeholder="expect higher HRV, better sleep")
+            metric_keys = st.multiselect("Metrics to watch", METRIC_KEYS,
+                                         format_func=lambda k: METRIC_LABELS[k],
+                                         default=["hrv_overnight_avg", "sleep_hours"])
+            c = st.columns(3)
+            with c[0]:
+                start_date = st.date_input("Intervention start", value=date.today())
+            with c[1]:
+                baseline_days = st.number_input("Baseline days", min_value=3,
+                                                max_value=90, value=14)
+            with c[2]:
+                use_end = st.checkbox("Set end date")
+                end_date = st.date_input("End", value=date.today()) if use_end else None
+            if st.form_submit_button("Start experiment") and name.strip() and metric_keys:
+                db.add_experiment({
+                    "name": name.strip(), "hypothesis": hypothesis.strip() or None,
+                    "metrics": metric_keys, "baseline_days": int(baseline_days),
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat() if end_date else None,
+                })
+                st.rerun()
+
+    active = db.load_experiments_df(status="active")
+    if active.empty:
+        st.caption("No active experiments. Create one above to start testing.")
+    else:
+        for _, row in active.iterrows():
+            _render_experiment(row)
+
+    completed = db.load_experiments_df(status="complete")
+    if not completed.empty:
+        st.markdown(cockpit.section_label("Completed"), unsafe_allow_html=True)
+        for _, row in completed.iterrows():
+            _render_experiment(row, completed=True)

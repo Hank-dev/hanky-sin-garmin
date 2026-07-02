@@ -27,11 +27,9 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ── design tokens (hex mirrors :root below; Plotly needs literals) ────────────
-#  "Material Dark Teal" direction — Material Design 3 dark surfaces
-#  (#141218 surface-dim base) with a teal accent (#80CBC4) for the readiness
-#  ring + brand + positive signals, cyan (#9ECAFF) as the cool secondary,
-#  amber (#E8C26A) caution, red (#F28B82) alarm. High-contrast
-#  sport/performance on the M3 dark neutral scale.
+#  "Vercel" direction — pure black canvas (#000) with a Vercel-blue accent
+#  (#0070f3) for the readiness ring + accent, mint (#50e3c2) for positive,
+#  amber (#f5a623) caution, red (#ff5c5c) alarm. High-contrast flat design.
 BG        = "#000000"   # pure black canvas (Vercel)
 BG2       = "#000000"   # deepest recess (code blocks, token footer)
 SURFACE   = "#0a0a0a"   # card surface (flat)
@@ -144,12 +142,28 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
   background-size:3px 100%,100% 100%; background-blend-mode:normal,normal;
   border:1px solid var(--border)!important;border-top-color:var(--brass)!important;
   border-radius:var(--r-lg);box-shadow:var(--sh-card); padding:6px 18px 10px;}
+/* ── plotly charts: kill mobile pinch-zoom (scrollZoom config only
+   handles desktop scroll-wheel; this blocks the browser touch gesture) ─ */
+.js-plotly-plot, .plot-container, .plotly,
+[data-testid="stPlotlyChart"], .stPlotlyChart,
+iframe[srcdoc*="plotly"],
+.stPlotlyChart > div, .stPlotlyChart > iframe,
+.stPlotlyChart *, .js-plotly-plot *{
+  touch-action: pan-y !important;
+  -ms-touch-action: pan-y !important;
+}
+
+/* Also protect the bordered card wrapper that holds each chart */
+[data-testid="stVerticalBlockBorderWrapper"]:has(.stPlotlyChart),
+[data-testid="stVerticalBlockBorderWrapper"] .stPlotlyChart {
+  touch-action: pan-y !important;
+}
+
 .section-label{display:flex;align-items:center;gap:var(--s3);font-family:var(--font-mono);
   font-size:10px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;
   color:var(--text-faint);margin:var(--s5) 0 var(--s3);}
 .section-label::after{content:"";flex:1;height:1px;background:var(--hairline);}
 .kicker{font-family:var(--font-mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-faint);}
-
 /* ── hero (centered readiness verdict — Vercel) ────────────────────── */
 .hero-c{text-align:center;max-width:840px;margin:14px auto 44px;}
 .hero-kicker{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;
@@ -661,6 +675,97 @@ html, body, [class*="css"]{font-family:var(--font-sans);}
 .chart-title{font-family:var(--font-mono)!important;font-weight:500!important;letter-spacing:.04em!important;
   text-transform:uppercase!important;font-size:11px!important;color:var(--text-dim)!important;}
 </style>
+
+<script>
+// Block pinch-zoom and wheel-zoom on all Plotly charts (mobile + desktop)
+(function() {
+  function disableZoom(el) {
+    if (!el) return;
+    el.addEventListener("wheel", function(e) {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, {passive: false, capture: true});
+    el.addEventListener("touchstart", function(e) {
+      if (e.touches.length > 1) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, {passive: false, capture: true});
+    el.addEventListener("touchmove", function(e) {
+      if (e.touches.length > 1) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, {passive: false, capture: true});
+  }
+  const observer = new MutationObserver(function(muts) {
+    muts.forEach(function(m) {
+      m.addedNodes.forEach(function(n) {
+        if (n.nodeType === 1) {
+          if (n.matches && n.matches(".js-plotly-plot, .stPlotlyChart")) disableZoom(n);
+          n.querySelectorAll && n.querySelectorAll(".js-plotly-plot, .stPlotlyChart").forEach(disableZoom);
+        }
+      });
+    });
+  });
+  function init() {
+    document.querySelectorAll(".js-plotly-plot, .stPlotlyChart").forEach(disableZoom);
+    observer.observe(document.body, {childList: true, subtree: true});
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+<script>
+// Block pinch-zoom and wheel-zoom on all Plotly charts (mobile + desktop)
+(function() {
+  function disableZoom(el) {
+    if (!el) return;
+    // Prevent wheel zoom
+    el.addEventListener("wheel", function(e) {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }, {passive: false, capture: true});
+
+    // Prevent pinch-zoom on touch devices
+    el.addEventListener("touchstart", function(e) {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }, {passive: false, capture: true});
+
+    el.addEventListener("touchmove", function(e) {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    }, {passive: false, capture: true});
+  }
+
+  // Apply to all plotly containers (including dynamically added ones)
+  const observer = new MutationObserver(function(muts) {
+    muts.forEach(function(m) {
+      m.addedNodes.forEach(function(n) {
+        if (n.nodeType === 1) {
+          if (n.matches && n.matches(".js-plotly-plot, .stPlotlyChart")) disableZoom(n);
+          n.querySelectorAll && n.querySelectorAll(".js-plotly-plot, .stPlotlyChart").forEach(disableZoom);
+        }
+      });
+    });
+  });
+
+  function init() {
+    document.querySelectorAll(".js-plotly-plot, .stPlotlyChart").forEach(disableZoom);
+    observer.observe(document.body, {childList: true, subtree: true});
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
 """
 
 # brand mark + coach glyph (small inline SVG icons)
@@ -737,7 +842,7 @@ def hero(readiness, verdict, tagline, chips_html, ribbon_html="", sparse=False) 
     </div>""")
 
 
-def readiness_ring(readiness, delta_text: str | None = None) -> str:
+def readiness_ring(readiness, delta_text: str | None = None, label: str = "Readiness") -> str:
     """Vercel readiness ring card: SVG arc + centered numeral. None → dash."""
     _z, color = zone(readiness)
     score = "—" if readiness is None else str(int(round(readiness)))
@@ -755,7 +860,7 @@ def readiness_ring(readiness, delta_text: str | None = None) -> str:
             style="stroke:{color};stroke-dasharray:{dash:.1f} {circ:.1f};filter:drop-shadow(0 0 8px {color});"></circle>
         </svg>
         <div class="ring-center">
-          <span class="ring-label">Readiness</span>
+          <span class="ring-label">{html.escape(label)}</span>
           <span class="ring-score{no_score}">{score}</span>
           {delta_html}
         </div>
@@ -2027,6 +2132,7 @@ def _dark(fig: go.Figure, height: int, legend=True) -> go.Figure:
         font=dict(family="Geist, sans-serif", color=TEXT_FAINT, size=11),
         margin=dict(t=34, b=24, l=44, r=16), hovermode="x unified",
         showlegend=legend,
+        dragmode=False,   # stops mobile single-finger scroll from triggering box-zoom
         legend=dict(orientation="h", y=1.18, x=0, font=dict(family=mono, color=TEXT_DIM, size=10.5),
                     bgcolor="rgba(0,0,0,0)"),
     )
@@ -2042,11 +2148,13 @@ def _glow_line(fig, x, y, color, name, width=2, **kw):
     vals = pd.Series(y).dropna()
     mode = "lines+markers" if len(vals) <= 2 else "lines"
     fig.add_trace(go.Scatter(x=x, y=y, mode="lines", line=dict(color=color, width=width*4),
-                             opacity=0.12, hoverinfo="skip", showlegend=False))
+                             opacity=0.12, hoverinfo="skip", showlegend=False,
+                             connectgaps=False))
     fig.add_trace(go.Scatter(
         x=x, y=y, name=name, mode=mode,
         line=dict(color=color, width=width, shape="spline"),
         marker=dict(color=color, size=7, line=dict(color=BG, width=1)),
+        connectgaps=False,
         **kw
     ))
 
@@ -2124,7 +2232,6 @@ def chart_sleeping_hr(view: pd.DataFrame) -> go.Figure:
                                  line=dict(color=TEXT_FAINT, width=1.5)))
     _glow_line(fig, x, view["hr_overnight_low"], SERIES2, "Lowest overnight")
     return _dark(fig, 230)
-
 
 def chart_bedtime_hr(view: pd.DataFrame) -> go.Figure:
     """Pre-sleep heart-rate median derived from samples before sleep start."""
@@ -2278,7 +2385,6 @@ def chart_stress_daily(day: pd.DataFrame) -> go.Figure:
     ))
     fig.update_yaxes(range=[0, 100], title_text="level")
     return _dark(fig, 240, legend=False)
-
 
 def chart_weekly_stress_overview(model: dict) -> go.Figure:
     rows = pd.DataFrame((model or {}).get("rows") or [])
@@ -2563,6 +2669,7 @@ def chart_prebed_relationship(model: dict, y_col: str, x_col: str | None = None)
             mode="lines",
             line=dict(color=TEXT_DIM, width=1.5, dash="dash"),
             hoverinfo="skip",
+            connectgaps=False,
         ))
     x_unit = rel.get("x_unit") or ""
     fig.update_xaxes(title_text=f"{rel.get('x_label') or 'Metric'} {x_unit}".strip())

@@ -122,6 +122,26 @@ st.markdown("""
   .strength-momentum-row .num,.strength-momentum-row .note{font-size:10px;}
   .strength-leaderboard-row{font-size:11px;padding:7px 8px;}
   .strength-leaderboard-row .num,.strength-leaderboard-row .rank{font-size:10px;}
+/* ── Key Lifts ── */
+.key-lifts-section{margin:0 0 24px;}
+.key-lifts-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;}
+.key-lifts-title{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);}
+.key-lifts-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+.key-lift-card{background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:8px;padding:14px 16px;min-width:0;overflow:hidden;}
+.key-lift-card .kl-name{font-weight:700;font-size:15px;color:var(--text);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.key-lift-card .kl-1rm-lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-bottom:4px;}
+.key-lift-card .kl-1rm{font-size:28px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums;line-height:1;}
+.key-lift-card .kl-1rm-unit{font-size:13px;color:var(--text-faint);font-weight:500;margin-left:2px;}
+.key-lift-card .kl-recent{margin-top:10px;display:flex;justify-content:space-between;align-items:baseline;}
+.key-lift-card .kl-recent-val{font-family:var(--font-mono);font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums;}
+.key-lift-card .kl-recent-lab{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);}
+.key-lift-card .kl-delta{font-family:var(--font-mono);font-size:11px;font-variant-numeric:tabular-nums;}
+.key-lift-card .kl-delta.up{color:var(--good);}
+.key-lift-card .kl-delta.down{color:var(--red);}
+.key-lift-card .kl-delta.flat{color:var(--text-faint);}
+.key-lift-card .kl-last{margin-top:6px;font-family:var(--font-mono);font-size:10px;color:var(--text-faint);}
+@media(max-width:820px){.key-lifts-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:560px){.key-lifts-grid{grid-template-columns:1fr;}}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -431,7 +451,7 @@ def render_strength_overview(overview: dict, strength_summary: dict):
             st.markdown("#### Session trend")
             rows = overview.get("trend_rows") or []
             if rows:
-                st.plotly_chart(strength_trend_chart(rows), width="stretch")
+                st.plotly_chart(strength_trend_chart(rows), width="stretch", config={"displayModeBar": False, "scrollZoom": False})
                 basis = trend.get("basis")
                 if basis:
                     st.caption(basis)
@@ -606,6 +626,143 @@ def render_best_set_leaderboard(rows, limit: int = 12):
     )
 
 
+# ── Key Lifts tracking ──────────────────────────────────────────────────────
+KEY_LIFTS = ["lat-pulldown", "seated-cable-row", "leg-press", "bench-press"]
+KEY_LIFT_NAMES = {
+    "lat-pulldown": "Lat Pulldown",
+    "seated-cable-row": "Seated Row",
+    "leg-press": "Leg Press",
+    "bench-press": "Bench Press",
+}
+
+
+def _epley_1rm(weight_kg: float, reps: int) -> float:
+    """Epley formula: 1RM = w × (1 + r/30)."""
+    if not weight_kg or not reps or reps >= 35:
+        return 0.0
+    return float(weight_kg) * (1.0 + float(reps) / 30.0)
+
+
+def compute_key_lift_trend(sets_df, sessions_df, since: str = "2026-06-01"):
+    """Return per-lift list of {date, est_1rm, weight, reps} filtered to `since`."""
+    if sets_df is None or sets_df.empty or sessions_df is None or sessions_df.empty:
+        return {}
+    result = {}
+    merged = sets_df.merge(
+        sessions_df[["session_id", "date"]], on="session_id", how="left"
+    )
+    merged["date"] = pd.to_datetime(merged["date"], errors="coerce")
+    merged = merged.dropna(subset=["date"])
+    cutoff = pd.Timestamp(since)
+    for ex_id in KEY_LIFTS:
+        rows = merged[
+            (merged["exercise_id"] == ex_id)
+            & (merged["completed"] == 1)
+            & (merged.get("is_warmup", 0) != 1)
+            & (merged["date"] >= cutoff)
+        ].copy()
+        if rows.empty:
+            result[ex_id] = []
+            continue
+        rows["est_1rm"] = rows.apply(
+            lambda r: _epley_1rm(r.get("weight_kg"), r.get("reps")), axis=1
+        )
+        rows = rows[rows["est_1rm"] > 0].sort_values("date")
+        if rows.empty:
+            result[ex_id] = []
+            continue
+        per_session = rows.groupby("date").agg(
+            est_1rm=("est_1rm", "max"),
+            weight=("weight_kg", "max"),
+            reps=("reps", "first"),
+        ).reset_index()
+        result[ex_id] = per_session.to_dict("records")
+    return result
+
+
+def _key_lift_chart(name: str, data: list[dict]) -> go.Figure:
+    """Single est-1RM line chart for one key lift."""
+    fig = go.Figure()
+    if not data:
+        fig.update_layout(
+            height=220, margin=dict(l=0, r=0, t=30, b=0),
+            paper_bgcolor=cockpit.BG, plot_bgcolor=cockpit.BG,
+            annotations=[dict(text="No sessions yet", showarrow=False,
+                              xref="paper", yref="paper", x=0.5, y=0.5,
+                              font=dict(color=cockpit.TEXT_FAINT, size=12))],
+        )
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
+        return fig
+    df = pd.DataFrame(data)
+    df["set_str"] = df.apply(lambda r: f"{r['weight']:.0f}×{int(r['reps'])}", axis=1)
+    fig.add_trace(go.Scatter(
+        x=df["date"], y=df["est_1rm"],
+        mode="lines+markers+text",
+        line=dict(color=cockpit.ACCENT, width=2.5, shape="spline"),
+        marker=dict(size=9, color=cockpit.ACCENT, line=dict(width=1.5, color=cockpit.BG)),
+        text=[f"{v:.0f}" for v in df["est_1rm"]],
+        textposition="top center",
+        textfont=dict(size=10, color=cockpit.TEXT),
+        customdata=df[["set_str"]].to_numpy(),
+        hovertemplate="%{x|%b %-d}<br>%{y:.1f} kg<br>%{customdata[0]}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=220, margin=dict(l=36, r=16, t=30, b=24),
+        paper_bgcolor=cockpit.BG, plot_bgcolor=cockpit.BG,
+        font=dict(family="Geist, sans-serif", color=cockpit.TEXT),
+        showlegend=False,
+        xaxis=dict(
+            gridcolor="rgba(255,255,255,.04)",
+            tickfont=dict(color=cockpit.TEXT_FAINT, size=9),
+            fixedrange=True,
+        ),
+        yaxis=dict(
+            gridcolor="rgba(255,255,255,.06)",
+            tickfont=dict(color=cockpit.TEXT_FAINT, size=9),
+            fixedrange=True,
+            rangemode="tozero",
+        ),
+    )
+    return fig
+
+
+def render_key_lifts(trends: dict):
+    """Render 4 est-1RM trend charts (2×2 grid) at the top of Overview."""
+    st.markdown(
+        "<div class='key-lifts-section'>"
+        "<div class='key-lifts-header'>"
+        "<div class='key-lifts-title'>Key Lifts · This Summer</div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(2)
+    positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    for i, ex_id in enumerate(KEY_LIFTS):
+        row, col = positions[i]
+        with cols[col]:
+            data = trends.get(ex_id, [])
+            recent_val = data[-1]["est_1rm"] if data else None
+            delta_str = ""
+            if data and len(data) >= 2:
+                delta = data[-1]["est_1rm"] - data[-2]["est_1rm"]
+                if abs(delta) < 0.3:
+                    delta_str = " → flat"
+                elif delta > 0:
+                    delta_str = f" ↑{delta:+.1f}"
+                else:
+                    delta_str = f" ↓{delta:+.1f}"
+            label = KEY_LIFT_NAMES.get(ex_id, ex_id)
+            if recent_val:
+                label = f"{label} · {recent_val:.0f} kg{delta_str}"
+            st.markdown(f"**{label}**")
+            st.plotly_chart(
+                _key_lift_chart(label, data),
+                use_container_width=True,
+                config={"displayModeBar": False, "scrollZoom": False},
+            )
+
+
 # ── page ──────────────────────────────────────────────────────────────────────
 st.markdown(
     "<div class='strength-page-head'><div><div class='strength-page-title'>Strength</div>"
@@ -622,6 +779,8 @@ with tab_overview:
     sessions = load_strength_sessions_with_context()
     sets = db.load_strength_sets_df()
     if not sessions.empty:
+        key_lift_trends = compute_key_lift_trend(sets, sessions)
+        render_key_lifts(key_lift_trends)
         bodyweight = resolve_bodyweight(today_str())
         verdict, _readiness = todays_recovery_verdict(today_str())
         overview = analysis.compute_strength_recent_overview(
@@ -795,7 +954,7 @@ with tab_history:
                 ex_id = choices[label]
                 fig = cockpit.strength_onerm_trend(
                     prs[prs["exercise_id"] == ex_id], label)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False, "scrollZoom": False})
 
 with tab_insights:
     st.subheader("Insights")
@@ -845,6 +1004,7 @@ with tab_insights:
                 st.plotly_chart(
                     weekly_strength_load_chart(load_rows.to_dict("records"), metric),
                     width="stretch",
+                    config={"displayModeBar": False, "scrollZoom": False},
                 )
                 latest_week = load_rows["week_start"].max()
                 recent_load = load_rows[load_rows["week_start"] == latest_week].copy()
@@ -922,7 +1082,7 @@ with tab_insights:
         if isinstance(panel, str):
             st.caption(panel)
         else:
-            st.plotly_chart(panel, width="stretch")
+            st.plotly_chart(panel, width="stretch", config={"displayModeBar": False, "scrollZoom": False})
             if corr.get("insight"):
                 st.caption(corr["insight"])
 

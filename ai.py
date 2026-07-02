@@ -408,6 +408,47 @@ def analyze(summary: dict, strength: dict | None = None,
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
+DAILY_BRIEF_SYSTEM = """You write a ultra-compact daily recovery brief for one athlete.
+Given a compact JSON metrics summary, output EXACTLY this format (in Norwegian):
+
+One line: **VERDICT** — one short sentence (train hard / hold / rest + why).
+Then max 3 bullets with the most important signals (only what's unusual or actionable).
+Then 1-2 bullets: "Gjør:" with concrete next steps.
+
+Rules:
+- Max 8 lines total. No headers. No paragraphs. No disclaimers.
+- Only flag what matters today — skip restating normal values.
+- Cite the key number inline. If nothing is unusual, say so plainly.
+- Norwegian only.
+
+You may receive coach_memory and active_experiments — factor in injuries
+and goals, but keep it to the format above."""
+
+
+def daily_brief(summary: dict, strength: dict | None = None,
+                coach_memory: dict | None = None,
+                active_experiments: list | None = None,
+                model: str | None = None) -> str:
+    if not config.ANTHROPIC_API_KEY:
+        return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=model or config.ANTHROPIC_MODEL,
+        max_tokens=350,
+        system=DAILY_BRIEF_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": "Metrics summary:\n\n"
+                       + json.dumps(summary, indent=2)
+                       + "\n\nStrength profile:\n\n"
+                       + json.dumps(strength or {}, indent=2)
+                       + _memory_block(coach_memory)
+                       + _experiment_block(active_experiments),
+        }],
+    )
+    return "".join(b.text for b in msg.content if b.type == "text")
+
+
 def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
                    active_experiments: list | None = None,
                    model: str | None = None) -> str:
