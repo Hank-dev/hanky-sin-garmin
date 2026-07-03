@@ -42,10 +42,17 @@ def load(local_timezone: str):
         if stress_loader is not None
         else pd.DataFrame(columns=["date", "timestamp", "value"])
     )
+    hr_loader = getattr(db, "load_heart_rate_df", None)
+    hr_intraday = (
+        hr_loader()
+        if hr_loader is not None
+        else pd.DataFrame(columns=["date", "timestamp", "value"])
+    )
     daily = analysis.compute_acwr(acts, daily) if not daily.empty else daily
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
     prebed_discovery = analysis.compute_prebed_discovery(
-        daily, acts, sleep_timing, body_battery=body_battery
+        daily, acts, sleep_timing, body_battery=body_battery,
+        stress_intraday=stress, hr_intraday=hr_intraday,
     )
     personal_sleep_need = analysis.compute_personal_sleep_need(daily, checkins)
     early_waking = analysis.compute_early_waking_model(
@@ -342,78 +349,6 @@ def render_weekly_summary():
         st.markdown(cockpit.weekly_summary_content(summary_md), unsafe_allow_html=True)
 
 
-def render_recovery_learner_card():
-    """Always-visible recovery state using the deterministic response/recovery learner."""
-    if daily.empty:
-        return
-    try:
-        events = db.load_daily_events_df(start=fitness_agent._iso_days_ago(120))
-        response = fitness_agent.compute_session_response(
-            daily,
-            acts,
-            db.load_strength_sessions_df(),
-            events,
-        )
-        speed = fitness_agent.compute_recovery_speed_model(
-            daily,
-            acts,
-            db.load_strength_sessions_df(),
-            events,
-        )
-    except Exception as e:
-        st.caption(f"Recovery learner unavailable: {e}")
-        return
-
-    verdict = str(response.get("verdict") or response.get("status") or "learning")
-    verdict_label = {
-        "good_response": "Recovered / absorbing",
-        "acceptable_load": "Partly recovered",
-        "hard_hit": "Not recovered",
-        "confounded": "Confounded",
-        "pending": "Pending next metrics",
-        "learning": "Learning",
-    }.get(verdict, verdict.replace("_", " ").title())
-    speed_label = str(speed.get("speed") or speed.get("status") or "learning").upper()
-    recovery_score = fitness_agent.compute_recovery_score(response, capacity)
-    score_value = recovery_score.get("score")
-    score_label = f"{score_value}/100" if score_value is not None else "learning"
-    avg_days = fitness_agent._fmt(speed.get("avg_days"), "d", 1)
-    response_metrics = response.get("metrics") or {}
-    hrv_delta = (response_metrics.get("hrv_overnight_avg") or {}).get("delta")
-    rhr_delta = (response_metrics.get("resting_hr") or {}).get("delta")
-    bb_delta = (response_metrics.get("body_battery_high") or {}).get("delta")
-    action = "Hold/recovery today" if verdict in {"hard_hit", "acceptable_load"} else "Normal caution"
-    if capacity.get("zone") == "red":
-        action = "Recovery / rehab only"
-
-    detail = []
-    if response.get("status") == "ready":
-        detail.append(f"last stimulus {response.get('session_date')} → {response.get('next_date')}")
-    if hrv_delta is not None or rhr_delta is not None or bb_delta is not None:
-        detail.append(
-            f"HRV {fitness_agent._fmt(hrv_delta, ' ms', 1)}, "
-            f"RHR {fitness_agent._fmt(rhr_delta, ' bpm', 1)}, "
-            f"BB {fitness_agent._fmt(bb_delta, '', 1)} vs baseline"
-        )
-    if speed.get("by_bucket"):
-        buckets = ", ".join(f"{k} {fitness_agent._fmt(v, 'd', 1)}" for k, v in speed["by_bucket"].items())
-        detail.append(f"dose recovery: {buckets}")
-    if recovery_score.get("drivers"):
-        detail.append("drivers: " + "; ".join(str(d) for d in recovery_score["drivers"][:3]))
-    if response.get("confounders"):
-        detail.append("confounded by " + ", ".join(fitness_agent._fmt_event_type(e.get("event_type")) for e in response["confounders"][:3]))
-
-    with st.container(border=True):
-        cols = st.columns([0.22, 0.30, 0.48], vertical_alignment="center")
-        cols[0].metric("Recovery", score_label, str(recovery_score.get("zone") or ""))
-        cols[1].caption(f"**{verdict_label}** · {speed_label} {avg_days if avg_days != '-' else ''}")
-        cols[2].caption(
-            f"**{action}** · HRV {fitness_agent._fmt(hrv_delta, ' ms', 1)}"
-        )
-        with st.expander("Recovery details", expanded=False):
-            st.caption(" · ".join(detail) if detail else "Learns from training days and next-morning HRV/RHR return to baseline.")
-
-
 # ── readiness ring + signal tiles ─────────────────────────────────────────────
 st.markdown(cockpit.section_label("Today's signals"), unsafe_allow_html=True)
 if sparse:
@@ -457,8 +392,6 @@ else:
     base = {k: (None if v is None or pd.isna(v) else float(v)) for k, v in base.items()}
     tiles_html = cockpit.tiles(today, sparks, base, sparse=False)
 st.markdown(f'<div class="readiness-row">{ring_html}{tiles_html}</div>', unsafe_allow_html=True)
-
-render_recovery_learner_card()
 
 render_weekly_summary()
 

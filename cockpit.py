@@ -331,7 +331,7 @@ iframe[srcdoc*="plotly"],
 .st-key-weekly_summary_card [data-testid="stButton"] button [data-testid="stIconMaterial"]{
   margin:0!important;font-size:16px!important;}
 .weekly-summary-content{margin-top:0!important;padding-bottom:0!important;}
-.weekly-summary-content .coach-sec p{margin:0!important;max-width:66ch;line-height:1.6;color:var(--text);}
+.weekly-summary-content .coach-sec p{margin:0!important;max-width:none;line-height:1.6;color:var(--text);}
 
 /* ── coach memory peek ───────────────────────────────────────────── */
 .memory-peek{padding:var(--s5);position:relative;overflow:hidden;

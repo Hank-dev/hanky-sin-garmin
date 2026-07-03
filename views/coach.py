@@ -293,11 +293,18 @@ def load_coach_context(local_timezone: str) -> dict:
         if stress_loader is not None
         else pd.DataFrame(columns=["date", "timestamp", "value"])
     )
+    hr_loader = getattr(db, "load_heart_rate_df", None)
+    hr_intraday = (
+        hr_loader()
+        if hr_loader is not None
+        else pd.DataFrame(columns=["date", "timestamp", "value"])
+    )
     daily = analysis.compute_acwr(acts, daily) if not daily.empty else daily
     capacity = analysis.compute_capacity_envelope(daily, acts, checkins)
     stress_leaks = analysis.compute_stress_leak_map(daily, stress)
     prebed_discovery = analysis.compute_prebed_discovery(
-        daily, acts, sleep_timing, body_battery=body_battery
+        daily, acts, sleep_timing, body_battery=body_battery,
+        stress_intraday=stress, hr_intraday=hr_intraday,
     )
     personal_sleep_need = analysis.compute_personal_sleep_need(daily, checkins)
     early_waking = analysis.compute_early_waking_model(

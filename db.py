@@ -974,6 +974,39 @@ def load_daily_hr_df(date: str | None = None):
     return df.dropna(subset=["date", "avg_hr"]).sort_values("date")
 
 
+def load_heart_rate_df(date: str | None = None):
+    """Return Garmin intraday heart-rate samples parsed from heart_rates raw_json."""
+    import pandas as pd
+
+    sql = "SELECT date, payload FROM raw_json WHERE endpoint='heart_rates'"
+    params = []
+    if date is not None:
+        sql += " AND date=?"
+        params.append(date)
+    sql += " ORDER BY date"
+
+    records = []
+    with connect() as conn:
+        for row in conn.execute(sql, params):
+            try:
+                payload = json.loads(row["payload"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            records.extend(_heart_rate_series_points(payload, row["date"]))
+
+    if not records:
+        return pd.DataFrame(columns=["date", "timestamp", "value"])
+
+    df = pd.DataFrame(records)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    df = df.dropna(subset=["timestamp", "value"])
+    if df.empty:
+        return pd.DataFrame(columns=["date", "timestamp", "value"])
+    df["date"] = df["date"].astype(str)
+    return df.drop_duplicates(["date", "timestamp", "value"]).sort_values(["date", "timestamp"])
+
+
 def load_sleep_timing_df():
     """Return local sleep start/end/midpoint timestamps parsed from raw sleep JSON."""
     import pandas as pd
@@ -1072,6 +1105,56 @@ def _heart_rate_points(payload, fallback_date: str) -> list[float]:
 
     walk(payload)
     return values
+
+
+def _heart_rate_series_points(payload, fallback_date: str):
+    records = []
+
+    def add_point(ts, value, day):
+        parsed_ts = _parse_bb_timestamp(ts)
+        if parsed_ts is None or value is None:
+            return
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return
+        if not (25 <= v <= 240):
+            return
+        records.append({"date": str(day or fallback_date), "timestamp": parsed_ts, "value": v})
+
+    def walk(node, day):
+        if isinstance(node, dict):
+            day_hint = (
+                node.get("calendarDate")
+                or node.get("date")
+                or node.get("day")
+                or day
+                or fallback_date
+            )
+            series = node.get("heartRateValues")
+            if isinstance(series, list):
+                for sample in series:
+                    if isinstance(sample, (list, tuple)) and len(sample) >= 2:
+                        add_point(sample[0], sample[1], day_hint)
+                    elif isinstance(sample, dict):
+                        add_point(
+                            _first_present(sample, "timestampGMT", "timestamp", "time"),
+                            _first_present(
+                                sample, "heartRate", "heartRateValue", "heartRateBpm",
+                                "bpm", "value",
+                            ),
+                            day_hint,
+                        )
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value, day_hint)
+        elif isinstance(node, list):
+            for item in node:
+                if isinstance(item, (dict, list)):
+                    walk(item, day)
+
+    walk(payload, fallback_date)
+    return records
 
 
 def _stress_points(payload, fallback_date: str):

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source .venv/bin/activate*)",
+      "Bash(curl -s -o /dev/null -w *)"
+    ]
+  }
+}

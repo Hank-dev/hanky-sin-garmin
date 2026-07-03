@@ -33,8 +33,15 @@ stress = (
     if stress_loader is not None
     else pd.DataFrame(columns=["date", "timestamp", "value"])
 )
+hr_loader = getattr(db, "load_heart_rate_df", None)
+hr_intraday = (
+    hr_loader()
+    if hr_loader is not None
+    else pd.DataFrame(columns=["date", "timestamp", "value"])
+)
 prebed_discovery = analysis.compute_prebed_discovery(
-    daily, acts, sleep_timing, body_battery=body_battery
+    daily, acts, sleep_timing, body_battery=body_battery,
+    stress_intraday=stress, hr_intraday=hr_intraday,
 )
 health_research = analysis.compute_health_research_panels(daily, acts, sleep_timing)
 stress_leaks = analysis.compute_stress_leak_map(daily, stress)

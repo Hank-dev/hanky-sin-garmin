@@ -546,6 +546,8 @@ def compute_prebed_discovery(
     sleep_timing: pd.DataFrame | None = None,
     body_battery: pd.DataFrame | None = None,
     min_pairs: int = 5,
+    stress_intraday: pd.DataFrame | None = None,
+    hr_intraday: pd.DataFrame | None = None,
 ) -> dict:
     """Discover sleep-adjacent links to sleep quality and next-day stress.
 
@@ -571,8 +573,10 @@ def compute_prebed_discovery(
     df = _add_body_battery_recharge(df)
     sleep_need = compute_personal_sleep_need(df).get("sleep_need_h") or config.SLEEP_NEED_HOURS
     df = _add_early_for_recovery_features(df, sleep_timing, body_battery, sleep_need)
+    df = _add_prebed_window_features(df, sleep_timing, stress_intraday, hr_intraday)
     for col in ("hr_bedtime", "hrv_overnight_avg", "resting_hr", "sleep_score", "sleep_hours",
                 "stress_avg", "cardio_load", "bedtime_hr_delta",
+                "stress_4h_prebed", "hr_4h_prebed",
                 "sleep_midpoint_variability_7d", "activity_bucket_code",
                 "body_battery_recharge", "early_for_recovery_min",
                 "next_day_early_for_recovery_min", "sleep_debt_repay_h",
@@ -700,6 +704,53 @@ def compute_prebed_discovery(
         )
         if stress_rel:
             relationships.append(stress_rel)
+
+    has_stress_window = "stress_4h_prebed" in df and df["stress_4h_prebed"].notna().any()
+    has_hr_window = "hr_4h_prebed" in df and df["hr_4h_prebed"].notna().any()
+    if has_stress_window or has_hr_window:
+        window_sleep_col = None
+        window_sleep_label = None
+        window_sleep_unit = ""
+        if "sleep_score" in df and df["sleep_score"].notna().any():
+            window_sleep_col = "sleep_score"
+            window_sleep_label = "Sleep score"
+        elif "sleep_hours" in df and df["sleep_hours"].notna().any():
+            window_sleep_col = "sleep_hours"
+            window_sleep_label = "Sleep duration"
+            window_sleep_unit = "h"
+
+        for x_col, x_label, x_unit, enabled in (
+            ("stress_4h_prebed", "Avg stress (4h pre-bed)", "", has_stress_window),
+            ("hr_4h_prebed", "Avg HR (4h pre-bed)", "bpm", has_hr_window),
+        ):
+            if not enabled:
+                continue
+            window_targets = []
+            if window_sleep_col is not None:
+                window_targets.append((
+                    window_sleep_col, window_sleep_label, window_sleep_unit, -1,
+                    f"{x_label} vs same-night sleep quality",
+                ))
+            window_targets.extend([
+                ("hrv_overnight_avg", "Overnight HRV", "ms", -1, f"{x_label} vs overnight HRV"),
+                ("resting_hr", "Resting HR", "bpm", 1, f"{x_label} vs overnight resting HR"),
+                ("next_day_stress", "Next-day avg stress", "", 1, f"{x_label} vs next-day stress"),
+            ])
+            for y_col, y_label, y_unit, desired, label in window_targets:
+                rel = _prebed_relationship(
+                    df,
+                    x_col=x_col,
+                    x_label=x_label,
+                    x_unit=x_unit,
+                    y_col=y_col,
+                    label=label,
+                    y_label=y_label,
+                    y_unit=y_unit,
+                    desired_direction=desired,
+                    min_pairs=min_pairs,
+                )
+                if rel:
+                    relationships.append(rel)
 
     if has_hrv:
         early_hrv_rel = _prebed_relationship(
@@ -1280,6 +1331,70 @@ def _add_body_battery_recharge(df: pd.DataFrame) -> pd.DataFrame:
         start = pd.to_numeric(out["body_battery_start"], errors="coerce")
         low = pd.to_numeric(out["body_battery_low"], errors="coerce")
         out["body_battery_recharge"] = (start - low).clip(lower=0)
+    return out
+
+
+PREBED_WINDOW_HOURS = 4.0
+
+
+def _prebed_window_avg(
+    intraday: pd.DataFrame, sleep_timing: pd.DataFrame, hours: float, out_col: str
+) -> pd.DataFrame:
+    """Per-day average of intraday samples in [sleep_start - hours, sleep_start]."""
+    samples = intraday.dropna(subset=["timestamp", "value"]).sort_values("timestamp")
+    if samples.empty:
+        return pd.DataFrame(columns=["date", out_col])
+    ts = samples["timestamp"].to_numpy()
+    vals = samples["value"].to_numpy()
+    window = pd.Timedelta(hours=hours)
+
+    records = []
+    for _, row in sleep_timing.iterrows():
+        sleep_start = row["sleep_start"]
+        lo = np.searchsorted(ts, np.datetime64(sleep_start - window), side="left")
+        hi = np.searchsorted(ts, np.datetime64(sleep_start), side="right")
+        window_vals = vals[lo:hi]
+        if len(window_vals) == 0:
+            continue
+        records.append({"date": row["date"], out_col: float(np.mean(window_vals))})
+    return pd.DataFrame(records, columns=["date", out_col])
+
+
+def _add_prebed_window_features(
+    df: pd.DataFrame,
+    sleep_timing: pd.DataFrame | None,
+    stress_intraday: pd.DataFrame | None,
+    hr_intraday: pd.DataFrame | None,
+    hours: float = PREBED_WINDOW_HOURS,
+) -> pd.DataFrame:
+    """Add stress_4h_prebed / hr_4h_prebed: avg intraday stress/HR in the N hours before sleep_start."""
+    out = df.copy()
+    out["stress_4h_prebed"] = np.nan
+    out["hr_4h_prebed"] = np.nan
+    if sleep_timing is None or sleep_timing.empty or "date" not in sleep_timing or "sleep_start" not in sleep_timing:
+        return out
+
+    t = sleep_timing.copy()
+    t["date"] = pd.to_datetime(t["date"], errors="coerce").dt.normalize()
+    t["sleep_start"] = pd.to_datetime(t["sleep_start"], errors="coerce")
+    t = t.dropna(subset=["date", "sleep_start"])
+    if t.empty:
+        return out
+
+    for intraday, out_col in ((stress_intraday, "stress_4h_prebed"), (hr_intraday, "hr_4h_prebed")):
+        if intraday is None or intraday.empty or "timestamp" not in intraday or "value" not in intraday:
+            continue
+        samples = intraday.copy()
+        samples["timestamp"] = pd.to_datetime(samples["timestamp"], errors="coerce")
+        samples["value"] = pd.to_numeric(samples["value"], errors="coerce")
+        windowed = _prebed_window_avg(samples, t, hours, out_col)
+        if windowed.empty:
+            continue
+        out = out.merge(windowed, on="date", how="left", suffixes=("", "_win"))
+        win_col = f"{out_col}_win"
+        if win_col in out:
+            out[out_col] = out[win_col].combine_first(out[out_col])
+            out = out.drop(columns=[win_col])
     return out
 
 

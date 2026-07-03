@@ -335,6 +335,70 @@ class PrebedDiscoveryTest(unittest.TestCase):
         self.assertGreater(by_pair[("stress_avg", "next_day_early_for_recovery_min")]["correlation"], 0)
         self.assertLess(by_pair[("early_for_recovery_min", "next_day_hrv")]["correlation"], 0)
 
+    def test_prebed_window_stress_and_hr_link_to_sleep_and_next_day_stress(self):
+        start = pd.Timestamp("2026-05-01")
+        rows = []
+        timing_rows = []
+        stress_rows = []
+        hr_rows = []
+        for i in range(8):
+            date = start + pd.Timedelta(days=i)
+            high = i >= 4
+            sleep_start = date + pd.Timedelta(hours=22)
+            sleep_end = sleep_start + pd.Timedelta(hours=8)
+            rows.append({
+                "date": date,
+                "sleep_score": 62 if high else 86,
+                "sleep_seconds": (6.1 if high else 8.0) * 3600,
+                "stress_avg": 55 if high else 25,
+                "resting_hr": 55,
+                "hrv_overnight_avg": 45,
+                "hrv_baseline_low": None,
+                "hrv_baseline_high": None,
+            })
+            timing_rows.append({
+                "date": date,
+                "sleep_start": sleep_start,
+                "sleep_end": sleep_end,
+                "sleep_midpoint": sleep_start + (sleep_end - sleep_start) / 2,
+            })
+            # Samples inside the 4h pre-bed window (18:00-22:00); should be picked up.
+            for offset_min in (30, 90, 150, 210):
+                ts = sleep_start - pd.Timedelta(minutes=offset_min)
+                stress_rows.append({"date": str(date.date()), "timestamp": ts, "value": 65 if high else 20})
+                hr_rows.append({"date": str(date.date()), "timestamp": ts, "value": 80 if high else 58})
+            # Sample well outside the window; must be excluded from the average.
+            outside_ts = sleep_start - pd.Timedelta(hours=10)
+            stress_rows.append({"date": str(date.date()), "timestamp": outside_ts, "value": 5})
+            hr_rows.append({"date": str(date.date()), "timestamp": outside_ts, "value": 200})
+        daily = analysis.enrich_daily(pd.DataFrame(rows))
+        sleep_timing = pd.DataFrame(timing_rows)
+        stress_intraday = pd.DataFrame(stress_rows)
+        hr_intraday = pd.DataFrame(hr_rows)
+
+        model = analysis.compute_prebed_discovery(
+            daily,
+            sleep_timing=sleep_timing,
+            stress_intraday=stress_intraday,
+            hr_intraday=hr_intraday,
+            min_pairs=5,
+        )
+
+        by_pair = {(r["x_col"], r["y_col"]): r for r in model["relationships"]}
+        self.assertIn(("stress_4h_prebed", "sleep_score"), by_pair)
+        self.assertIn(("hr_4h_prebed", "sleep_score"), by_pair)
+        self.assertIn(("stress_4h_prebed", "next_day_stress"), by_pair)
+        self.assertIn(("hr_4h_prebed", "next_day_stress"), by_pair)
+        self.assertLess(by_pair[("stress_4h_prebed", "sleep_score")]["correlation"], 0)
+        self.assertLess(by_pair[("hr_4h_prebed", "sleep_score")]["correlation"], 0)
+        # 8 same-night pairs; the far-outside-window samples (5 / 200) must not
+        # dilute the per-day average, so each day's x lands exactly on 20/65 or 58/80.
+        self.assertEqual(by_pair[("stress_4h_prebed", "sleep_score")]["pairs"], 8)
+        stress_x_values = {row["x"] for row in by_pair[("stress_4h_prebed", "sleep_score")]["rows"]}
+        self.assertEqual(stress_x_values, {20.0, 65.0})
+        hr_x_values = {row["x"] for row in by_pair[("hr_4h_prebed", "sleep_score")]["rows"]}
+        self.assertEqual(hr_x_values, {58.0, 80.0})
+
     def test_discovery_chart_renders_marker_points(self):
         model = {
             "relationships": [{
