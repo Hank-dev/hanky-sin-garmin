@@ -224,7 +224,7 @@ iframe[srcdoc*="plotly"],
   font-variant-numeric:tabular-nums;letter-spacing:-.02em;display:flex;align-items:baseline;gap:5px;color:#fff;}
 .tile .tv u{font-family:var(--font-mono);font-size:11px;font-weight:500;color:var(--text-faint);text-decoration:none;}
 .tile .spark{width:100%;height:30px;display:block;margin-top:auto;}
-.tile .spark-empty{height:30px;margin-top:auto;border-bottom:1px dashed var(--border-2);opacity:.5;}
+.tile .spark-empty,.tile .tile-spacer{height:30px;margin-top:auto;border-bottom:1px dashed var(--border-2);opacity:.5;}
 .tile-sub{font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-top:auto;}
 .delta{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;font-weight:600;
   font-variant-numeric:tabular-nums;white-space:nowrap;} .delta .lbl{color:var(--text-faint);font-weight:500;}
@@ -945,7 +945,7 @@ def _tile(label, value, unit, spark, delta) -> str:
 
 def _simple_tile(label, value, unit="", sub="") -> str:
     unit_html = f"<u>{unit}</u>" if unit else ""
-    sub_html = f'<div class="tile-sub">{sub}</div>' if sub else '<div class="spark-empty"></div>'
+    sub_html = f'<div class="tile-sub">{sub}</div>' if sub else '<div class="tile-spacer"></div>'
     return f"""<div class="card tile">
       <div class="tile-top"><span class="tl">{label}</span></div>
       <div class="tv tnum">{value}{unit_html}</div>{sub_html}</div>"""

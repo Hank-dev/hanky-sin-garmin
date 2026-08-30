@@ -15,7 +15,7 @@ class ChartRenderingTest(unittest.TestCase):
         )
 
         self.assertNotIn("<style", html)
-        self.assertIn('style="width:0.0%"', html)
+        self.assertIn('style="--ring-color:var(--text-faint)"', html)
         self.assertIn("TRAIN EASY", html)
 
     def test_activities_table_humanizes_type_and_uses_fixed_columns(self):

@@ -1,38 +1,44 @@
 # Garmin Coach
 
-A private, self-hosted fitness app that **auto-syncs your Garmin data**, **visualises**
-recovery and training, and runs **Claude-powered analysis** (readiness coaching,
-trend/anomaly detection, plain-English summaries). Weighted toward sleep / HRV /
-recovery, with all-round coverage.
+A private, self-hosted health-data product that turns Garmin exports into **personal recovery baselines, training-load signals, and safety-gated coaching**. It covers the full path from authenticated ingestion and SQLite history to an operational dashboard and optional Claude analysis.
 
-Everything runs on your own machine. Your data lives in a local SQLite file.
+![Garmin Coach recovery cockpit](preview/cockpit-desktop-hero.png)
 
----
+> The preview uses synthetic demonstration data. Real health records, tokens, databases, and credentials are excluded from the repository.
+
+## Recruiter quick read
+
+| Signal | Evidence in this repository |
+|---|---|
+| **Health-data analytics** | Rolling personal baselines, HRV deviation, sleep debt, acute:chronic workload ratio, and anomaly flags. |
+| **Data engineering** | Incremental Garmin sync, raw-payload retention, normalized SQLite tables, late-upload catch-up, and idempotent refreshes. |
+| **Product judgement** | Data-quality gates suppress confident recommendations when observations are stale, sparse, or physiologically implausible. |
+| **Delivery** | Streamlit UI, cron-friendly operation, and an automated pytest suite (271 tests). |
 
 ## How it works
 
-```
-Garmin Connect ──(garminconnect + garth, OAuth)──▶ sync.py ──▶ SQLite (garmin.db)
-                                                                   │
-                                              analysis.py (rolling baselines,
-                                              HRV deviation, sleep debt, ACWR)
-                                                                   │
-                                   app.py (Streamlit dashboard) ───┤
-                                                                   │
-                                   ai.py (Anthropic API) ──────────┘
+```mermaid
+flowchart LR
+    A[Garmin Connect] -->|garminconnect + garth| B[sync.py]
+    B --> C[(Local SQLite)]
+    C --> D[analysis.py]
+    D --> E[Personal baselines and safety gates]
+    E --> F[Streamlit dashboard]
+    E --> G[Optional Claude analysis]
 ```
 
-- **`sync.py`** — pulls data from Garmin and writes it to SQLite. Run by cron daily.
-- **`app.py`** — the dashboard you open in a browser.
-- No data leaves your machine except the compact metrics summary you explicitly
-  send to Anthropic when you click "Analyse".
+- **`sync.py`** pulls Garmin data and writes normalized records plus selected raw payloads to SQLite.
+- **`analysis.py`** derives rolling baselines, recovery deviations, sleep debt, and workload signals.
+- **`app.py`** and **`cockpit.py`** render the dashboard and sparse/error states.
+- No health data leaves the machine except the compact metrics summary a user explicitly sends for optional model analysis.
 
 ---
 
 ## Setup (one time)
 
 ```bash
-cd garmin-coach
+git clone https://github.com/Hank-dev/hanky-sin-garmin.git
+cd hanky-sin-garmin
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
