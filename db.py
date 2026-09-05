@@ -286,9 +286,33 @@ EXPERIMENT_COLS = [
 def connect():
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
         conn.commit()
+    finally:
+        conn.close()
+
+
+@contextmanager
+def transaction():
+    """Yield a single connection for atomic multi-row writes.
+    All writes within the block commit together, or roll back on error."""
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -347,15 +371,20 @@ def init_db():
 
 
 def upsert_daily(record: dict):
-    """record: dict with any subset of DAILY_COLS. Must include 'date'."""
-    cols = [c for c in DAILY_COLS if c in record]
+    """record: dict with any subset of DAILY_COLS. Must include 'date'.
+    None values are skipped to avoid overwriting existing data."""
+    cols = [c for c in DAILY_COLS if c in record and record[c] is not None]
     placeholders = ", ".join("?" for _ in cols)
     collist = ", ".join(cols)
     updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c != "date")
-    sql = (
-        f"INSERT INTO daily_metrics ({collist}) VALUES ({placeholders}) "
-        f"ON CONFLICT(date) DO UPDATE SET {updates}, updated_at=datetime('now')"
-    )
+    if updates:
+        sql = (
+            f"INSERT INTO daily_metrics ({collist}) VALUES ({placeholders}) "
+            f"ON CONFLICT(date) DO UPDATE SET {updates}, updated_at=datetime('now')"
+        )
+    else:
+        # Only date key with non-None value — use INSERT OR IGNORE
+        sql = f"INSERT OR IGNORE INTO daily_metrics ({collist}) VALUES ({placeholders})"
     with connect() as conn:
         conn.execute(sql, [record[c] for c in cols])
 
@@ -405,7 +434,7 @@ def save_raw(date: str, endpoint: str, payload):
         )
 
 
-def _upsert(table, cols_def, record, pk, touch_updated=True):
+def _upsert(table, cols_def, record, pk, touch_updated=True, conn=None):
     cols = [c for c in cols_def if c in record]
     placeholders = ", ".join("?" for _ in cols)
     collist = ", ".join(cols)
@@ -417,12 +446,16 @@ def _upsert(table, cols_def, record, pk, touch_updated=True):
         if updates else
         f"INSERT OR IGNORE INTO {table} ({collist}) VALUES ({placeholders})"
     )
-    with connect() as conn:
-        conn.execute(sql, [record[c] for c in cols])
+    params = [record[c] for c in cols]
+    if conn is None:
+        with connect() as owned:
+            owned.execute(sql, params)
+    else:
+        conn.execute(sql, params)
 
 
-def upsert_exercise(record: dict):
-    _upsert("exercises", EXERCISE_COLS, record, "exercise_id", touch_updated=False)
+def upsert_exercise(record: dict, conn=None):
+    _upsert("exercises", EXERCISE_COLS, record, "exercise_id", touch_updated=False, conn=conn)
 
 
 def upsert_routine(record: dict):
@@ -445,12 +478,12 @@ def upsert_routine_exercise(record: dict):
         conn.execute(sql, [record[c] for c in cols])
 
 
-def upsert_strength_session(record: dict):
-    _upsert("strength_sessions", SESSION_COLS, record, "session_id")
+def upsert_strength_session(record: dict, conn=None):
+    _upsert("strength_sessions", SESSION_COLS, record, "session_id", conn=conn)
 
 
-def upsert_strength_set(record: dict):
-    _upsert("strength_sets", SET_COLS, record, "set_id", touch_updated=False)
+def upsert_strength_set(record: dict, conn=None):
+    _upsert("strength_sets", SET_COLS, record, "set_id", touch_updated=False, conn=conn)
 
 
 def delete_strength_set(set_id: str):

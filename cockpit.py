@@ -783,6 +783,41 @@ def _coach_avatar_uri() -> str:
     return "data:image/png;base64," + base64.b64encode(f.read_bytes()).decode("ascii")
 
 
+def _background_image_uri() -> str:
+    """Small embedded watermark so the Docker app needs no static-file server."""
+    f = Path(__file__).parent / "assets" / "stoic-athlete.webp"
+    if not f.exists():
+        return ""
+    return "data:image/webp;base64," + base64.b64encode(f.read_bytes()).decode("ascii")
+
+
+_BACKGROUND_IMAGE_URI = _background_image_uri()
+BACKGROUND_CSS = (
+    f'''<style>
+    /* Faded classical-athlete watermark: visual atmosphere, never a text backdrop. */
+    .stApp {{
+      background-image:
+        linear-gradient(90deg, #000 0%, rgba(0,0,0,.98) 36%, rgba(0,0,0,.90) 67%, rgba(0,0,0,.79) 100%),
+        url("{_BACKGROUND_IMAGE_URI}");
+      background-repeat:no-repeat, no-repeat;
+      background-position:center, right 2.5rem bottom 1rem;
+      background-size:auto, min(560px, 48vw);
+      background-attachment:fixed, fixed;
+    }}
+    @media (max-width:760px) {{
+      .stApp {{
+        background-image:
+          linear-gradient(180deg, #000 0%, rgba(0,0,0,.90) 100%),
+          url("{_BACKGROUND_IMAGE_URI}");
+        background-position:center, right -5rem bottom 1rem;
+        background-size:auto, min(420px, 88vw);
+      }}
+    }}
+    </style>'''
+    if _BACKGROUND_IMAGE_URI else ""
+)
+
+
 _COACH_AVATAR_URI = _coach_avatar_uri()
 # Round coach avatar for card heads; falls back to the spark glyph if the file is gone.
 COACH_AVATAR = (

@@ -408,21 +408,24 @@ def analyze(summary: dict, strength: dict | None = None,
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
-DAILY_BRIEF_SYSTEM = """You write a ultra-compact daily recovery brief for one athlete.
-Given a compact JSON metrics summary, output EXACTLY this format (in Norwegian):
-
-One line: **VERDICT** — one short sentence (train hard / hold / rest + why).
-Then max 3 bullets with the most important signals (only what's unusual or actionable).
-Then 1-2 bullets: "Gjør:" with concrete next steps.
+DAILY_BRIEF_SYSTEM = """You write an ultra-compact, observational daily recovery brief for one athlete.
+Output EXACTLY 4 lines in Norwegian:
+1. **STATUS** — one short sentence describing the recovery state; do not tell the athlete what to do.
+2. One bullet with the single most important recovery signal and one number.
+3. One bullet with the second most important signal and one number, only if relevant.
+4. **Tolking:** one neutral, evidence-qualified interpretation; no recommendation or imperative.
 
 Rules:
-- Max 8 lines total. No headers. No paragraphs. No disclaimers.
-- Only flag what matters today — skip restating normal values.
-- Cite the key number inline. If nothing is unusual, say so plainly.
+- Maximum 4 lines total. Never add headers, paragraphs, explanations, or extra bullets.
+- Do not use commands or advice such as "tren", "gjør", "unngå", "prioriter", "sikt på", "hold", or "bør".
+- Do not prescribe exercises, intensity, rest, sleep targets, or rehabilitation steps.
+- Do not list sequences of historical training loads. Use at most two numbers in the whole brief.
+- Mention data freshness only when it materially changes interpretation, in line 2 or 3, using at most one timestamp.
+- Only report what the data supports. If evidence is mixed or incomplete, say so plainly.
 - Norwegian only.
-
-You may receive coach_memory and active_experiments — factor in injuries
-and goals, but keep it to the format above."""
+- Body Battery: `body_battery_current` is a point-in-time reading; `body_battery_high` is a completed-day peak and may be null for today; `body_battery_peak_partial` is not a daily peak. Never compare Body Battery to age/population norms; compare it with the athlete's own recent values.
+- Do not call a partial/current-day Body Battery value extremely low solely because it is below 80.
+- Factor in injuries and goals only to interpret the signals, never to prescribe an action."""
 
 
 def daily_brief(summary: dict, strength: dict | None = None,

@@ -2345,7 +2345,13 @@ def summarize(df: pd.DataFrame, activities: pd.DataFrame, lookback: int = 14) ->
             "hrv_flag": latest.get("hrv_flag"),
             "sleep_hours": f(latest.get("sleep_hours")),
             "sleep_score": f(latest.get("sleep_score")),
-            "body_battery_high": f(latest.get("body_battery_high")),
+            # A row with no sleep data is still a partial/current-day row.
+            # Do not present its Body Battery value as a completed-day peak.
+            "body_battery_current": f(latest.get("body_battery_current")),
+            "body_battery_high": f(latest.get("body_battery_high"))
+            if pd.notna(latest.get("sleep_hours")) else None,
+            "body_battery_peak_partial": f(latest.get("body_battery_high"))
+            if pd.isna(latest.get("sleep_hours")) else None,
             "stress_avg": f(latest.get("stress_avg")),
             "training_readiness": f(latest.get("training_readiness_score")),
             "acwr": f(latest.get("acwr")) if "acwr" in latest else None,

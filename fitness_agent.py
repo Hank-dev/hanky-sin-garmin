@@ -81,9 +81,13 @@ def parse_fitness_command(text: str) -> tuple[str, str]:
         "recover": "recovery",
         "experiment": "experiment",
         "exp": "experiment",
+        "våknet": "våknet",
+        "woke": "våknet",
+        "early_wake": "våknet",
+        "tidlig": "våknet",
     }
     cmd = aliases.get(head.lower(), head.lower())
-    if cmd not in {"help", "status", "plan", "simulate", "log", "note", "notes", "session", "response", "recovery", "experiment", "why"}:
+    if cmd not in {"help", "status", "plan", "simulate", "log", "note", "notes", "session", "response", "recovery", "experiment", "why", "våknet"}:
         return "help", text
     return cmd, tail.strip()
 
