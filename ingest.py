@@ -36,13 +36,27 @@ def dig(obj, *paths, default=None):
     return default
 
 
+_sync_failures = []
+
+
 def safe(fn, *args):
-    """Call a Garmin getter, returning None on any error (missing data, etc.)."""
+    """Wrap a Garmin API call. Returns None on failure, but tracks failures."""
     try:
         return fn(*args)
     except Exception as e:
         print(f"   ! {fn.__name__}({args}) -> {type(e).__name__}: {e}")
+        _sync_failures.append(f"{fn.__name__}: {type(e).__name__}: {e}")
         return None
+
+
+def get_sync_failures():
+    """Return list of failure messages from safe() calls since last reset."""
+    return list(_sync_failures)
+
+
+def reset_sync_failures():
+    """Clear the failure tracker (call at start of each sync run)."""
+    _sync_failures.clear()
 
 
 def _call_first(client, names, *args):
@@ -268,6 +282,12 @@ def ingest_day(client, d: str):
         rec["hr_overnight_low"] = low
         rec["hr_bedtime"] = pre_sleep
 
+    # Don't upsert if no fields resolved from API (prevents NULL overwrites)
+    real_fields = {k: v for k, v in rec.items() if k != "date" and v is not None}
+    if not real_fields:
+        print(f"   Skipping {d}: no fields resolved from API")
+        return rec
+
     db.upsert_daily(rec)
     return rec
 
@@ -388,7 +408,8 @@ def smart_sync_days(
     return min(int(max_days), days)
 
 
-def backfill(client, days: int = 7):
+def backfill(client, days: int = 7) -> bool:
+    reset_sync_failures()
     db.init_db()
     days = max(1, int(days))
     today = date.today()
@@ -403,4 +424,11 @@ def backfill(client, days: int = 7):
     n_bm = ingest_body_metrics(client, start.isoformat(), today.isoformat())
     print(f"Stored {n_bm} body-metric day(s).")
     ingest_profile(client)
+    failures = get_sync_failures()
+    if failures:
+        print(f"Done with {len(failures)} failure(s).")
+        for msg in failures:
+            print(f"   ! {msg}")
+        return False
     print("Done.")
+    return True

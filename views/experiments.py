@@ -12,12 +12,14 @@ import db
 import analysis
 import ai
 import cockpit
+import fitness_agent
 
 config = importlib.reload(config)
 db = importlib.reload(db)
 analysis = importlib.reload(analysis)
 ai = importlib.reload(ai)
 cockpit = importlib.reload(cockpit)
+fitness_agent = importlib.reload(fitness_agent)
 
 db.init_db()
 
@@ -240,11 +242,67 @@ def _render_experiment(exp_row, completed=False):
                     st.rerun()
 
 
+def render_recovery_learner():
+    """Recovery state using the deterministic response/recovery learner."""
+    if daily.empty:
+        st.info("Sync Garmin history to build the recovery learner.")
+        return
+    try:
+        events = db.load_daily_events_df(start=fitness_agent._iso_days_ago(120))
+        response = fitness_agent.compute_session_response(
+            daily, acts, db.load_strength_sessions_df(), events)
+        speed = fitness_agent.compute_recovery_speed_model(
+            daily, acts, db.load_strength_sessions_df(), events)
+    except Exception as e:
+        st.caption(f"Recovery learner unavailable: {e}")
+        return
+
+    verdict = str(response.get("verdict") or response.get("status") or "learning")
+    verdict_label = {
+        "good_response": "Recovered / absorbing",
+        "acceptable_load": "Partly recovered",
+        "hard_hit": "Not recovered",
+        "confounded": "Confounded",
+        "pending": "Pending next metrics",
+        "learning": "Learning",
+    }.get(verdict, verdict.replace("_", " ").title())
+    speed_label = str(speed.get("speed") or speed.get("status") or "learning").upper()
+    avg_days = fitness_agent._fmt(speed.get("avg_days"), "d", 1)
+    response_metrics = response.get("metrics") or {}
+    hrv_delta = (response_metrics.get("hrv_overnight_avg") or {}).get("delta")
+    rhr_delta = (response_metrics.get("resting_hr") or {}).get("delta")
+    bb_delta = (response_metrics.get("body_battery_high") or {}).get("delta")
+
+    with st.container(border=True):
+        c1, c2 = st.columns([0.4, 0.6], vertical_alignment="center")
+        c1.metric("Recovery speed", f"{speed_label} {avg_days}".strip())
+        c2.markdown(f"**{verdict_label}**")
+        st.caption(
+            f"HRV {fitness_agent._fmt(hrv_delta, ' ms', 1)}, "
+            f"RHR {fitness_agent._fmt(rhr_delta, ' bpm', 1)}, "
+            f"BB {fitness_agent._fmt(bb_delta, '', 1)} vs baseline"
+        )
+        with st.expander("Details", expanded=False):
+            detail = []
+            if response.get("status") == "ready":
+                detail.append(f"Last stimulus {response.get('session_date')} → {response.get('next_date')}")
+            if speed.get("by_bucket"):
+                buckets = ", ".join(f"{k} {fitness_agent._fmt(v, 'd', 1)}" for k, v in speed["by_bucket"].items())
+                detail.append(f"Dose recovery: {buckets}")
+            if response.get("confounders"):
+                detail.append("Confounded by " + ", ".join(
+                    fitness_agent._fmt_event_type(e.get("event_type")) for e in response["confounders"][:3]))
+            st.caption(" · ".join(detail) if detail else "Learns from training days and next-morning HRV/RHR return to baseline.")
+
+
 # ── page layout with tabs ────────────────────────────────────────────────────
 
-lab_tab, stress_tab, corr_tab, exp_tab = st.tabs(
-    ["Health Lab", "Stress", "Correlations", "Experiments"]
+rec_tab, lab_tab, stress_tab, corr_tab, exp_tab = st.tabs(
+    ["Recovery", "Health Lab", "Stress", "Correlations", "Experiments"]
 )
+
+with rec_tab:
+    render_recovery_learner()
 
 with lab_tab:
     render_health_lab()

@@ -18,6 +18,7 @@ cockpit = importlib.reload(cockpit)
 
 st.set_page_config(page_title="Hankø Fitness Hub", page_icon="🏃", layout="wide")
 st.markdown(cockpit.CSS, unsafe_allow_html=True)
+st.markdown(cockpit.BACKGROUND_CSS, unsafe_allow_html=True)
 
 # Brand lockup pinned at the top of the sidebar (st.logo's slot sits above the
 # nav). It also renders in the app header; cockpit.CSS hides that duplicate so the

@@ -1,0 +1,10 @@
+.git
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.ruff_cache/
+.pytest_cache/
+.env
+*.db
+.streamlit/

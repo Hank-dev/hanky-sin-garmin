@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timedelta
 
 # Make sure we can find project modules
-sys.path.insert(0, "/home/johannes/apps/hanky-sin-garmin")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import db
 import analysis

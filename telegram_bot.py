@@ -17,6 +17,7 @@ import math
 import os
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import urllib.parse
@@ -35,6 +36,10 @@ BASE_DIR = Path(__file__).resolve().parent
 MAX_MESSAGE_LEN = 3900
 DEFAULT_SYNC_DAYS = 7
 MAX_SYNC_DAYS = 365
+
+# Guards against overlapping /sync runs. The poll loop is single-threaded, so
+# the read/check/set in handle_authorized_command cannot race.
+_sync_in_progress = False
 
 
 class TelegramConfigError(RuntimeError):
@@ -263,7 +268,8 @@ def format_today(summary: dict[str, Any], capacity: dict[str, Any] | None = None
     return "\n".join(lines)
 
 
-def run_sync(days: int) -> str:
+def _run_sync_subprocess(days: int) -> str:
+    """Run sync.py for the given day count and return a status message. Blocks."""
     cmd = [sys.executable, str(BASE_DIR / "sync.py"), "--days", str(days)]
     try:
         proc = subprocess.run(
@@ -284,6 +290,17 @@ def run_sync(days: int) -> str:
     if proc.returncode != 0:
         return f"Sync failed with exit code {proc.returncode}.\n\n{tail}"
     return f"Synced the last {days} day(s)." + (f"\n\n{tail}" if tail else "")
+
+
+def _run_sync_background(chat_id: int, days: int) -> None:
+    """Background sync worker. Posts the result back to the chat when done."""
+    global _sync_in_progress
+    try:
+        send_message(chat_id, _run_sync_subprocess(days))
+    except Exception as e:
+        send_message(chat_id, f"Sync failed: {e}")
+    finally:
+        _sync_in_progress = False
 
 
 HELP_TEXT = """Hanky Telegram bot commands:
@@ -322,6 +339,7 @@ def _unauthorized_text(user_id: int | None) -> str:
 
 
 def handle_authorized_command(command: str, arg: str, chat_id: int) -> str | None:
+    global _sync_in_progress
     if command == "/today":
         send_chat_action(chat_id)
         ctx = build_context()
@@ -329,8 +347,19 @@ def handle_authorized_command(command: str, arg: str, chat_id: int) -> str | Non
 
     if command == "/sync":
         days = parse_sync_days(arg)
-        send_message(chat_id, f"Starting Garmin sync for the last {days} day(s)...")
-        return run_sync(days)
+        if _sync_in_progress:
+            send_message(chat_id, "⏳ Sync already running — I'll notify you when it finishes.")
+            return ""
+        _sync_in_progress = True
+        try:
+            send_message(chat_id, f"🔄 Sync started for the last {days} day(s) — I'll notify you when done.")
+            threading.Thread(
+                target=_run_sync_background, args=(chat_id, days), daemon=True
+            ).start()
+        except Exception:
+            _sync_in_progress = False
+            raise
+        return ""
 
     if command == "/note":
         if not arg:
@@ -415,8 +444,9 @@ def handle_update(update: dict[str, Any], allowed_ids: set[int]) -> None:
         reply = "Command failed. Check the bot logs on the VPS."
 
     if reply is None:
-        reply = "Unknown command. Send /help for options."
-    send_message(chat_id, reply)
+        send_message(chat_id, "Unknown command. Send /help for options.")
+    elif reply:
+        send_message(chat_id, reply)
 
 
 def poll_forever() -> None:

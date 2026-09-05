@@ -1,0 +1,26 @@
+services:
+  garmin-app:
+    build: .
+    image: hanky-garmin:latest
+    container_name: hanky-garmin
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "100.76.64.87:8501:8501"
+    volumes:
+      - garmin-db:/app/data
+      - garmin-tokens:/app/.garmin_tokens
+      - ./.streamlit:/app/.streamlit:ro
+    environment:
+      - DB_PATH=/app/data/garmin.db
+      - GARMIN_TOKENSTORE=/app/.garmin_tokens
+    init: true
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: "0.5"
+
+volumes:
+  garmin-db:
+  garmin-tokens:
