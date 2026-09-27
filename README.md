@@ -30,7 +30,7 @@ flowchart LR
 - **`sync.py`** pulls Garmin data and writes normalized records plus selected raw payloads to SQLite.
 - **`analysis.py`** derives rolling baselines, recovery deviations, sleep debt, and workload signals.
 - **`app.py`** and **`cockpit.py`** render the dashboard and sparse/error states.
-- No health data leaves the machine except the compact metrics summary a user explicitly sends for optional model analysis.
+- The Streamlit app sends compact derived metrics to Anthropic for optional analysis; when an API key is configured, its weekly summary can also be generated automatically on first render. The Rust preview has no network calls.
 
 ---
 
@@ -73,6 +73,17 @@ python sync.py --days 90      # pull the last 90 days
 ```bash
 streamlit run app.py
 ```
+
+### Local Rust desktop preview (partial feature set)
+
+The native egui client reads and edits an existing Garmin Coach SQLite file without starting Streamlit or a browser:
+
+```bash
+cd desktop
+cargo run --release -- --db /absolute/path/to/garmin.db
+```
+
+Back up your database before editing it. This is not yet a full port: Garmin sync, AI coaching, advanced analytics, imports and the Telegram bot remain in the Python app. See [desktop/README.md](desktop/README.md) for supported screens and [the parity inventory](docs/rust-port-parity.md) for the remaining work.
 
 ---
 
