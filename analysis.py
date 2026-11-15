@@ -193,8 +193,12 @@ def enrich_daily(df: pd.DataFrame) -> pd.DataFrame:
         df["hrv_overnight_avg"].rolling(28, min_periods=7).mean()
     )
 
+    # Garmin's baseline band is meant for the 7-night average; a single night
+    # (night-to-night CV is often 20 %+) would flag about 3x too often.
     def hrv_flag(row):
-        v = row["hrv_overnight_avg"]
+        if pd.isna(row["hrv_overnight_avg"]):
+            return None
+        v = row["hrv_7d"]
         if pd.isna(v):
             return None
         lo, hi = row["hrv_baseline_low"], row["hrv_baseline_high"]
@@ -211,13 +215,25 @@ def enrich_daily(df: pd.DataFrame) -> pd.DataFrame:
 
     df["hrv_flag"] = df.apply(hrv_flag, axis=1)
 
-    # RHR elevation vs 28d baseline (>+5% is a common under-recovery heuristic)
-    df["rhr_elevated"] = (df["resting_hr"] > 1.05 * df["rhr_28d"]).where(df["rhr_28d"].notna())
-
     # Sleep debt vs personal need
     df["sleep_debt_h"] = config.SLEEP_NEED_HOURS - df["sleep_hours"]
 
-    return _add_daily_deviations(df)
+    df = _add_daily_deviations(df)
+    # RHR elevated: today >= 1.5 SD above its prior-28-day baseline, or the
+    # 7-day mean >= 3 bpm above it. A flat +5 % fired on single-night noise.
+    base = df["rhr_baseline_28d"]
+    df["rhr_elevated"] = ((df["rhr_z"] >= 1.5) | (df["rhr_7d"] - base >= 3)).where(base.notna())
+    return df
+
+
+def rolling_sleep_debt(hours, need: float, payback: float = 0.5) -> float | None:
+    """Sleep debt over the given nights: hours short of need, minus `payback`
+    of each surplus hour, floored at 0. The one debt definition everywhere."""
+    s = pd.to_numeric(pd.Series(hours, dtype="float64"), errors="coerce").dropna()
+    if s.empty:
+        return None
+    gap = need - s
+    return float(max(0.0, gap.clip(lower=0).sum() - payback * (-gap).clip(lower=0).sum()))
 
 
 def _add_daily_deviations(df: pd.DataFrame) -> pd.DataFrame:
@@ -1282,6 +1298,46 @@ def _attach_sleep_regularity(df: pd.DataFrame, sleep_timing: pd.DataFrame | None
             out[col] = out[timing_col].combine_first(out[col])
             out = out.drop(columns=[timing_col])
     return out
+
+
+def sleep_timing_regularity(sleep_timing: pd.DataFrame | None, window: int = 7,
+                            min_nights: int = 4, min_hours: float = 3.0) -> pd.DataFrame:
+    """Bedtime, wake time and sleep midpoint per night, plus their rolling SD
+    over `window` nights (minutes). The midpoint SD is the headline figure;
+    above ~60 min is the commonly cited mark for irregular sleep timing.
+
+    Bed and midpoint count minutes from noon, wake from 18:00, so times either
+    side of midnight (or a late wake-up) don't wrap around. Records shorter
+    than `min_hours` (naps, broken recordings) are left out.
+    """
+    cols = ["date", "bed_min", "wake_min", "mid_min", "bed_sd", "wake_sd", "mid_sd"]
+    if sleep_timing is None or sleep_timing.empty or "sleep_start" not in sleep_timing:
+        return pd.DataFrame(columns=cols)
+    t = sleep_timing.copy()
+    for col in ("sleep_start", "sleep_end", "sleep_midpoint"):
+        t[col] = pd.to_datetime(t[col], errors="coerce")
+    t["date"] = pd.to_datetime(t["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    t = t.dropna(subset=["date", "sleep_start", "sleep_end", "sleep_midpoint"])
+    t = t[(t["sleep_end"] - t["sleep_start"]) >= pd.Timedelta(hours=min_hours)]
+    t = t.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+
+    def since(ts, anchor_min):
+        return ((ts.dt.hour * 60 + ts.dt.minute + ts.dt.second / 60.0) - anchor_min) % 1440
+
+    t["bed_min"] = since(t["sleep_start"], 720)
+    t["wake_min"] = since(t["sleep_end"], 1080)
+    t["mid_min"] = since(t["sleep_midpoint"], 720)
+    for src, dst in (("bed_min", "bed_sd"), ("wake_min", "wake_sd"), ("mid_min", "mid_sd")):
+        t[dst] = t[src].rolling(window, min_periods=min_nights).std()
+    return t[cols]
+
+
+def clock_from_noon(minutes: float | None, anchor_min: int = 720) -> str | None:
+    """Inverse of the anchors above: minutes since `anchor_min` -> "HH:MM"."""
+    if minutes is None or pd.isna(minutes):
+        return None
+    m = int(round(minutes + anchor_min)) % 1440
+    return f"{m // 60:02d}:{m % 60:02d}"
 
 
 def _minute_of_day(ts) -> float | None:

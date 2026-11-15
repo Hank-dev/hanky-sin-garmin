@@ -50,9 +50,9 @@ def test_question_payload_includes_predictive_readiness_summary():
 
 
 def test_answer_question_accepts_strength_kwarg_without_key(monkeypatch):
-    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(ai.config, "CLAUDE_BIN", "no-such-claude-bin")
     out = ai.answer_question("q", {"a": 1}, strength={"x": 1})
-    assert "ANTHROPIC_API_KEY" in out
+    assert "Claude Code" in out
 
 
 def test_sleep_question_payload_is_sleep_scoped():
@@ -70,14 +70,14 @@ def test_sleep_question_payload_is_sleep_scoped():
 
 
 def test_answer_sleep_question_without_key(monkeypatch):
-    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(ai.config, "CLAUDE_BIN", "no-such-claude-bin")
     out = ai.answer_sleep_question("q", {"latest": {"sleep_hours": 7.1}})
-    assert "ANTHROPIC_API_KEY" in out
+    assert "Claude Code" in out
 
 
 def test_coach_session_note_no_key_returns_empty(monkeypatch):
     import config, ai, importlib
-    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(config, "CLAUDE_BIN", "no-such-claude-bin")
     importlib.reload(ai)
     out = ai.coach_session_note({"status": "ok"}, {"day_type": "Push"}, [])
     assert out == ""
@@ -96,9 +96,9 @@ def test_coach_session_note_prompt_includes_coach_memory():
 
 
 def test_strength_overview_feedback_without_key(monkeypatch):
-    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(ai.config, "CLAUDE_BIN", "no-such-claude-bin")
     out = ai.strength_overview_feedback({"latest_session": {"name": "Lower"}})
-    assert "ANTHROPIC_API_KEY" in out
+    assert "Claude Code" in out
 
 
 def test_strength_overview_feedback_prompt_includes_coach_memory():

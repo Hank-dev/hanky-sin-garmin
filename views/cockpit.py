@@ -297,8 +297,8 @@ def render_weekly_summary():
         return
     ws = week["week_start"]
     st.markdown(cockpit.section_label("Weekly summary"), unsafe_allow_html=True)
-    if not config.ANTHROPIC_API_KEY:
-        st.caption("Set `ANTHROPIC_API_KEY` in .env to enable the weekly summary.")
+    if not ai.available():
+        st.caption("Log in to Claude Code (`claude`) to enable the weekly summary.")
         return
 
     full_key = f"weekly_summary_full_{ws}"
@@ -315,11 +315,15 @@ def render_weekly_summary():
     cached = None if regenerate else db.load_weekly_summary(ws)
     if cached is None:
         with st.spinner("Writing your weekly summary..."):
-            md = ai.weekly_summary(
-                week,
-                coach_memory=coach_memory_digest,
-                active_experiments=active_experiments,
-            )
+            try:
+                md = ai.weekly_summary(
+                    week,
+                    coach_memory=coach_memory_digest,
+                    active_experiments=active_experiments,
+                )
+            except ai.AIError as e:
+                st.caption(f"Weekly summary unavailable: {e}")
+                return
         db.save_weekly_summary(ws, config.ANTHROPIC_MODEL, md)
         cached = db.load_weekly_summary(ws)
     meta_label = _week_label(week["week_start"], week["week_end"])
@@ -487,7 +491,7 @@ question_payload = {
     "strength_profile": strength_summary,
     "selected_day": selected_day,
 }
-have_key = bool(config.ANTHROPIC_API_KEY)
+have_key = ai.available()
 
 for msg in st.session_state.health_chat:
     with st.chat_message(msg["role"]):
@@ -505,7 +509,7 @@ st.text_input(
     placeholder=(
         "Ask about sleep, stress, recovery, training load, or correlations..."
         if have_key else
-        "Set ANTHROPIC_API_KEY in .env to enable coach chat"
+        "Log in to Claude Code (`claude`) to enable coach chat"
     ),
     label_visibility="collapsed",
     disabled=not have_key,

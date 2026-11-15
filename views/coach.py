@@ -480,7 +480,7 @@ def _render_edit_memory(mid: int, r):
 
 
 def render_chat_tab(context: dict, memory_digest: dict, memory_count: int):
-    have_key = bool(config.ANTHROPIC_API_KEY)
+    have_key = ai.available()
     _ensure_chat_seed(context, memory_count)
 
     pending_prompt = None
@@ -542,7 +542,7 @@ def render_chat_tab(context: dict, memory_digest: dict, memory_count: int):
 
         with st.container(key="coach_messages"):
             if not have_key:
-                st.caption("Set `ANTHROPIC_API_KEY` in .env to enable coach chat.")
+                st.caption("Log in to Claude Code (`claude`) to enable coach chat.")
             _coach_av = cockpit._COACH_AVATAR_URI or None
             for msg in st.session_state.coach_chat:
                 _av = _coach_av if msg["role"] == "assistant" else None
@@ -690,8 +690,8 @@ def render_active_memories(memory: pd.DataFrame):
 def render_memory_suggestions(memory: pd.DataFrame, context: dict, memory_digest: dict):
     st.markdown(cockpit.section_label("Find things to remember"), unsafe_allow_html=True)
 
-    if not config.ANTHROPIC_API_KEY:
-        st.caption("Set `ANTHROPIC_API_KEY` in .env to enable AI suggestions.")
+    if not ai.available():
+        st.caption("Log in to Claude Code (`claude`) to enable AI suggestions.")
         return
 
     with st.container(key="coach_memory_suggestions_bar"):

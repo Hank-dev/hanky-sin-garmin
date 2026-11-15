@@ -47,8 +47,9 @@ cp .env.example .env        # then edit .env with your details
 
 Fill in `.env`:
 - `GARMIN_EMAIL` / `GARMIN_PASSWORD` — only used for the first login.
-- `ANTHROPIC_API_KEY` — from console.anthropic.com (for the AI tab).
-- `ANTHROPIC_MODEL` — defaults to `claude-sonnet-4-6`; change to whatever you have access to.
+- AI features run through [Claude Code](https://claude.com/claude-code) in headless mode (`claude -p`)
+  on its own login, so no API key: install it and run `claude` once to log in.
+- `ANTHROPIC_MODEL` — passed to `claude --model`; defaults to `sonnet`.
 - `SLEEP_NEED_HOURS` — your personal target (default 8).
 
 ### First login (interactive, handles MFA)

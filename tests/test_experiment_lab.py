@@ -216,9 +216,9 @@ def test_question_payload_defaults_active_experiments_empty():
 
 
 def test_interpret_experiment_without_key(monkeypatch):
-    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(ai.config, "CLAUDE_BIN", "no-such-claude-bin")
     out = ai.interpret_experiment({"name": "Mag", "metrics": {}})
-    assert "ANTHROPIC_API_KEY" in out
+    assert "Claude Code" in out
 
 
 def test_experiment_card_renders_verdicts_and_escapes():

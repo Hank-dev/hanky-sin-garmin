@@ -219,7 +219,7 @@ def test_parse_candidates_malformed_returns_empty():
 
 
 def test_suggest_memories_without_key_returns_empty(monkeypatch):
-    monkeypatch.setattr(ai.config, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(ai.config, "CLAUDE_BIN", "no-such-claude-bin")
     assert ai.suggest_memories({"a": 1}) == []
 
 

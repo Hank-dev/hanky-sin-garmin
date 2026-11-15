@@ -1,13 +1,60 @@
-"""AI analysis via the Anthropic API.
+"""AI analysis via Claude Code's headless mode (`claude -p`).
+
+Runs on the Claude Code login (subscription OAuth), not API credits.
 
 Sends the compact metrics summary (NOT raw time-series) to Claude and asks for
 three things: a plain-English readiness summary, flagged trends/anomalies, and
 concrete training advice grounded in the HRV / RHR / sleep / load signals.
 """
 import json
+import os
 import re
-import anthropic
+import shutil
+import subprocess
+import tempfile
+
 import config
+
+
+class AIError(RuntimeError):
+    """A Claude Code call failed (not logged in, usage limit, timeout...)."""
+
+
+def available() -> bool:
+    """True when the Claude Code CLI is installed; it supplies the login."""
+    return shutil.which(config.CLAUDE_BIN) is not None
+
+
+# Env vars that would make Claude Code bill an API key/console token instead of
+# the subscription login, or mark the call as nested inside another session.
+_STRIP_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+
+
+def _complete(system: str, prompt: str, model: str | None = None) -> str:
+    """One Claude turn: `system` as the system prompt, `prompt` as the user message.
+
+    No tools, no MCP, no settings/hooks/CLAUDE.md, no saved session: a plain
+    completion. Runs from the temp dir so no project context is picked up.
+    """
+    cmd = [config.CLAUDE_BIN, "-p", "--system-prompt", system,
+           "--tools", "", "--setting-sources", "", "--strict-mcp-config",
+           "--no-session-persistence", "--disable-slash-commands",
+           "--output-format", "json", "--model", model or config.ANTHROPIC_MODEL]
+    env = {k: v for k, v in os.environ.items() if k not in _STRIP_ENV}
+    try:
+        proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
+                              timeout=config.CLAUDE_TIMEOUT_S, env=env, cwd=tempfile.gettempdir())
+    except FileNotFoundError as e:
+        raise AIError("Claude Code (`claude`) is not installed") from e
+    except subprocess.TimeoutExpired as e:
+        raise AIError(f"Claude Code timed out after {config.CLAUDE_TIMEOUT_S} s") from e
+    try:
+        out = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise AIError((proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()[:300])
+    if out.get("is_error") or proc.returncode != 0:
+        raise AIError(str(out.get("result") or out.get("subtype") or f"exit {proc.returncode}")[:300])
+    return str(out.get("result") or "")
 
 SYSTEM = """You are an evidence-based endurance and recovery coach analysing one
 athlete's Garmin data. You receive a JSON summary of recent metrics, not raw
@@ -227,21 +274,16 @@ def _coach_session_note_prompt(
 def coach_session_note(strength_summary: dict, verdict: dict,
                        plan: list, model: str | None = None,
                        coach_memory: dict | None = None) -> str:
-    if not config.ANTHROPIC_API_KEY:
+    if not available():
         return ""
     try:
-        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        msg = client.messages.create(
-            model=model or config.ANTHROPIC_MODEL,
-            max_tokens=160,
-            system=COACH_NOTE_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": _coach_session_note_prompt(
+        text = _complete(
+            COACH_NOTE_SYSTEM,
+            _coach_session_note_prompt(
                     strength_summary, verdict, plan, coach_memory=coach_memory),
-            }],
+            model,
         )
-        return "".join(b.text for b in msg.content if b.type == "text").strip()
+        return text.strip()
     except Exception:
         return ""
 
@@ -260,21 +302,16 @@ def _strength_overview_feedback_prompt(
 
 def strength_overview_feedback(context: dict, model: str | None = None,
                                coach_memory: dict | None = None) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable AI strength feedback._"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable AI strength feedback._"
     try:
-        client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        msg = client.messages.create(
-            model=model or config.ANTHROPIC_MODEL,
-            max_tokens=420,
-            system=STRENGTH_FEEDBACK_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": _strength_overview_feedback_prompt(
+        text = _complete(
+            STRENGTH_FEEDBACK_SYSTEM,
+            _strength_overview_feedback_prompt(
                     context, coach_memory=coach_memory),
-            }],
+            model,
         )
-        return "".join(b.text for b in msg.content if b.type == "text").strip()
+        return text.strip()
     except Exception as e:
         return f"_Strength feedback failed: {e}_"
 
@@ -352,21 +389,15 @@ def _suggest_memories_payload(
 def suggest_memories(summary: dict, strength: dict | None = None,
                      existing_memories: dict | None = None,
                      model: str | None = None) -> list[dict]:
-    if not config.ANTHROPIC_API_KEY:
+    if not available():
         return []
     payload = _suggest_memories_payload(summary, strength, existing_memories)
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=700,
-        system=SUGGEST_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Propose new coach memories from this context:\n\n"
+    text = _complete(
+        SUGGEST_SYSTEM,
+        "Propose new coach memories from this context:\n\n"
                        + json.dumps(payload, indent=2),
-        }],
+        model,
     )
-    text = "".join(b.text for b in msg.content if b.type == "text")
     return _parse_memory_candidates(text)
 
 
@@ -387,25 +418,20 @@ def _experiment_block(active_experiments: list | None) -> str:
 def analyze(summary: dict, strength: dict | None = None,
             coach_memory: dict | None = None, active_experiments: list | None = None,
             model: str | None = None) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=1200,
-        system=SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Here is my recent Garmin summary as JSON:\n\n"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable AI analysis._"
+    text = _complete(
+        SYSTEM,
+        "Here is my recent Garmin summary as JSON:\n\n"
                        + json.dumps(summary, indent=2)
                        + "\n\nStrength-training profile:\n\n"
                        + json.dumps(strength or {}, indent=2)
                        + _memory_block(coach_memory)
                        + _experiment_block(active_experiments)
                        + "\n\nAnalyse it.",
-        }],
+        model,
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+    return text
 
 
 DAILY_BRIEF_SYSTEM = """You write an ultra-compact, observational daily recovery brief for one athlete.
@@ -432,46 +458,36 @@ def daily_brief(summary: dict, strength: dict | None = None,
                 coach_memory: dict | None = None,
                 active_experiments: list | None = None,
                 model: str | None = None) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable AI analysis._"
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=350,
-        system=DAILY_BRIEF_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Metrics summary:\n\n"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable AI analysis._"
+    text = _complete(
+        DAILY_BRIEF_SYSTEM,
+        "Metrics summary:\n\n"
                        + json.dumps(summary, indent=2)
                        + "\n\nStrength profile:\n\n"
                        + json.dumps(strength or {}, indent=2)
                        + _memory_block(coach_memory)
                        + _experiment_block(active_experiments),
-        }],
+        model,
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+    return text
 
 
 def weekly_summary(week_payload: dict, coach_memory: dict | None = None,
                    active_experiments: list | None = None,
                    model: str | None = None) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable the weekly summary._"
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=900,
-        system=WEEKLY_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Here is my completed-week summary as JSON:\n\n"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable the weekly summary._"
+    text = _complete(
+        WEEKLY_SYSTEM,
+        "Here is my completed-week summary as JSON:\n\n"
                        + json.dumps(week_payload, indent=2)
                        + _memory_block(coach_memory)
                        + _experiment_block(active_experiments)
                        + "\n\nWrite the recap.",
-        }],
+        model,
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+    return text
 
 
 def _sleep_question_payload(question, sleep_context, chat_history,
@@ -493,8 +509,8 @@ def answer_sleep_question(
     active_experiments: list | None = None,
     model: str | None = None,
 ) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable AI sleep questions._"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable AI sleep questions._"
     question = (question or "").strip()
     if not question:
         return "_Ask a sleep question first._"
@@ -505,18 +521,13 @@ def answer_sleep_question(
         coach_memory=coach_memory,
         active_experiments=active_experiments,
     )
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=900,
-        system=SLEEP_QUESTION_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Answer my sleep question using this compact local context:\n\n"
-                       + json.dumps(payload, indent=2)
-        }],
+    text = _complete(
+        SLEEP_QUESTION_SYSTEM,
+        "Answer my sleep question using this compact local context:\n\n"
+                       + json.dumps(payload, indent=2),
+        model,
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+    return text
 
 
 def _question_payload(question, summary, capacity, stress_leak_map,
@@ -559,8 +570,8 @@ def answer_question(
     personal_sleep_need: dict | None = None,
     predictive_readiness: dict | None = None,
 ) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable AI questions._"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable AI questions._"
     question = (question or "").strip()
     if not question:
         return "_Ask a question first._"
@@ -575,32 +586,22 @@ def answer_question(
         personal_sleep_need=personal_sleep_need,
         predictive_readiness=predictive_readiness,
     )
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=1000,
-        system=QUESTION_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Answer my question using this compact local health context:\n\n"
-                       + json.dumps(payload, indent=2)
-        }],
+    text = _complete(
+        QUESTION_SYSTEM,
+        "Answer my question using this compact local health context:\n\n"
+                       + json.dumps(payload, indent=2),
+        model,
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+    return text
 
 
 def interpret_experiment(result: dict, model: str | None = None) -> str:
-    if not config.ANTHROPIC_API_KEY:
-        return "_Set ANTHROPIC_API_KEY in .env to enable experiment interpretation._"
-    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model=model or config.ANTHROPIC_MODEL,
-        max_tokens=600,
-        system=INTERPRET_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": "Interpret this experiment result:\n\n"
+    if not available():
+        return "_Log in to Claude Code (`claude`) to enable experiment interpretation._"
+    text = _complete(
+        INTERPRET_SYSTEM,
+        "Interpret this experiment result:\n\n"
                        + json.dumps(result, indent=2),
-        }],
+        model,
     )
-    return "".join(b.text for b in msg.content if b.type == "text")
+    return text

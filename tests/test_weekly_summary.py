@@ -99,13 +99,13 @@ import ai
 
 class WeeklySummaryAITest(unittest.TestCase):
     def test_without_api_key_returns_note(self):
-        orig = config.ANTHROPIC_API_KEY
-        config.ANTHROPIC_API_KEY = ""
+        orig = config.CLAUDE_BIN
+        config.CLAUDE_BIN = "no-such-claude-bin"
         try:
             out = ai.weekly_summary({"status": "ready", "week_start": "2026-06-01"})
         finally:
-            config.ANTHROPIC_API_KEY = orig
-        self.assertIn("ANTHROPIC_API_KEY", out)
+            config.CLAUDE_BIN = orig
+        self.assertIn("Claude Code", out)
 
 
 import cockpit

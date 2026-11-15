@@ -8,10 +8,12 @@ agentic coaching.
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from datetime import date, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 import analysis
@@ -918,186 +920,119 @@ def compute_recovery_score(response: dict[str, Any], capacity: dict[str, Any] | 
 
 def compute_custom_readiness(
     daily_df: pd.DataFrame,
-    activities_df: pd.DataFrame,
+    activities_df: pd.DataFrame | None = None,
     strength_sessions_df: pd.DataFrame | None = None,
+    sleep_need: float | None = None,
 ) -> dict[str, Any]:
     """Deterministic 0-100 readiness score from personal Garmin data.
 
     Replaces Garmin's ``training_readiness_score`` for watches that don't
-    provide it. Blends four orthogonal signals, each scored 0-100:
+    provide it. Three signals, each scored 0-100:
 
-    **Recovery (45 %)** — how well did last night's sleep actually restore
-    the system?  Penalises HRV below baseline, RHR above baseline, sleep
-    hours below personal need, and Body Battery peak below recent average.
+    **HRV trend (45 %)**: 7-night mean of ln(rMSSD) against the 60 nights
+    before it, as z. Below -0.5 SD is out of the normal range (Plews/Buchheit);
+    one night alone is too noisy to act on. 85 + 30 z: the baseline mean
+    scores 85, +0.5 SD scores 100.
 
-    **Sleep debt (20 %)** — rolling 7-day sleep deficit.  Chronic
-    short-changing blunts adaptation regardless of how a single night
-    looks.
+    **Resting HR (25 %)**: today's z against its prior-28-day baseline;
+    85 - 20 z.
 
-    **Stress (20 %)** — average psychological/physiological stress over
-    the last 3 days plus high-stress minutes.  Sustained stress suppresses
-    parasympathetic recovery.
+    **Sleep (30 %)**: 7-night debt vs personal need
+    (``analysis.rolling_sleep_debt``; surplus nights pay back half).
 
-    **Load balance / ACWR (15 %)** — acute:chronic workload ratio.
-    Sweet-spot 0.8–1.3; both spikes (>1.5) and dips (<0.6) hurt.
+    Training load is not part of readiness: a rest week would lower the
+    score, and with a few sessions a week ACWR is mostly noise. Body Battery
+    and stress are left out because both derive from the same HRV signal.
 
-    Hard caps: if recovery zone is poor → max 45; under-recovered → max
-    60; ACWR > 1.5 → max 55.
+    REST needs agreement: with two or more of HRV below range, RHR elevated
+    and respiration up (the illness pattern) the score is capped at 45;
+    with fewer it never drops below 50.
     """
     empty: dict[str, Any] = {
         "score": None,
         "zone": "learning",
         "label": "Learning",
         "components": {},
+        "flags": [],
         "drivers": ["Need more data — sync Garmin metrics for a few days."],
     }
 
-    if daily_df is None or daily_df.empty:
+    if daily_df is None or daily_df.empty or len(daily_df) < 7:
         return empty
 
     df = daily_df.sort_values("date").copy()
     latest = df.iloc[-1]
-    n_days = len(df)
 
-    if n_days < 7:
-        return empty
+    if sleep_need is None:
+        try:
+            sleep_need = analysis.compute_personal_sleep_need(df).get("sleep_need_h")
+        except Exception:
+            sleep_need = None
+    sleep_need = float(sleep_need or config.SLEEP_NEED_HOURS)
 
-    # ── baselines (28-day where possible, fallback to 14d, then 7d) ──────
-    window = min(28, n_days)
-    bw = df.tail(window)
-    base_hrv = _num(bw["hrv_overnight_avg"].mean()) if "hrv_overnight_avg" in bw else None
-    base_rhr = _num(bw["resting_hr"].mean()) if "resting_hr" in bw else None
-    base_bb  = _num(bw["body_battery_high"].mean()) if "body_battery_high" in bw else None
-    base_sleep = _num(bw["sleep_hours"].mean()) if "sleep_hours" in bw else None
-
-    drivers: list[str] = []
     sub_scores: dict[str, float] = {}
+    penalties: list[tuple[str, float]] = []  # (reason, points lost)
 
-    # ═══ 1. Recovery state (45 %) ════════════════════════════════════════
-    penalties: list[tuple[str, float]] = []
+    # ═══ 1. HRV trend (45 %) ═════════════════════════════════════════════
+    hrv_low = False
+    if "hrv_overnight_avg" in df:
+        hrv = pd.to_numeric(df["hrv_overnight_avg"], errors="coerce")
+        ln = np.log(hrv.where(hrv > 0))
+        recent = ln.tail(7).dropna()
+        base = ln.iloc[:-7].tail(60).dropna()
+        if len(recent) >= 3 and len(base) >= 14 and base.std(ddof=0) > 0:
+            mean, sd = float(base.mean()), float(base.std(ddof=0))
+            z = (float(recent.mean()) - mean) / sd
+            hrv_low = z < -0.5
+            sub_scores["hrv"] = max(0.0, min(100.0, 85.0 + 30.0 * z))
+            if hrv_low:
+                penalties.append((
+                    f"HRV 7-night {math.exp(recent.mean()):.0f} ms, below normal "
+                    f"{math.exp(mean - 0.5 * sd):.0f}–{math.exp(mean + 0.5 * sd):.0f}",
+                    (100.0 - sub_scores["hrv"]) * 0.45))
+        elif latest.get("hrv_flag") in ("balanced", "elevated", "suppressed"):
+            # Too little history for our own range: Garmin's band vs the 7-night mean.
+            hrv_low = latest.get("hrv_flag") == "suppressed"
+            sub_scores["hrv"] = 60.0 if hrv_low else 85.0
+            if hrv_low:
+                penalties.append(("HRV 7-night below Garmin's baseline band", 40.0 * 0.45))
 
-    hrv_now = _num(latest.get("hrv_overnight_avg"))
-    rhr_now = _num(latest.get("resting_hr"))
-    sleep_now = _num(latest.get("sleep_hours"))
-    bb_now = _num(latest.get("body_battery_high"))
+    # ═══ 2. Resting HR (25 %) ════════════════════════════════════════════
+    rhr_high = latest.get("rhr_elevated") is True or latest.get("rhr_elevated") == 1.0
+    rz = _num(latest.get("rhr_z"))
+    if rz is not None:
+        sub_scores["rhr"] = max(0.0, min(100.0, 85.0 - 20.0 * rz))
+        if rz >= 1.0:
+            rhr, rbase = _num(latest.get("resting_hr")), _num(latest.get("rhr_baseline_28d"))
+            penalties.append((f"RHR {rhr:.0f} vs {rbase:.0f} bpm baseline",
+                              (100.0 - sub_scores["rhr"]) * 0.25))
 
-    if hrv_now is not None and base_hrv is not None and hrv_now < base_hrv:
-        d = base_hrv - hrv_now
-        penalties.append((f"HRV {hrv_now:.0f} vs {base_hrv:.0f} ms baseline", min(35.0, d * 2.0)))
-    elif hrv_now is not None and base_hrv is not None:
-        drivers.append(f"HRV {hrv_now:.0f} ms at/above baseline")
-
-    if rhr_now is not None and base_rhr is not None and rhr_now > base_rhr:
-        d = rhr_now - base_rhr
-        penalties.append((f"RHR {rhr_now:.0f} vs {base_rhr:.0f} bpm baseline", min(25.0, d * 5.0)))
-    elif rhr_now is not None and base_rhr is not None:
-        drivers.append(f"RHR {rhr_now:.0f} bpm at/below baseline")
-
-    if sleep_now is not None and base_sleep is not None and sleep_now < base_sleep:
-        d = base_sleep - sleep_now
-        penalties.append((f"Sleep {sleep_now:.1f}h vs {base_sleep:.1f}h baseline", min(15.0, d * 10.0)))
-
-    if bb_now is not None and base_bb is not None and bb_now < base_bb:
-        d = base_bb - bb_now
-        penalties.append((f"Body Battery {bb_now:.0f} vs {base_bb:.0f} peak", min(25.0, d * 0.5)))
-
-    recovery_score = max(0.0, min(100.0, 100.0 - sum(p for _, p in penalties)))
-    sub_scores["recovery"] = recovery_score
-    if penalties:
-        for label, _p in sorted(penalties, key=lambda item: item[1], reverse=True):
-            drivers.append(label)
-
-    # ═══ 2. Sleep debt (20 %) ════════════════════════════════════════════
-    sleep_need = getattr(config, "SLEEP_NEED_HOURS", 8.0)
-    recent_sleep = df.tail(7)
-    if "sleep_hours" in recent_sleep and recent_sleep["sleep_hours"].notna().any():
-        avg_sleep = _num(recent_sleep["sleep_hours"].mean()) or 0
-        debt = max(0.0, sleep_need - avg_sleep)
-        # 0 debt → 100; 1h debt → ~70; 2h+ debt → ~30
-        debt_score = max(0.0, 100.0 - debt * 35.0)
-        sub_scores["sleep_debt"] = min(100.0, debt_score)
+    # ═══ 3. Sleep debt (30 %) ════════════════════════════════════════════
+    debt = analysis.rolling_sleep_debt(df["sleep_hours"].tail(7), sleep_need) if "sleep_hours" in df else None
+    if debt is not None:
+        # 0 h → 100; 3 h → 70; 5 h → 50; 10 h+ → 0
+        sub_scores["sleep"] = max(0.0, 100.0 - debt * 10.0)
         if debt >= 1.0:
-            drivers.append(f"7-day sleep debt {debt:.1f}h vs need {sleep_need:.0f}h")
-        else:
-            drivers.append(f"7-day sleep {avg_sleep:.1f}h avg — on target")
-    else:
-        sub_scores["sleep_debt"] = 50.0
+            need_txt = f"{int(sleep_need)}:{round(sleep_need % 1 * 60):02d}"
+            penalties.append((f"7-night sleep debt {debt:.1f} h vs need {need_txt}",
+                              (100.0 - sub_scores["sleep"]) * 0.30))
 
-    # ═══ 3. Stress (20 %) ════════════════════════════════════════════════
-    if "stress_avg" in df and df["stress_avg"].notna().any():
-        recent_stress = df.tail(3)
-        stress_now = _num(recent_stress["stress_avg"].mean())
-        # 0 stress → 100; 30 → ~55; 45 → ~32; 60+ → floor
-        stress_score = max(0.0, 100.0 - (stress_now or 0) * 1.5)
-        sub_scores["stress"] = min(100.0, stress_score)
-        if stress_now is not None and stress_now >= 30:
-            drivers.append(f"3-day avg stress {stress_now:.0f} (elevated)")
-        elif stress_now is not None:
-            drivers.append(f"3-day avg stress {stress_now:.0f} (ok)")
-    else:
-        sub_scores["stress"] = 50.0
+    weights = {"hrv": 0.45, "rhr": 0.25, "sleep": 0.30}
+    total_w = sum(w for k, w in weights.items() if k in sub_scores)
+    if total_w == 0:
+        return empty
+    score = sum(sub_scores[k] * w for k, w in weights.items() if k in sub_scores) / total_w
 
-    # ═══ 4. Load balance / ACWR (15 %) ══════════════════════════════════
-    acwr = _num(latest.get("acwr"))
-    if acwr is not None and not pd.isna(acwr) and acwr > 0:
-        # Sweet spot 0.8–1.3
-        if 0.8 <= acwr <= 1.3:
-            load_score = 100.0
-        elif acwr < 0.8:
-            load_score = max(40.0, 100.0 - (0.8 - acwr) * 100.0)
-        else:  # > 1.3
-            load_score = max(0.0, 100.0 - (acwr - 1.3) * 120.0)
-        sub_scores["load"] = min(100.0, load_score)
-        zone_word = "spike" if acwr > 1.3 else ("dip" if acwr < 0.6 else "balanced")
-        drivers.append(f"ACWR {acwr:.2f} ({zone_word})")
-    elif not activities_df.empty and "training_load" in activities_df:
-        # Fallback: compute simple 7d vs 28d ratio
-        acts = activities_df.dropna(subset=["date", "training_load"]).copy()
-        acts["date"] = pd.to_datetime(acts["date"], errors="coerce")
-        acts = acts[acts["date"].notna()]
-        if not acts.empty:
-            today = pd.Timestamp(latest["date"]).normalize()
-            acute = acts[acts["date"] >= today - pd.Timedelta(days=7)]["training_load"].sum()
-            chronic_raw = acts[acts["date"] >= today - pd.Timedelta(days=28)]["training_load"].sum()
-            chronic = chronic_raw / 4.0
-            if chronic > 0:
-                ratio = float(acute) / float(chronic)
-                if 0.8 <= ratio <= 1.3:
-                    sub_scores["load"] = 100.0
-                elif ratio < 0.8:
-                    sub_scores["load"] = max(40.0, 100.0 - (0.8 - ratio) * 100.0)
-                else:
-                    sub_scores["load"] = max(0.0, 100.0 - (ratio - 1.3) * 120.0)
-                drivers.append(f"ACWR {ratio:.2f} (computed)")
-            else:
-                sub_scores["load"] = 70.0  # no chronic load → neutral-positive
-    else:
-        sub_scores["load"] = 70.0
-
-    # ═══ Weighted blend ══════════════════════════════════════════════════
-    score = (
-        sub_scores.get("recovery", 50.0) * 0.45
-        + sub_scores.get("sleep_debt", 50.0) * 0.20
-        + sub_scores.get("stress", 50.0) * 0.20
-        + sub_scores.get("load", 50.0) * 0.15
-    )
-    score = max(0.0, min(100.0, score))
-
-    # ═══ Hard caps ═══════════════════════════════════════════════════════
-    rec_zone_label = ""
-    if recovery_score < 30:
-        rec_zone_label = "poor"
+    # ═══ REST needs agreement ════════════════════════════════════════════
+    resp_up = (_num(latest.get("respiration_z")) or 0.0) >= 1.5
+    flags = [name for name, on in (("HRV below range", hrv_low), ("RHR elevated", rhr_high),
+                                   ("respiration up", resp_up)) if on]
+    if len(flags) >= 2:
         score = min(score, 45.0)
-    elif recovery_score < 50:
-        rec_zone_label = "under-recovered"
-        score = min(score, 60.0)
-
-    if acwr is not None and not pd.isna(acwr) and acwr > 1.5:
-        score = min(score, 55.0)
-
+    else:
+        score = max(score, 50.0)
     score_int = int(round(score))
 
-    # ═══ Zone + label ════════════════════════════════════════════════════
     if score_int >= 85:
         zone_out, label_out = "highly_recovered", "PRIMED"
     elif score_int >= 70:
@@ -1109,17 +1044,19 @@ def compute_custom_readiness(
     else:
         zone_out, label_out = "poor", "CRITICAL"
 
+    drivers = [label for label, _ in sorted(penalties, key=lambda item: item[1], reverse=True)]
+    if len(flags) >= 2:
+        drivers.insert(0, " + ".join(flags) + " together")
+
     return {
         "score": score_int,
         "zone": zone_out,
         "label": label_out,
-        "components": {
-            "recovery": round(sub_scores.get("recovery", 50.0)),
-            "sleep_debt": round(sub_scores.get("sleep_debt", 50.0)),
-            "stress": round(sub_scores.get("stress", 50.0)),
-            "load": round(sub_scores.get("load", 50.0)),
-        },
-        "drivers": drivers[:6],
+        "components": {k: round(v) for k, v in sub_scores.items()},
+        "flags": flags,
+        "sleep_debt_h": None if debt is None else round(debt, 1),
+        "sleep_need_h": round(sleep_need, 2),
+        "drivers": drivers[:3],
     }
 
 

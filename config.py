@@ -19,9 +19,11 @@ DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "garmin.db"))
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "Europe/Oslo")
 
 # --- AI ---
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-# Change to whatever model you have access to (e.g. claude-opus-4-8).
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+# AI runs through Claude Code (`claude -p`) on its subscription login; no API key.
+CLAUDE_BIN = os.getenv("CLAUDE_BIN", "claude")
+CLAUDE_TIMEOUT_S = int(os.getenv("CLAUDE_TIMEOUT_S", "180"))
+# Model alias (sonnet, opus) or full id.
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "sonnet")  # passed to `claude --model`
 
 # --- Personal baselines used by the analytics layer ---
 SLEEP_NEED_HOURS = float(os.getenv("SLEEP_NEED_HOURS", "8.0"))

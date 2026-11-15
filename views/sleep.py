@@ -472,9 +472,9 @@ overview_tab, prediction_tab, recovery_tab, physiology_tab, coach_tab = st.tabs(
 )
 
 with coach_tab:
-    have_key = bool(config.ANTHROPIC_API_KEY)
+    have_key = ai.available()
     if not have_key:
-        st.caption("Set `ANTHROPIC_API_KEY` in .env to ask sleep questions.")
+        st.caption("Log in to Claude Code (`claude`) to ask sleep questions.")
 
     pending_sleep_prompt = None
     coach_actions = st.columns([1, 1, 4])
