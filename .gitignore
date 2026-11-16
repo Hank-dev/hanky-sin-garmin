@@ -10,3 +10,4 @@ __pycache__/
 docs/strong4443032665897967968.csv
 .correlation_cache.json
 .trigger_state.json
+desktop/target/
